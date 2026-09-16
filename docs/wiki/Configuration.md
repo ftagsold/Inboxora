@@ -167,6 +167,41 @@ must not be used to reach internal services.
 resets and email one-time codes. Without it, invitation mail falls back to the first SMTP-enabled
 account owned by an administrator.
 
+### SSO via environment variables
+
+The **SSO** tab configures OIDC providers by hand, but a docker/podman deployment can declare
+them as `OIDC_<N>_*` environment variables instead — useful when the whole stack is provisioned
+from `.env`/secrets rather than clicked through in the browser. See the commented block in
+`.env.example` for the full list of vars. Two things to know before relying on this:
+
+- These vars only **create** a provider. On boot, Inboxora inserts a provider for each
+  `OIDC_<N>_*` block whose slug (`OIDC_<N>_SLUG`, default `sso-<N>`) doesn't already exist. Once
+  the row exists — whether it was seeded this way or built in the SSO tab — the SSO tab owns it;
+  editing the env vars afterwards and restarting has no further effect. To change a
+  provider after its first boot, use the SSO tab.
+- Setting `OIDC_<N>_MAIL_IMAP_HOST` and `OIDC_<N>_MAIL_SMTP_HOST` on a provider turns on **IMAP/SMTP
+  passthrough**: every user who logs in through that provider gets a mailbox auto-provisioned
+  against that mail server, authenticated with the same OIDC access token their login just
+  obtained (XOAUTH2) instead of a password. This only works when the mail server itself accepts
+  that OIDC provider's tokens (e.g. a self-hosted Dovecot/Postfix configured with an
+  OAUTHBEARER/XOAUTH2 plugin against the same issuer) — Inboxora does not make an arbitrary mail
+  server accept OIDC tokens on its own. The IMAP/SMTP login name comes from `OIDC_<N>_MAIL_USERNAME_CLAIM`
+  (an id_token claim, default `email`); keeping tokens valid between logins needs a
+  `refresh_token`, so the provider's `OIDC_<N>_SCOPES` should include whatever your IdP requires
+  for that (commonly `offline_access`). The auto-provisioned mailbox's display name defaults to
+  `OIDC_<N>_NAME`; set `OIDC_<N>_MAIL_NAME` to give it a different one. Like the rest of the
+  passthrough config, it's only applied when the mailbox is first created — renaming it afterwards
+  in Settings → Accounts sticks across future logins.
+- `OIDC_AUTO_LOGIN=<slug>` skips the login page entirely and redirects straight to that provider's
+  SSO flow — useful for an SSO-only deployment where showing the password form first is just an
+  extra click. It's ignored unless `<slug>` matches an enabled provider's `OIDC_<N>_SLUG`, so a
+  typo falls back to the normal login page instead of a dead redirect. The login page is still
+  reachable after a failed SSO attempt, while an invite/password-reset link is open, or after
+  signing out: an explicit **Log out** (from the sidebar or the lock screen) always lands on the
+  real login page instead of bouncing straight back into SSO, since the IdP itself may still have
+  an active session — otherwise there would be no way to actually log out. That suppression lasts
+  for the rest of the browser tab, not just the next page load.
+
 ## Settings that are not in the interface
 
 A few values exist only in the environment or in the database:

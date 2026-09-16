@@ -14,6 +14,7 @@ import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
 import { queryInt } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import { normalizeClaimName } from '../utils/claimName.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -494,13 +495,7 @@ router.delete('/system-email', async (req, res) => {
 // login to an existing Inboxora account (matched against users.username). Restrict to a safe
 // claim-name charset. Returns the trimmed value, or null if it is not a valid claim name.
 function validateMatchClaim(v: unknown) {
-  const c = String(v).trim();
-  if (!/^[a-zA-Z0-9_.:-]{1,64}$/.test(c)) return null;
-  // Reject object-prototype key names: as a claim they can't name a real IdP claim, and
-  // `payload["__proto__"]` from JSON.parse is a string own-property that would otherwise slip
-  // past resolveLoginMatchValue's type guard. Defense-in-depth (also guarded at the sink).
-  if (c === '__proto__' || c === 'constructor' || c === 'prototype') return null;
-  return c;
+  return normalizeClaimName(v);
 }
 
 router.get('/oidc', async (req, res) => {

@@ -13,6 +13,7 @@ and no message content. It is the fastest way to describe a problem in an issue.
 | Two-factor codes rejected | Device clock drift; TOTP depends on accurate time on both sides. |
 | Password login disabled | SSO is enabled and password login was turned off. Use the SSO button. |
 | Changes lost after an update | A service worker from an older build is still cached; reload the page once. |
+| Every `/api/*` request 502s ("Bad Gateway") under Podman, even though `frontend` and `backend` are both healthy | The frontend's nginx re-resolves the `backend` container's DNS on each connection (so it survives the backend being recreated), reading the resolver address from the container's own `/etc/resolv.conf` at startup. Rebuild the frontend image if you're upgrading from an older one that hardcoded Docker's `127.0.0.11` — that address doesn't exist under Podman, which uses the network gateway address instead. |
 
 ## After migrating from MailFlow
 

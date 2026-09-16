@@ -500,6 +500,12 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
     // through a provider with RP-initiated logout enabled; navigating there also clears
     // the upstream SSO session. Falls back to /login otherwise. (#310)
     const res = await api.logout().catch(() => ({}));
+    // An explicit sign-out must always land on a real login page — never bounce straight
+    // back into SSO because of OIDC_AUTO_LOGIN, which would make logging out impossible
+    // when the IdP still has an active session. LoginPage checks this flag once and skips
+    // the auto-redirect; a session that merely expired (not an explicit logout) doesn't set
+    // it, so auto-login still applies there.
+    sessionStorage.setItem('mailflow_skip_sso_autologin', '1');
     // Appearance/localization prefs (theme, font, layout, language) are deliberately
     // NOT cleared: keeping them means the login screen and the next visit retain the
     // last-used look instead of snapping back to the default dark theme (issue #208).

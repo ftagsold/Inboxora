@@ -44,6 +44,7 @@ import { startCardavScheduler } from './services/carddavSync.js';
 import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
+import { seedOidcProvidersFromEnv } from './services/oidcEnvSeed.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
@@ -288,6 +289,9 @@ setupWebSocket(wss, (req, res, next) => {
 
 // Run pending schema migrations then start
 await runMigrations();
+
+// One-time bootstrap: create any OIDC_<N>_* env-configured providers that don't exist yet.
+await seedOidcProvidersFromEnv();
 
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
