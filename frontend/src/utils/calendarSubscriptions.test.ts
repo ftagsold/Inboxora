@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   HOLIDAY_CALENDARS,
-  HOLIDAY_SYNC_INTERVAL_MIN,
+  HOLIDAY_SYNC_INTERVAL_SECONDS,
   THUNDERBIRD_HOLIDAY_URL_BASE,
   defaultHolidayCountry,
   holidayCalendarUrl,
@@ -51,7 +51,7 @@ describe('Thunderbird holiday catalog', () => {
   });
 
   it('polls holiday feeds rarely, because they change rarely', () => {
-    assert.equal(HOLIDAY_SYNC_INTERVAL_MIN, 1440);
+    assert.equal(HOLIDAY_SYNC_INTERVAL_SECONDS, 86400);
   });
 
   it('localizes the country name at runtime instead of bundling translations', () => {

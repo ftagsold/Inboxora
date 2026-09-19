@@ -347,10 +347,18 @@ body, #root {
 .calendar-page .cal-btn:active:not(:disabled) { transform: scale(0.97); }
 .calendar-page .cal-btn:disabled { opacity: 0.45; cursor: default; }
 .calendar-page .cal-ev {
-  transition: filter var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+  transition: filter var(--motion-fast) var(--ease-standard);
 }
 .calendar-page .cal-ev:hover { filter: brightness(1.08); }
-.calendar-page .cal-ev:active { transform: scale(0.97); }
+/* No `:active` press-scale here (unlike `.cal-btn` above) — every calendar event is a drag
+   target, and `:active` applies for the whole time the mouse stays down on it, which is also
+   exactly when a drag is in progress. A multi-day event's day cells each render their own
+   separate `.cal-ev` segment, so scaling down "the one the pointer happens to be over" shrank
+   just that single segment relative to its still full-size siblings the instant it was pressed
+   — before any movement even happened, since `:active` doesn't know or care whether the press
+   turns into a drag — breaking the "one continuous bar" illusion. There's no in-between state
+   (CSS can't see JS drag state, and JS drag state doesn't start until real movement), so the
+   only reliable fix is not shrinking any event on press at all. */
 
 /* Unified popover entrance */
 @keyframes popover-in {

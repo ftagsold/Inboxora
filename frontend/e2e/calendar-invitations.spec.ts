@@ -100,8 +100,9 @@ test('imported event preview exposes description, participants and safe meeting 
   await fixtureApi; await setupV3(page);
   await page.route('**/api/calendar/events**', route => route.fulfill({ json: { events: [{ id: 'metadata', calendar_id: 'calendar-remote', source: 'caldav', read_only: true, summary: 'Pełne wydarzenie', description: 'Plan\nSzczegóły', location: 'Sala 2', organizer: 'team@example.test', attendees: ['jane@example.test'], url: 'https://example.test/join', starts_at: '2026-09-10T09:00:00Z', ends_at: '2026-09-10T10:00:00Z' }] } }));
   await page.goto('/'); await navigateModule(page, 'calendar');
-  await page.getByRole('button', { name: /Pełne wydarzenie/ }).first().click();
-  const preview = page.getByTestId('calendar-event-preview');
+  await page.getByRole('button', { name: /Pełne wydarzenie/ }).first().dblclick();
+  // A read-only event opens the same edit dialog, with every field disabled.
+  const preview = page.getByTestId('calendar-event-dialog');
   // Description copy is rendered by the message-body iframe, not as DOM text.
   await expect(preview.getByTestId('calendar-event-description-body').frameLocator('iframe').locator('body')).toContainText('Szczegóły');
   await expect(preview).toContainText('jane@example.test');
@@ -118,15 +119,16 @@ test('editing a recurring occurrence uses its series identity and preserves part
     return route.fulfill({ json: { events: [{ id: 'series@2026-09-10T09:00:00', series_id: 'series', recurring: true, recurrence_id: '2026-09-10T09:00:00', calendar_id: 'calendar-personal', source: 'local', read_only: false, summary: 'Cykliczne spotkanie', description: 'Agenda', attendees: ['jane@example.test'], starts_at: '2026-09-10T09:00:00Z', ends_at: '2026-09-10T10:00:00Z' }] } });
   });
   await page.goto('/'); await navigateModule(page, 'calendar');
-  await page.getByRole('button', { name: /Cykliczne spotkanie/ }).first().click();
-  // Opening an event shows the mail-like preview first; editing is one tap away.
-  const preview = page.getByTestId('calendar-event-preview');
-  await expect(preview).toBeVisible();
-  await page.getByTestId('calendar-preview-edit').click();
+  await page.getByRole('button', { name: /Cykliczne spotkanie/ }).first().dblclick();
+  // A writable event opens the edit dialog directly — no preview step to click through.
   const editor = page.getByTestId('calendar-event-dialog');
-  await expect(editor).toContainText('tylko to wystąpienie');
+  await expect(editor).toBeVisible();
   await editor.getByLabel('Tytuł', { exact: true }).fill('Przeniesione spotkanie');
   await editor.getByRole('button', { name: 'Zapisz', exact: true }).click();
+  // Saving an occurrence of a series asks which of the two edits is meant, same as delete.
+  const scopeDialog = page.getByTestId('calendar-edit-scope-dialog');
+  await expect(scopeDialog).toBeVisible();
+  await scopeDialog.getByRole('button', { name: 'Tylko to wystąpienie', exact: true }).click();
   await expect(editor).toHaveCount(0);
   expect(edits[0].url).toContain('/calendar/events/series/occurrence');
   expect(edits[0].body).toMatchObject({ recurrenceId: '2026-09-10T09:00:00', attendees: ['jane@example.test'] });

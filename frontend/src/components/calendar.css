@@ -82,7 +82,9 @@
 
 .calendar-header h1::first-letter { text-transform: uppercase; }
 .calendar-header h1 { white-space: nowrap; }
-.calendar-date-controls > .ui-button-ghost { width: 28px; padding: 5px; }
+/* Sized for the single-character ‹ › arrows only — the Today button between them keeps
+   its own auto width, or its text gets squeezed into the same 28px box as an arrow. */
+.calendar-date-controls > .ui-button-ghost:not(.calendar-today-btn) { width: 28px; padding: 5px; }
 .calendar-toolbar { flex-shrink: 0; }
 .calendar-compact .calendar-header { flex-wrap: wrap; }
 
@@ -94,16 +96,17 @@
 .calendar-mobile .calendar-date-controls > .ui-button { min-width: 44px; min-height: 44px; }
 .calendar-view-select { min-width: 0; max-width: 48%; min-height: 44px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); padding: 0 8px; font: inherit; font-size: 12px; }
 
-/* All-day and multi-day events fill the day column instead of shrinking to a chip in
-   a thin row above the grid: one that covers a day is drawn as a full-height band.
-   The tint stays translucent so the hour grid reads through it, the solid label at the
-   top carries the title and the interaction, and the squared edges of a continuing
-   multi-day block let the neighbouring day join up into one stretched event. */
-.calendar-page .calendar-allday-band { position: absolute; top: 0; height: 1440px; z-index: 0; box-sizing: border-box; border-style: solid; border-width: 1px; overflow: hidden; pointer-events: none; }
-.calendar-page .calendar-allday-band-label { position: absolute; top: 0; left: 0; right: 0; display: block; width: 100%; border: 0; padding: 3px 6px; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.4; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; pointer-events: auto; }
-.calendar-mobile .calendar-allday-band-label { font-size: 10px; padding: 2px 4px; }
-
 /* Which part of a recurring series to delete. The three answers are stacked rather than placed
    in a row so each reads as a distinct action, and they stay full-width on a phone. */
 .calendar-delete-scope-when { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; color: var(--text-tertiary); margin: -4px 0 0; }
-.calendar-delete-scope-actions { display: grid; gap: 8px; margin-top: 4px; }
+.calendar-scope-actions { display: grid; gap: 8px; margin-top: 4px; }
+
+/* A timed event's top/bottom edge is draggable to resize it. The strip is deliberately thin
+   (mouse hover/cursor is the primary affordance) with a visible highlight on hover/active so a
+   pointer near the edge reads as "grab here" before the cursor shape alone would register. */
+.calendar-event-resize-handle { position: absolute; left: 0; right: 0; top: 0; height: 6px; cursor: ns-resize; z-index: 2; border-radius: 4px 4px 0 0; }
+.calendar-event-resize-handle:hover, .calendar-event-resize-handle:active { background: rgba(255, 255, 255, 0.35); }
+/* An all-day pill's edges resize horizontally (which days it spans) rather than vertically
+   (there's no time-of-day axis for an all-day event), so its handle is a side strip instead
+   of a top/bottom one — same hover feedback, rotated onto the other axis. */
+.calendar-allday-resize-handle { top: 0; right: auto; bottom: 0; left: 0; width: 6px; height: auto; cursor: ew-resize; border-radius: 4px 0 0 4px; }

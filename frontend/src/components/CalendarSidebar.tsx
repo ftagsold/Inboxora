@@ -3,16 +3,23 @@ import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../utils/api.ts';
 import { Button, Dialog } from './ui.tsx';
+import CalendarSourceIntervalSelect from './CalendarSourceIntervalSelect.tsx';
 import type { CSSProperties, FormEvent } from 'react';
 import { toAppError } from '../utils/errors.ts';
 import type { TFunction } from 'i18next';
+
+/** One calendar a CalDAV account exposes, discovered or already imported. */
+interface SourceCollection { id?: string; href?: string; displayName?: string; color?: string | null; selected?: boolean }
 
 /** A calendar source as GET /calendar/sources returns it. */
 interface CalendarSource {
   id: string;
   displayName?: string;
   kind?: string;
-  intervalMin?: number;
+  intervalSeconds?: number;
+  writable?: boolean;
+  enabled?: boolean;
+  collections?: SourceCollection[] | null;
   lastError?: string | null;
   lastSyncAt?: string | null;
   [key: string]: unknown;
@@ -90,12 +97,25 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const pendingSourceIds = useRef(new Set<string>());
   const sourcePolls = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const sourceRequestGeneration = useRef(0);
-  const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
+  const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalSeconds: 3600, writable: false });
   const [openCalendarMenu, setOpenCalendarMenu] = useState<string | null>(null);
   const [syncingSourceIds, setSyncingSourceIds] = useState<Set<string>>(new Set());
   const [calendarEdit, setCalendarEdit] = useState<CalendarEditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
+  // Discovery for a CalDAV account that may expose more than one calendar: `discovered`
+  // is null until "Discover calendars" runs; once populated, a checkbox list replaces
+  // the plain URL field and the submit button switches to actually creating the source.
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [discovered, setDiscovered] = useState<Array<{ href: string; displayName: string; color: string | null }> | null>(null);
+  const [selectedHrefs, setSelectedHrefs] = useState<Set<string>>(new Set());
+  const [editingSource, setEditingSource] = useState<CalendarSource | null>(null);
+  const [editForm, setEditForm] = useState({ displayName: '', color: '#7c6af7', intervalSeconds: 3600, writable: false, enabled: true, username: '', password: '', url: '' });
+  const [editCollections, setEditCollections] = useState<SourceCollection[] | null>(null);
+  const [editDiscovering, setEditDiscovering] = useState(false);
+  const [editSourceError, setEditSourceError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
   useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(locale, { weekday: 'short' })), [locale, weekStartsOn]);
@@ -173,11 +193,35 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       });
     return () => { active = false; };
   }, [sourcePanelRequest]);
+  const resetAddForm = () => {
+    setForm({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalSeconds: 3600, writable: false });
+    setDiscovered(null); setSelectedHrefs(new Set()); setDiscoveryError(null);
+  };
+  // A CalDAV account may expose more than one calendar: discovery runs first and shows
+  // a checkbox per calendar found, skipping straight to the picker's single implicit
+  // selection when there's exactly one — no extra step for the common case.
+  const discoverSourceCalendars = async () => {
+    setDiscovering(true); setDiscoveryError(null);
+    try {
+      const result = await api.calendar.discoverSource({ url: form.url, username: form.username, password: form.password });
+      const calendars = result?.calendars || [];
+      setDiscovered(calendars);
+      setSelectedHrefs(new Set(calendars.map((entry: { href: string }) => entry.href)));
+    } catch (error) {
+      setDiscoveryError(toAppError(error).message);
+    } finally {
+      setDiscovering(false);
+    }
+  };
   const addSource = async (event: FormEvent) => {
     event.preventDefault();
+    if (form.kind === 'caldav' && discovered === null) return discoverSourceCalendars();
     try {
-      const result = await api.calendar.createSource({ ...form, password: form.kind === 'caldav' ? form.password : undefined, username: form.kind === 'caldav' ? form.username : undefined });
-      setForm({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
+      const collections = form.kind === 'caldav' && discovered
+        ? discovered.map(entry => ({ href: entry.href, displayName: entry.displayName, color: entry.color, selected: selectedHrefs.has(entry.href) }))
+        : undefined;
+      const result = await api.calendar.createSource({ ...form, password: form.kind === 'caldav' ? form.password : undefined, username: form.kind === 'caldav' ? form.username : undefined, writable: form.kind === 'caldav' ? form.writable : undefined, collections });
+      resetAddForm();
       await loadSources();
       await onSourcesChanged();
       if (result?.sync?.pending) waitForInitialSync(result.source?.id);
@@ -204,15 +248,64 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   };
   // The cadence is per calendar, so it saves on change rather than behind a save
   // button: one control, one decision. The row already shows the resulting state.
-  const changeSourceInterval = async (source: CalendarSource, intervalMin: number) => {
-    const previous = source.intervalMin;
-    setSources(current => current.map(item => item.id === source.id ? { ...item, intervalMin } : item));
-    try { await api.calendar.updateSource(source.id, { intervalMin }); }
+  const changeSourceInterval = async (source: CalendarSource, intervalSeconds: number) => {
+    const previous = source.intervalSeconds;
+    setSources(current => current.map(item => item.id === source.id ? { ...item, intervalSeconds } : item));
+    try { await api.calendar.updateSource(source.id, { intervalSeconds }); }
     catch (error) {
       // Put the previous value back, so the control never claims a cadence the server
       // did not accept.
-      setSources(current => current.map(item => item.id === source.id ? { ...item, intervalMin: previous } : item));
+      setSources(current => current.map(item => item.id === source.id ? { ...item, intervalSeconds: previous } : item));
       setSourceError(toAppError(error).message);
+    }
+  };
+  const openEditSource = (source: CalendarSource) => {
+    setEditingSource(source); setEditSourceError(null);
+    setEditForm({ displayName: source.displayName || '', color: (source.color as string) || '#7c6af7', intervalSeconds: source.intervalSeconds || 3600, writable: Boolean(source.writable), enabled: source.enabled !== false, username: '', password: '', url: '' });
+    setEditCollections(source.collections ? source.collections.map(entry => ({ ...entry })) : null);
+  };
+  // Re-run discovery from the edit dialog (a newly created remote calendar won't
+  // appear until this runs) and replace the whole selection with the fresh one.
+  // The server URL isn't in `editingSource` — the API never echoes a stored source
+  // URL back — so refreshing asks for it again, same as the credentials. The URL
+  // itself stays optional: a blank one plus an email-shaped username resolves the
+  // server from the address's domain, same as when the source was first added.
+  const refreshEditCollections = async () => {
+    if (!editForm.username.trim() || !editForm.password) {
+      setEditSourceError(t('calendar.editRefreshNeedsCredentials'));
+      return;
+    }
+    setEditDiscovering(true); setEditSourceError(null);
+    try {
+      const result = await api.calendar.discoverSource({ url: editForm.url, username: editForm.username, password: editForm.password });
+      const calendars = result?.calendars || [];
+      setEditCollections(calendars.map((entry: { href: string; displayName: string; color: string | null }) => ({ href: entry.href, displayName: entry.displayName, color: entry.color, selected: true })));
+    } catch (error) {
+      setEditSourceError(toAppError(error).message);
+    } finally {
+      setEditDiscovering(false);
+    }
+  };
+  const toggleEditCollection = (id: string | undefined) => {
+    setEditCollections(current => current ? current.map(entry => (entry.id ?? entry.href) === id ? { ...entry, selected: !entry.selected } : entry) : current);
+  };
+  const saveEditSource = async () => {
+    if (!editingSource) return;
+    setEditSaving(true); setEditSourceError(null);
+    try {
+      const payload: Record<string, unknown> = { displayName: editForm.displayName.trim(), color: editForm.color, intervalSeconds: editForm.intervalSeconds, enabled: editForm.enabled };
+      if (editingSource.kind === 'caldav') payload.writable = editForm.writable;
+      if (editForm.username.trim()) payload.username = editForm.username.trim();
+      if (editForm.password) payload.password = editForm.password;
+      if (editCollections) payload.collections = editCollections.map(entry => entry.href ? { href: entry.href, displayName: entry.displayName, color: entry.color, selected: entry.selected } : { id: entry.id, selected: entry.selected });
+      await api.calendar.updateSource(editingSource.id, payload);
+      setEditingSource(null); setEditCollections(null);
+      await loadSources();
+      await onSourcesChanged();
+    } catch (error) {
+      setEditSourceError(toAppError(error).message);
+    } finally {
+      setEditSaving(false);
     }
   };
   const ownedCalendar = (calendar: CalendarRow) => Boolean(calendar.source === 'local' && !calendar.read_only && calendar.owner_user_id);
@@ -270,49 +363,75 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     {showSources && <Dialog title={t('calendar.manageSources')} closeLabel={t('calendar.close')} onClose={() => setShowSources(false)}>
       {sourceError && <p role="alert" style={error}>{sourceError}</p>}
       <form onSubmit={addSource} className="ui-form" style={formStyle}>
-        <label>{t('calendar.sourceType')}<select value={form.kind} onChange={event => setForm(current => ({ ...current, kind: event.target.value }))}><option value="ical_url">{t('calendar.icsWebcal')}</option><option value="caldav">{t('calendar.caldav')}</option></select></label>
+        <label>{t('calendar.sourceType')}<select value={form.kind} onChange={event => { setForm(current => ({ ...current, kind: event.target.value })); setDiscovered(null); setDiscoveryError(null); }}><option value="ical_url">{t('calendar.icsWebcal')}</option><option value="caldav">{t('calendar.caldav')}</option></select></label>
         <label>{t('calendar.sourceName')}<input required value={form.displayName} onChange={event => setForm(current => ({ ...current, displayName: event.target.value }))} /></label>
-        <label>{t('calendar.sourceUrl')}<input required type="url" value={form.url} onChange={event => setForm(current => ({ ...current, url: event.target.value }))} /></label>
-        {form.kind === 'caldav' && <><label>{t('calendar.sourceUsername')}<input required value={form.username} onChange={event => setForm(current => ({ ...current, username: event.target.value }))} /></label><label>{t('calendar.sourcePassword')}<input required type="password" autoComplete="new-password" value={form.password} onChange={event => setForm(current => ({ ...current, password: event.target.value }))} /></label></>}
-        <SourceIntervalSelect
+        <label>{t('calendar.sourceUrl')}<input required={form.kind !== 'caldav'} type="url" value={form.url} onChange={event => { setForm(current => ({ ...current, url: event.target.value })); setDiscovered(null); }} /></label>
+        {form.kind === 'caldav' && <>
+          <span className="settings-choice-description">{t('calendar.sourceUrlOptionalHint')}</span>
+          <label>{t('calendar.sourceUsername')}<input required value={form.username} onChange={event => { setForm(current => ({ ...current, username: event.target.value })); setDiscovered(null); }} /></label>
+          <label>{t('calendar.sourcePassword')}<input required type="password" autoComplete="new-password" value={form.password} onChange={event => { setForm(current => ({ ...current, password: event.target.value })); setDiscovered(null); }} /></label>
+          <label style={collectionRow}><input type="checkbox" checked={form.writable} onChange={event => setForm(current => ({ ...current, writable: event.target.checked }))} /> {t('calendar.sourceWritable')}</label>
+          {form.writable && <p className="settings-choice-description">{t('calendar.sourceWritableWarning')}</p>}
+        </>}
+        {discoveryError && <p role="alert" style={error}>{discoveryError}</p>}
+        {discovered && discovered.length > 1 && <fieldset style={collectionPicker}>
+          <legend>{t('calendar.sourcePickCalendars')}</legend>
+          {discovered.map(entry => <label key={entry.href} style={collectionRow}>
+            <input type="checkbox" checked={selectedHrefs.has(entry.href)} onChange={() => setSelectedHrefs(current => {
+              const next = new Set(current);
+              if (next.has(entry.href)) next.delete(entry.href); else next.add(entry.href);
+              return next;
+            })} />
+            {entry.color && <span style={{ ...colorDot, background: entry.color }} />}
+            {entry.displayName}
+          </label>)}
+        </fieldset>}
+        <CalendarSourceIntervalSelect
           label={t('calendar.sourceSyncInterval')}
-          value={form.intervalMin}
-          onChange={value => setForm(current => ({ ...current, intervalMin: value }))}
+          value={form.intervalSeconds}
+          onChange={value => setForm(current => ({ ...current, intervalSeconds: value }))}
           t={t}
         />
-        <button type="submit" style={primaryButton}>{t('calendar.addSource')}</button>
+        <button type="submit" disabled={discovering || (form.kind === 'caldav' && discovered !== null && selectedHrefs.size === 0)} style={primaryButton}>
+          {form.kind === 'caldav' && discovered === null ? (discovering ? t('calendar.sourceDiscovering') : t('calendar.sourceDiscover')) : t('calendar.addSource')}
+        </button>
       </form>
-      <div style={sourceList}>{sources.map(source => <div key={source.id} data-testid="calendar-source-row" style={sourceRow}><span style={sourceDetails}><strong>{source.displayName}</strong><small style={{ display: 'block' }}>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')}</small><SourceStatus source={source} pending={pendingSourceIds.current.has(source.id) || syncingSourceIds.has(source.id)} t={t} /><SourceIntervalSelect label={t('calendar.sourceSyncInterval')} value={source.intervalMin} onChange={value => changeSourceInterval(source, value)} t={t} /></span><span style={sourceActions}><button disabled={syncingSourceIds.has(source.id) || pendingSourceIds.current.has(source.id)} onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
+      <div style={sourceList}>{sources.map(source => <div key={source.id} data-testid="calendar-source-row" style={sourceRow}><span style={sourceDetails}><strong>{source.displayName}</strong><small style={{ display: 'block' }}>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')}{source.kind === 'caldav' && source.writable ? ` · ${t('calendar.sourceWritable')}` : ''}{source.enabled === false ? ` · ${t('calendar.sourcePaused')}` : ''}</small><SourceStatus source={source} pending={pendingSourceIds.current.has(source.id) || syncingSourceIds.has(source.id)} t={t} /><CalendarSourceIntervalSelect label={t('calendar.sourceSyncInterval')} value={source.intervalSeconds} onChange={value => changeSourceInterval(source, value)} t={t} /></span><span style={sourceActions}><button onClick={() => openEditSource(source)} style={linkButton}>{t('calendar.editSourceButton')}</button><button disabled={syncingSourceIds.has(source.id) || pendingSourceIds.current.has(source.id)} onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
+    </Dialog>}
+    {editingSource && <Dialog testId="calendar-source-edit-dialog" title={t('calendar.editSource', { name: editingSource.displayName })} closeLabel={t('calendar.close')} busy={editSaving} onClose={() => { setEditingSource(null); setEditCollections(null); }} footer={<>
+      <Button onClick={() => { setEditingSource(null); setEditCollections(null); }} disabled={editSaving}>{t('calendar.cancel')}</Button>
+      <Button variant="primary" disabled={editSaving || !editForm.displayName.trim()} onClick={saveEditSource}>{t(editSaving ? 'calendar.saving' : 'calendar.save')}</Button>
+    </>}>
+      <div className="ui-form">
+        {editSourceError && <p role="alert" className="ui-alert">{editSourceError}</p>}
+        <label>{t('calendar.sourceName')}<input required maxLength={120} value={editForm.displayName} onChange={event => setEditForm(current => ({ ...current, displayName: event.target.value }))} /></label>
+        <label style={collectionRow}><input type="checkbox" checked={editForm.enabled} onChange={event => setEditForm(current => ({ ...current, enabled: event.target.checked }))} /> {t('calendar.sourceEnabled')}</label>
+        {editingSource.kind === 'caldav' && <>
+          <label>{t('calendar.sourceUsername')}<input placeholder={t('calendar.sourceKeepCurrent')} value={editForm.username} onChange={event => setEditForm(current => ({ ...current, username: event.target.value }))} /></label>
+          <label>{t('calendar.sourcePassword')}<input type="password" autoComplete="new-password" placeholder={t('calendar.sourceKeepCurrent')} value={editForm.password} onChange={event => setEditForm(current => ({ ...current, password: event.target.value }))} /></label>
+          <label style={collectionRow}><input type="checkbox" checked={editForm.writable} onChange={event => setEditForm(current => ({ ...current, writable: event.target.checked }))} /> {t('calendar.sourceWritable')}</label>
+          {editForm.writable && <p className="settings-choice-description">{t('calendar.sourceWritableWarning')}</p>}
+          {editCollections && <fieldset style={collectionPicker}>
+            <legend>{t('calendar.sourcePickCalendars')}</legend>
+            {editCollections.map(entry => <label key={entry.id ?? entry.href} style={collectionRow}>
+              <input type="checkbox" checked={entry.selected !== false} onChange={() => toggleEditCollection(entry.id ?? entry.href)} />
+              {entry.color && <span style={{ ...colorDot, background: entry.color }} />}
+              {entry.displayName}
+            </label>)}
+          </fieldset>}
+          <div className="settings-choice-description">{t('calendar.editRefreshDescription')}</div>
+          <label>{t('calendar.sourceUrl')}<input type="url" value={editForm.url} onChange={event => setEditForm(current => ({ ...current, url: event.target.value }))} /></label>
+          <span className="settings-choice-description">{t('calendar.sourceUrlOptionalHint')}</span>
+          <div><Button disabled={editDiscovering} onClick={refreshEditCollections}>{editDiscovering ? t('calendar.sourceDiscovering') : t('calendar.editRefreshCalendars')}</Button></div>
+        </>}
+        <CalendarSourceIntervalSelect label={t('calendar.sourceSyncInterval')} value={editForm.intervalSeconds} onChange={value => setEditForm(current => ({ ...current, intervalSeconds: value }))} t={t} />
+      </div>
     </Dialog>}
   </aside>;
 }
 
-// Sync cadence for one external calendar. The server accepts any whole number of
-// minutes between 15 and 1440, so the control offers the values people actually
-// choose rather than a free-text field that invites typos the server would reject.
-const SYNC_INTERVALS = [15, 30, 60, 180, 360, 720, 1440];
 
-function SourceIntervalSelect({ label, value, onChange, t }: { label: string; value?: number; onChange: (value: number) => void; t: TFunction }) {
-  const known = value != null && SYNC_INTERVALS.includes(value);
-  const format = (minutes: number) => (minutes % 60 === 0 && minutes >= 60
-    ? t('calendar.sourceSyncHours', { count: minutes / 60 })
-    : t('calendar.sourceSyncMinutes', { count: minutes }));
-  return <label style={intervalLabel}>{label}
-    <select
-      className="ui-select"
-      data-testid="calendar-source-interval"
-      value={known ? value : ''}
-      onChange={event => onChange(Number(event.target.value))}
-    >
-      {/* A value set outside this list (an older custom value) stays selectable so
-          opening the dialog never silently rewrites it. */}
-      {!known && <option value="">{format(value || 60)}</option>}
-      {SYNC_INTERVALS.map(minutes => <option key={minutes} value={minutes}>{format(minutes)}</option>)}
-    </select>
-  </label>;
-}
-
-function SourceStatus({ source, pending, t }: { source: { id: string; displayName?: string; kind?: string; intervalMin?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }; pending: boolean; t: TFunction }) {
+function SourceStatus({ source, pending, t }: { source: { id: string; displayName?: string; kind?: string; intervalSeconds?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }; pending: boolean; t: TFunction }) {
   const warning = calendarSyncWarning(source.lastError);
   if (pending) return <small>{t('calendar.sourceSyncing')}</small>;
   if (!warning) return <small>{t('calendar.sourceReady')}</small>;
@@ -333,4 +452,5 @@ const today = { background: 'var(--accent)', color: 'var(--accent-text)', fontWe
 const section: CSSProperties = { display: 'grid', gap: 4, paddingTop: 10 }; const sectionHeading: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-tertiary)' };
 const calendarRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderRadius: 6, fontSize: 12.5, color: 'var(--text-secondary)' }; const calendarToggle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, color: 'var(--text-secondary)', fontSize: 12.5, cursor: 'pointer' }; const colorDot = { width: 10, height: 10, borderRadius: 3 }; const readOnly: CSSProperties = { marginLeft: 'auto', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10 }; const owned: CSSProperties = { marginLeft: 'auto', color: 'var(--accent)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10 }; const menuWrap: CSSProperties = { position: 'relative' }; const menuButton: CSSProperties = { border: 0, background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, padding: '0 6px' }; const contextMenu: CSSProperties = { position: 'absolute', right: 0, top: '100%', zIndex: 3, display: 'grid', minWidth: 150, padding: 4, border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-secondary)', boxShadow: '0 8px 22px rgba(0,0,0,.18)' };
 const linkButton: CSSProperties = { border: 0, background: 'transparent', color: 'var(--accent)', cursor: 'pointer', padding: 4, fontWeight: 650 }; const dangerButton: CSSProperties = { ...linkButton, color: 'var(--red)' }; const primaryButton: CSSProperties = { border: 0, borderRadius: 7, background: 'var(--accent)', color: 'var(--accent-text)', padding: '8px 10px', cursor: 'pointer', fontWeight: 650 };
-const formStyle: CSSProperties = { display: 'grid', gap: 10, minWidth: 0 }; const sourceList: CSSProperties = { display: 'grid', gap: 8, marginTop: 16, minWidth: 0 }; const sourceRow: CSSProperties = { display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: 10, minWidth: 0, border: '1px solid var(--border-subtle)', borderRadius: 8 }; const sourceDetails: CSSProperties = { minWidth: 0, overflowWrap: 'anywhere' }; const sourceActions: CSSProperties = { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4, minWidth: 0 }; const intervalLabel: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }; const error: CSSProperties = { color: 'var(--red)' };
+const formStyle: CSSProperties = { display: 'grid', gap: 10, minWidth: 0 }; const sourceList: CSSProperties = { display: 'grid', gap: 8, marginTop: 16, minWidth: 0 }; const sourceRow: CSSProperties = { display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: 10, minWidth: 0, border: '1px solid var(--border-subtle)', borderRadius: 8 }; const sourceDetails: CSSProperties = { minWidth: 0, overflowWrap: 'anywhere' }; const sourceActions: CSSProperties = { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4, minWidth: 0 }; const error: CSSProperties = { color: 'var(--red)' };
+const collectionPicker: CSSProperties = { display: 'grid', gap: 6, padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 8, margin: 0 }; const collectionRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 400 };

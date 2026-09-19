@@ -51,7 +51,12 @@ vi.mock('../services/encryption.js', () => ({
   decrypt: (value: string) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value,
 }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
-vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
+vi.mock('../services/externalCalendarSync.js', async (importOriginal) => {
+  // hrefHash/parseSourceCollections are pure helpers the routes call directly —
+  // keep the real implementations and only stub the scheduler side effects.
+  const actual = await importOriginal<typeof import('../services/externalCalendarSync.js')>();
+  return { ...actual, releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource };
+});
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -189,6 +194,31 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('resolves a CalDAV server from the email domain when no url is given', async () => {
+    query.mockImplementation(async (sql: string) => sql.includes('INSERT INTO calendar_import_sources')
+      ? { rows: [{ id: 'source-1', kind: 'caldav', url: 'enc:v1:https://example.com/', display_name: 'Work' }] }
+      : { rows: [] });
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'caldav', username: 'person@example.com', password: 'app-password', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(201);
+    const [, insertParameters] = queryCallContaining('INSERT INTO calendar_import_sources');
+    expect(queryParameter(insertParameters, 2)).toBe('enc:v1:https://example.com/');
+  });
+
+  it('rejects a CalDAV source with no url and a non-email username', async () => {
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'caldav', username: 'not-an-email', password: 'app-password', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json())).toEqual({ error: 'Enter a server URL, or leave it blank and use your email address as the username' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('rejects source URLs that embed credentials', async () => {
     const response = await fetch(`${base}/api/calendar/sources`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -237,7 +267,7 @@ describe('local calendar API', () => {
   it('redacts all source secrets from the listing payload', async () => {
     query.mockResolvedValueOnce({ rows: [{
       id: 'source-1', kind: 'ical_url', url: 'enc:v1:ciphertext', username: 'remote-user', password: 'enc:v1:password',
-      url_fingerprint: 'fingerprint', display_name: 'Work', color: null, interval_min: 60, enabled: true,
+      url_fingerprint: 'fingerprint', display_name: 'Work', color: null, interval_seconds: 3600, writable: false, collections: null, enabled: true,
       last_sync_at: null, last_error: 'failure enc:v1:ciphertext',
     }] });
 
@@ -245,7 +275,7 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(200);
     const payload = responseRecord(await response.json());
-    expect(payload.sources).toEqual([{ id: 'source-1', kind: 'ical_url', displayName: 'Work', color: null, intervalMin: 60, enabled: true, lastSyncAt: null, lastError: 'failure [redacted]' }]);
+    expect(payload.sources).toEqual([{ id: 'source-1', kind: 'ical_url', displayName: 'Work', color: null, intervalSeconds: 3600, writable: false, collections: null, enabled: true, lastSyncAt: null, lastError: 'failure [redacted]' }]);
     expect(JSON.stringify(payload)).not.toContain('ciphertext');
     expect(JSON.stringify(payload)).not.toContain('remote-user');
   });

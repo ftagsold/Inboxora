@@ -22,6 +22,13 @@ export interface CalendarViewEvent {
 }
 
 
+// A calendar or event is writable if it's a local calendar, or a CalDAV source the
+// user opted into two-way sync for (its calendars carry read_only=false too, exactly
+// like a local calendar's) — matches the backend's writableCalendar() gate exactly.
+export function isWritableCalendarSource(source: unknown): boolean {
+  return source === 'local' || source === 'caldav';
+}
+
 export function monthRange(anchor: Date): { start: Date; end: Date } {
   const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
@@ -104,6 +111,7 @@ export function agendaDays(events: CalendarViewEvent[] | null | undefined, ancho
 export function sortedDayEvents(events: CalendarViewEvent[] | null | undefined, day: Date): CalendarViewEvent[] {
   return eventsForDay(events, day).sort((a, b) =>
     Number(Boolean(b.all_day || b.allDay)) - Number(Boolean(a.all_day || a.allDay)) ||
+    allDaySpanDays(b) - allDaySpanDays(a) ||
     parseEventDate(a.starts_at ?? a.startsAt).getTime() - parseEventDate(b.starts_at ?? b.startsAt).getTime() ||
     String(a.id).localeCompare(String(b.id)));
 }
@@ -125,6 +133,7 @@ export function createDayEventsResolver(events: CalendarViewEvent[] | null | und
     endKey: String(event.ends_at ?? event.endsAt ?? '').slice(0, 10),
     startDate: parseEventDate(event.starts_at ?? event.startsAt ?? null),
     endDate: parseEventDate(event.ends_at ?? event.endsAt ?? null),
+    spanDays: allDaySpanDays(event),
   }));
   const cache = new Map<string, CalendarViewEvent[]>();
   return day => {
@@ -141,6 +150,7 @@ export function createDayEventsResolver(events: CalendarViewEvent[] | null | und
     }
     entries.sort((a, b) =>
       Number(b.allDay) - Number(a.allDay) ||
+      b.spanDays - a.spanDays ||
       a.startDate.getTime() - b.startDate.getTime() ||
       String(a.event.id).localeCompare(String(b.event.id)));
     const result = entries.map(item => item.event);
@@ -295,26 +305,59 @@ export function allDayEventSegment(event: CalendarViewEvent, day: Date) {
   return { continuesFrom: startKey < dayKey, continuesTo: endKey > localDayKey(next) };
 }
 
-// Place every all-day event that covers `day`. Unlike timed events these all span
-// the whole day, so they simply take one equal-width column each, which keeps two
-// full-day events side by side instead of hiding one behind the other. The input is
-// re-sorted by start then id so the same event keeps the same column on every day it
-// covers, even though each day is laid out independently.
-export function layoutAllDayEvents(events: CalendarViewEvent[] | null | undefined, day: Date) {
-  const dayKey = localDayKey(day);
-  const covering = (Array.isArray(events) ? events : [])
-    .filter(event => {
-      if (!(event.all_day || event.allDay)) return false;
+// Whole days an all-day event covers (its date range is exclusive at the end, so a
+// single-day event is 1, not 0). Both keys are already plain YYYY-MM-DD strings —
+// parsing them as dates lands on UTC midnight for both, so the difference is an
+// exact day count with no timezone/DST drift to account for.
+export function allDaySpanDays(event: CalendarViewEvent): number {
+  if (!(event.all_day || event.allDay)) return 0;
+  const startKey = String(event.starts_at ?? event.startsAt ?? '').slice(0, 10);
+  const endKey = String(event.ends_at ?? event.endsAt ?? '').slice(0, 10);
+  const days = Math.round((new Date(endKey).getTime() - new Date(startKey).getTime()) / 86400000);
+  return Number.isFinite(days) && days > 0 ? days : 1;
+}
+
+/** One all-day event placed in the week's all-day row: which day columns it spans
+ * (grid-column style, `endIndex` exclusive) and which lane (vertical row) it's on. */
+export interface WeekAllDayPlacement { event: CalendarViewEvent; startIndex: number; endIndex: number; lane: number; continuesFrom: boolean; continuesTo: boolean }
+
+// Lay out every all-day event touching the visible week as one continuous bar
+// spanning the day columns it covers — a genuine multi-day block, not a separate
+// chip repeated in each day it happens to cover. Events that overlap in date range
+// get different lanes (a classic interval-partitioning greedy assignment: the
+// earliest lane whose last-placed event has already ended); non-overlapping events
+// freely share a lane. Longer spans are placed first so a week-long event doesn't
+// end up hidden below same-day ones.
+export function layoutWeekAllDayEvents(events: CalendarViewEvent[] | null | undefined, days: Date[]): WeekAllDayPlacement[] {
+  if (!days.length) return [];
+  const weekStartKey = localDayKey(days[0]);
+  const afterLastDay = new Date(days[days.length - 1].getFullYear(), days[days.length - 1].getMonth(), days[days.length - 1].getDate() + 1);
+  const weekEndKey = localDayKey(afterLastDay); // exclusive
+
+  const items = (Array.isArray(events) ? events : [])
+    .filter(event => event.all_day || event.allDay)
+    .map(event => {
       const startKey = String(event.starts_at ?? event.startsAt ?? '').slice(0, 10);
-      const endKey = String(event.ends_at ?? event.endsAt ?? '').slice(0, 10);
-      return startKey <= dayKey && dayKey < endKey;
+      const endKey = String(event.ends_at ?? event.endsAt ?? '').slice(0, 10); // exclusive
+      if (endKey <= weekStartKey || startKey >= weekEndKey) return null; // doesn't touch this week
+      const startIndex = Math.max(0, days.findIndex(d => localDayKey(d) >= startKey));
+      let endIndex = days.length;
+      for (let index = 0; index < days.length; index += 1) {
+        if (localDayKey(days[index]) >= endKey) { endIndex = index; break; }
+      }
+      if (endIndex <= startIndex) return null;
+      return { event, startIndex, endIndex, continuesFrom: startKey < weekStartKey, continuesTo: endKey > weekEndKey, spanDays: allDaySpanDays(event) };
     })
-    .sort((a, b) => {
-      const startDifference = String(a.starts_at ?? a.startsAt ?? '').localeCompare(String(b.starts_at ?? b.startsAt ?? ''));
-      return startDifference || String(a.id).localeCompare(String(b.id));
-    });
-  const columns = Math.max(1, covering.length);
-  return covering.map((event, column) => ({ event, column, columns, ...allDayEventSegment(event, day) }));
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((a, b) => b.spanDays - a.spanDays || a.startIndex - b.startIndex || String(a.event.id).localeCompare(String(b.event.id)));
+
+  const laneEnds: number[] = []; // exclusive end index of the last event placed in each lane
+  return items.map(item => {
+    let lane = laneEnds.findIndex(end => end <= item.startIndex);
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+    laneEnds[lane] = item.endIndex;
+    return { event: item.event, startIndex: item.startIndex, endIndex: item.endIndex, lane, continuesFrom: item.continuesFrom, continuesTo: item.continuesTo };
+  });
 }
 
 // Range-maximum over a static array. The collision-group width below needs the

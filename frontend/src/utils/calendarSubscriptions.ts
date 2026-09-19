@@ -11,7 +11,7 @@ export const THUNDERBIRD_HOLIDAY_URL_BASE = 'https://www.thunderbird.net/media/c
 
 // Public holiday calendars change once a year at most, so they are polled daily; the
 // cadence stays editable per source in the calendar panel like any other subscription.
-export const HOLIDAY_SYNC_INTERVAL_MIN = 1440;
+export const HOLIDAY_SYNC_INTERVAL_SECONDS = 86400;
 
 // ISO 3166-1 alpha-2 codes, the Thunderbird calendar file name, and nothing else: the
 // country name is localized at runtime with Intl.DisplayNames instead of being

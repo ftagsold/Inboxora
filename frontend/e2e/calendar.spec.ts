@@ -276,8 +276,8 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   const imported = page.getByTestId('calendar-grid').getByRole('button', { name: /Imported meeting/ });
   await expect(local).toBeVisible();
   await expect(imported).toBeVisible();
-  // The per-event ⋮ button is gone: a tap opens the preview, and the context menu
-  // stays reachable through the contextmenu gesture (long-press on touch).
+  // The per-event ⋮ button is gone: a tap opens the edit dialog directly, and the
+  // context menu stays reachable through the contextmenu gesture (long-press on touch).
   if (page.viewportSize().width < 768) expect(await page.getByTestId('calendar-event-actions').count()).toBe(0);
   await local.click({ button: 'right' });
   const menu = page.getByTestId('calendar-context-menu');
@@ -374,8 +374,8 @@ test('week and work-week time-grid events expose menus for timed and all-day eve
     const allDayLocal = grid.getByRole('button', { name: /Grid all-day local/ }).first();
     await expect(allDayLocal).toBeVisible();
     if (page.viewportSize().width < 768) expect(await allDayLocal.locator('..').getByTestId('calendar-event-actions').count()).toBe(0);
-    // No per-event action button exists; a tap opens the preview and the context menu
-    // is reached through the contextmenu gesture on every input.
+    // No per-event action button exists; a tap opens the edit dialog directly and
+    // the context menu is reached through the contextmenu gesture on every input.
     await grid.getByRole('button', { name: /Grid timed local/ }).click({ button: 'right' });
     const menu = page.getByTestId('calendar-context-menu');
     await expect(menu.getByRole('menuitem')).toHaveCount(2);
@@ -392,7 +392,7 @@ test('week and work-week time-grid events expose menus for timed and all-day eve
   await page.screenshot({ path: testInfo.outputPath('calendar-time-grid-menus.png'), fullPage: true });
 });
 
-test('mobile timed events open the preview instead of a per-event action button', async ({ page, fixtureApi }, testInfo) => {
+test('mobile timed events open the edit dialog directly, disabled when read-only, instead of a per-event action button', async ({ page, fixtureApi }, testInfo) => {
   test.skip(!['chromium-mobile-390', 'chromium-mobile'].includes(testInfo.project.name), 'mobile timed-event actions');
   await fixtureApi;
   await page.route('**/api/calendar/events**', route => {
@@ -407,28 +407,30 @@ test('mobile timed events open the preview instead of a per-event action button'
   await page.goto('/');
   await navigateModule(page, 'calendar');
   const grid = page.getByTestId('calendar-grid');
-  const preview = page.getByTestId('calendar-event-preview');
+  const dialog = page.getByTestId('calendar-event-dialog');
   for (const view of ['week', 'workweek']) {
     await selectCalendarView(page, view);
     // The ⋮ action button was redundant: tapping an event already reaches edit and
     // delete, so no per-event action button may exist any more.
     expect(await grid.getByTestId('calendar-event-actions').count()).toBe(0);
 
-    // A writable event opens the preview with both edit and delete.
-    await grid.getByRole('button', { name: /Mobile timed local/ }).click();
-    await expect(preview).toBeVisible();
-    await expect(page.getByTestId('calendar-preview-edit')).toBeVisible();
-    await expect(preview.getByRole('button', { name: 'Usuń' })).toBeVisible();
+    // A writable event opens the edit dialog directly, with both save and delete.
+    await grid.getByRole('button', { name: /Mobile timed local/ }).dblclick();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Zapisz' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Usuń' })).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(preview).toBeHidden();
+    await expect(dialog).toBeHidden();
 
-    // A read-only event opens the same preview, but without editing or deleting.
-    await grid.getByRole('button', { name: /Mobile timed remote/ }).click();
-    await expect(preview).toBeVisible();
-    await expect(page.getByTestId('calendar-preview-edit')).toHaveCount(0);
-    await expect(preview.getByRole('button', { name: 'Usuń' })).toHaveCount(0);
+    // A read-only event opens the same dialog with every field disabled and no
+    // save/delete — just a way to view it and close it.
+    await grid.getByRole('button', { name: /Mobile timed remote/ }).dblclick();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Tytuł', { exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Zapisz' })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Usuń' })).toHaveCount(0);
     await page.keyboard.press('Escape');
-    await expect(preview).toBeHidden();
+    await expect(dialog).toBeHidden();
   }
 });
 

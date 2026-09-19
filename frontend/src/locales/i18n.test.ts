@@ -682,6 +682,7 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   // use their own scripts).
   'calendar.sourceSyncMinutes': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
   'calendar.sourceSyncHours':   [['cs', 'en', 'es', 'fr', 'it']],
+  'calendar.sourceSyncSeconds': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],

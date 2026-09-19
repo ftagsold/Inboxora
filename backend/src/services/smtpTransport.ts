@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
+import { refreshOidcAccountToken } from './oidcMailAuth.js';
 import { decrypt } from './encryption.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { resolveForConnection, type ResolvedConnectionInfo } from './hostValidation.js';
@@ -143,18 +144,20 @@ type SmtpAccountFields = {
 
 export async function createAccountSmtpTransport<Account extends SmtpAccountFields>(inputAccount: Account) {
   let account: SmtpAccountFields = inputAccount;
-  if (account.oauth_provider === 'microsoft') {
+  if (account.oauth_provider === 'microsoft' || account.oauth_provider === 'oidc') {
     const expiryMs = account.oauth_token_expiry
       ? new Date(account.oauth_token_expiry).getTime()
       : 0;
     if (typeof account.id === 'string' && expiryMs - Date.now() < 5 * 60 * 1000) {
-      account = await refreshMicrosoftToken({ ...account, id: account.id });
+      account = account.oauth_provider === 'microsoft'
+        ? await refreshMicrosoftToken({ ...account, id: account.id })
+        : await refreshOidcAccountToken({ ...account, id: account.id });
     }
   }
 
   let auth;
   if (
-    (account.oauth_provider === 'microsoft' || account.oauth_provider === 'google')
+    (account.oauth_provider === 'microsoft' || account.oauth_provider === 'google' || account.oauth_provider === 'oidc')
     && account.oauth_access_token
   ) {
     const accessToken = decrypt(account.oauth_access_token);

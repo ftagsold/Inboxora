@@ -1677,6 +1677,34 @@ function CalendarSettingsTab() {
   const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
   // Only accounts that can actually send mail may be offered as a default sender.
   const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
+  // The contact-dates calendar is computed, not stored, so there is nothing to delete —
+  // this is a persistent show/hide, the same displayVisible flag its own rename/colour
+  // dialog already carries, just exposed here since most people never open that dialog.
+  const [contactCalendar, setContactCalendar] = useState<{ name?: string; color?: string | null; display_visible?: boolean; custom_name?: boolean } | null>(null);
+  const [contactCalendarSaving, setContactCalendarSaving] = useState(false);
+  useEffect(() => {
+    let active = true;
+    api.calendar.listCalendars().then((result: { calendars?: Array<Record<string, unknown>> }) => {
+      if (!active) return;
+      const entry = (result.calendars || []).find(calendar => calendar.id === 'contacts-birthdays');
+      if (entry) setContactCalendar(entry as { name?: string; color?: string | null; display_visible?: boolean; custom_name?: boolean });
+    }).catch(() => { /* the toggle simply stays hidden if this fails to load */ });
+    return () => { active = false; };
+  }, []);
+  const toggleContactCalendar = async (visible: boolean) => {
+    if (!contactCalendar) return;
+    setContactCalendarSaving(true);
+    try {
+      await api.calendar.updateCalendar('contacts-birthdays', { name: contactCalendar.name || 'Contact dates', color: contactCalendar.color, displayVisible: visible, customName: Boolean(contactCalendar.custom_name) });
+      setContactCalendar(current => current ? { ...current, display_visible: visible } : current);
+      // The calendar page listens for this instead of sharing React state with the
+      // settings panel, so a calendar already mounted behind this dialog picks up
+      // the change immediately instead of on its next full reload.
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('inboxora:calendar-changed'));
+    } finally {
+      setContactCalendarSaving(false);
+    }
+  };
   return <div data-testid="calendar-settings">
       <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
@@ -1715,6 +1743,13 @@ function CalendarSettingsTab() {
             <span className="settings-choice-description">{t('calendar.workHoursEndDescription')}</span>
           </label>
           {calendarWorkHoursError && <div id="calendar-work-hours-error" role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--red)' }}>{calendarWorkHoursError}</div>}
+          {contactCalendar && <label className="settings-switch-row" style={{ gridColumn: '1 / -1' }}>
+            <span>
+              <span className="settings-switch-label">{t('calendar.contactDates')}</span>
+              <p className="settings-choice-description">{t('calendar.contactCalendarToggleDescription')}</p>
+            </span>
+            <input type="checkbox" data-testid="calendar-contact-dates-toggle" checked={contactCalendar.display_visible !== false} disabled={contactCalendarSaving} onChange={event => toggleContactCalendar(event.target.checked)} />
+          </label>}
           <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
             {t('calendar.defaultInviteAccount')}
             <select data-testid="calendar-invite-account-setting" value={calendarInviteAccountId} onChange={event => setCalendarInviteAccountId(event.target.value)} style={inputStyle}>

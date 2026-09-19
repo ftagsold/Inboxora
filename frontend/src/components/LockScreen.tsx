@@ -19,6 +19,9 @@ export default function LockScreen() {
       await api.logout();
     } catch { /* intentional */ }
     localStorage.removeItem('mailflow_locked_message');
+    // See Sidebar's handleLogout: an explicit sign-out must land on a real login page,
+    // not bounce straight back into SSO via OIDC_AUTO_LOGIN.
+    sessionStorage.setItem('mailflow_skip_sso_autologin', '1');
     setLocked(false);
     setUser(null);
   }

@@ -22,33 +22,26 @@ test('calendar settings offer an ICS/webcal subscription form and a holiday pick
 
   // Country presets point at the maintained Thunderbird feeds instead of a local holiday engine.
   assert.match(component, /holidayCalendarUrl\(entry\.file\)/);
-  assert.match(component, /HOLIDAY_SYNC_INTERVAL_MIN/);
+  assert.match(component, /HOLIDAY_SYNC_INTERVAL_SECONDS/);
   assert.match(component, /calendar\.holidayName/);
   // Adding a subscription refreshes a calendar that is already mounted behind the dialog.
   assert.match(component, /inboxora:calendar-changed/);
 });
 
-test('week views stretch all-day and multi-day events across the whole day', async () => {
-  const [calendar, view, css] = await Promise.all([
+test('week view shows all-day events in one compact row above the hour grid, not a full-height band', async () => {
+  const [calendar, view] = await Promise.all([
     source('./CalendarPage.tsx'),
     source('./calendarView.ts'),
-    source('./calendar.css'),
   ]);
 
-  // One full-height band per covered day, laid out by the pure helper.
-  assert.match(calendar, /layoutAllDayEvents\(dayEventsFor\(day\), day\)/);
-  assert.match(calendar, /className="calendar-allday-band"/);
-  assert.match(calendar, /data-testid="calendar-allday-band"/);
-  // The thin chip row above the grid is gone: that was the "small tile at the top".
-  assert.doesNotMatch(calendar, /allDayCell/);
-  assert.doesNotMatch(calendar, /allDayLabel/);
-
-  // The helper reports continuations so the joining edges of a multi-day block stay square.
-  assert.match(view, /export function layoutAllDayEvents/);
-  assert.match(view, /export function allDayEventSegment/);
-  assert.match(calendar, /continuesFrom/);
-  assert.match(calendar, /continuesTo/);
-
-  assert.match(css, /\.calendar-page \.calendar-allday-band \{/);
-  assert.match(css, /height: 1440px/);
+  // A multi-day event is one CSS-grid item spanning the day columns it covers —
+  // laid out once for the whole visible week — not a chip repeated per day it
+  // touches, which is what made the "full-height band down the day" design
+  // possible in the first place.
+  assert.match(view, /export function layoutWeekAllDayEvents/);
+  assert.match(calendar, /layoutWeekAllDayEvents\(\[\.\.\.weekAllDayEventsById\.values\(\)\], days\)/);
+  assert.match(calendar, /gridColumn: `\$\{startIndex \+ 2\} \/ \$\{endIndex \+ 2\}`/);
+  assert.doesNotMatch(calendar, /calendar-allday-band/);
+  // No leftover full-day-height styling for it.
+  assert.doesNotMatch(calendar, /height: 1440px.*calendar-allday/);
 });

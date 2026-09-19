@@ -7,6 +7,7 @@ import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } fr
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
+import { refreshOidcAccountToken } from './oidcMailAuth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
@@ -1158,15 +1159,17 @@ async function computeThreadId(accountId: string, messageId: string, inReplyTo: 
 
 // Ensure OAuth token is fresh before connecting
 async function ensureFreshToken(account: EmailAccountRow) {
-  if (account.oauth_provider !== 'microsoft') return account;
+  if (account.oauth_provider !== 'microsoft' && account.oauth_provider !== 'oidc') return account;
   if (!account.oauth_token_expiry) return account;
   const expiry = new Date(account.oauth_token_expiry);
   const now = new Date();
   // Refresh if token expires within 5 minutes
   if (expiry.getTime() - now.getTime() < 5 * 60 * 1000) {
-    console.log(`Refreshing Microsoft token for ${logAccount(account)}`);
+    console.log(`Refreshing ${account.oauth_provider} token for ${logAccount(account)}`);
     try {
-      account = await refreshMicrosoftToken(account);
+      account = account.oauth_provider === 'microsoft'
+        ? await refreshMicrosoftToken(account)
+        : await refreshOidcAccountToken(account);
     } catch (caught) {
       const err = toAppError(caught);
       console.error(`Token refresh failed for ${logAccount(account)}:`, err.message);
@@ -1276,8 +1279,8 @@ export function makeClientCfg(account: EmailAccountRow, resolved: ResolvedConnec
   // Connection-sensitive providers (e.g. PurelyMail) need IDLE re-issued more often than the
   // 25-min default or the socket goes half-open ("deaf"); idleKeepaliveMs overrides it.
   if (enableIdle) cfg.maxIdleTime = idleKeepaliveMs || 25 * 60 * 1000;
-  // OAuth2 XOAUTH2 for Gmail and Microsoft
-  if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft')
+  // OAuth2 XOAUTH2 for Gmail, Microsoft, and generic OIDC token passthrough
+  if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft' || account.oauth_provider === 'oidc')
       && account.oauth_access_token) {
     const accessToken = decrypt(account.oauth_access_token);
     if (typeof accessToken === 'string') {
@@ -3102,6 +3105,14 @@ export class ImapManager {
         // onto whichever folder synced last. See relocateMessageQuery / collectRelocateExemptFolders.
         const exemptFolders = await collectRelocateExemptFolders(account);
 
+        // Calendar-invitation persistence can issue its own nested client.fetch() for the .ics
+        // body part (see persistInboundCalendarInvitationFromMessage). Issuing that while a
+        // Phase 1/2 client.fetch() below is still mid-iteration deadlocks the connection (IMAP
+        // is single-command-at-a-time per connection) until the socket times out — so processMsg
+        // collects candidates here and they're drained once both phases are done and the
+        // connection is idle again (#backfill-calendar-deadlock).
+        const calendarCandidates: { msg: RawMessageInput; messageId: string }[] = [];
+
         // Insert/update a single fetched message and track it as new if appropriate.
         // Called from both Phase 1 and Phase 2; ON CONFLICT handles deduplication so
         // a message processed in both phases is never double-counted.
@@ -3244,8 +3255,7 @@ export class ImapManager {
               sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
             ]);
             await persistConversationCopyForRow(result.rows[0].id, account, msg);
-            await persistInboundCalendarInvitationFromMessage({ client, message: msg, messageId: result.rows[0].id })
-              .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
+            calendarCandidates.push({ msg, messageId: result.rows[0].id });
             if (result.rows[0]?.is_new) {
               insertedCount++;
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
@@ -3555,6 +3565,13 @@ export class ImapManager {
           [account.id, folder]
         );
         await stampLastSync(account.id);
+
+        // Connection is idle now — safe to issue the nested fetch these need.
+        for (const { msg, messageId } of calendarCandidates) {
+          await persistInboundCalendarInvitationFromMessage({ client, message: msg, messageId })
+            .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
+        }
+
         return { insertedCount, broadcastedNewMessages };
       } finally {
         lock.release();
@@ -3801,6 +3818,14 @@ export class ImapManager {
             }, providerCapabilitiesFromClient(bf));
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
+            // Calendar-invitation persistence can issue its own nested client.fetch() for the
+            // .ics body part (see persistInboundCalendarInvitationFromMessage). Issuing that
+            // while THIS fetch's async generator is still mid-iteration deadlocks the connection
+            // (IMAP is single-command-at-a-time per connection) until the socket times out —
+            // so collect candidates here and process them after this fetch loop finishes and
+            // the connection is idle again (#backfill-calendar-deadlock).
+            const calendarCandidates: { msg: RawMessageInput; messageId: string }[] = [];
+
             for await (const msg of bf.fetch(uidSet, bfQuery, { uid: true })) {
               try {
                 const parsed = await parseMessage(msg);
@@ -3937,8 +3962,7 @@ export class ImapManager {
                 const inserted = await query<{ id: string }>(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
                 if (inserted.rows[0]) {
                   await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
-                  await persistInboundCalendarInvitationFromMessage({ client: bfClient, message: msg, messageId: inserted.rows[0].id })
-                    .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
+                  calendarCandidates.push({ msg, messageId: inserted.rows[0].id });
                 }
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(
@@ -3951,6 +3975,12 @@ export class ImapManager {
                 const parseErr = toAppError(caught);
                 console.error('Backfill parse error:', parseErr.message);
               }
+            }
+
+            // Connection is idle now — safe to issue the nested fetch these need.
+            for (const { msg, messageId } of calendarCandidates) {
+              await persistInboundCalendarInvitationFromMessage({ client: bf, message: msg, messageId })
+                .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
             }
           } finally {
             lock.release();

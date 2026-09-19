@@ -1,5 +1,6 @@
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import type { CalendarViewEvent } from './calendarView';
+import { isWritableCalendarSource } from './calendarView';
 import type { TFunction } from 'i18next';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
@@ -19,7 +20,7 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
   useBackLayer(true, onClose, 4000);
   const onCloseRef = useRef(onClose);
   const [position, setPosition] = useState({ x, y });
-  const writable = event.source === 'local' && !event.read_only;
+  const writable = isWritableCalendarSource(event.source) && !event.read_only;
   const restoreFocus = useCallback(() => requestAnimationFrame(() => {
     if (triggerRef) {
       const trigger = triggerRef.current;
