@@ -71,11 +71,17 @@ describe('external calendar imports', () => {
 
     expect(result).toEqual({ ok: true, eventCount: 1 });
     expect(safeFetch).toHaveBeenCalledWith('https://calendar.example/events.ics', expect.objectContaining({ headers: { Accept: 'text/calendar' } }), { allowPrivate: false });
-    expect(query.mock.calls[2][1]).toEqual(['user-1', 'Holiday calendar', null, 'ical_url', 'source:source-1']);
+    expect(query.mock.calls[2][1]).toEqual(['user-1', 'Holiday calendar', null, 'ical_url', 'source:source-1', true]);
     const eventInsert = queryCallContaining('INSERT INTO calendar_events');
     const staleDelete = queryCallContaining('DELETE FROM calendar_events');
     expect(eventInsert[1]).toContain('event-1');
     expect(staleDelete[1]).toEqual(['calendar-1', ['event-1']]);
+    // A locally created event that hasn't shown up in a remote REPORT yet (its
+    // PUT can complete after this sync's snapshot was taken) must survive this
+    // reconciliation pass — otherwise the client that just created it gets a
+    // "not found" on its very next edit. The grace window is enforced in SQL,
+    // not by excluding a uid, so the guard itself must actually be present.
+    expect(staleDelete[0]).toMatch(/created_at < NOW\(\) - INTERVAL '2 minutes'/);
   });
 
   it('synchronizes Exchange timezone events without replacing calendar appearance', async () => {
@@ -213,7 +219,9 @@ it('persists the full visible metadata on external synchronization', async () =>
   safeFetch.mockResolvedValue(successfulResponse(outlookCalendar('09', 'DESCRIPTION:Agenda\r\nLOCATION:Office\r\nURL:https://example.test/join\r\nORGANIZER:mailto:team@example.test\r\nATTENDEE:mailto:jane@example.test\r\n')));
   expect((await syncCalendarSource('user-1', 'source-1')).ok).toBe(true);
   const insert = queryCallContaining('INSERT INTO calendar_events');
-  expect(insert[1].slice(-5)).toEqual(['Agenda', 'Office', 'https://example.test/join', 'team@example.test', '["jane@example.test"]']);
+  // The last two columns are remote_href/remote_etag, captured for CalDAV write-back
+  // and always null for an ical_url source's synthetic (href-less) payloads.
+  expect(insert[1].slice(-7)).toEqual(['Agenda', 'Office', 'https://example.test/join', 'team@example.test', '["jane@example.test"]', null, null]);
   expect(insert[0]).toContain('description = EXCLUDED.description');
 });
 

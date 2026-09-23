@@ -35,15 +35,16 @@ import senderFaviconsRoutes from './routes/senderFavicons.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
 import carddavRouter from './routes/carddav.js';
 import caldavRouter from './routes/caldav.js';
-import carddavAccountRouter from './routes/carddavAccount.js';
+import davServersRouter from './routes/davServers.js';
 import davCredentialsRouter from './routes/davCredentials.js';
 import pushRoutes from './routes/push.js';
 import calendarRouter from './routes/calendar.js';
 import calendarFeedRouter from './routes/calendarFeed.js';
-import { startCardavScheduler } from './services/carddavSync.js';
+import { startCarddavSchedulers } from './services/carddavCollectionSync.js';
 import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
+import { seedOidcProvidersFromEnv } from './services/oidcEnvSeed.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
@@ -230,7 +231,7 @@ app.use('/api/rules', rulesRoutes);
 app.use('/api/block-list', blockListRoutes);
 app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
-app.use('/api/carddav', carddavAccountRouter);
+app.use('/api/dav/servers', davServersRouter);
 app.use('/api/dav-credentials', davCredentialsRouter);
 // Native (Android) push device registry + the device-token-authenticated
 // background notification API. Absent configuration the routes still answer;
@@ -289,6 +290,9 @@ setupWebSocket(wss, (req, res, next) => {
 // Run pending schema migrations then start
 await runMigrations();
 
+// One-time bootstrap: create any OIDC_<N>_* env-configured providers that don't exist yet.
+await seedOidcProvidersFromEnv();
+
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
 async function backfillContactPhotos() {
@@ -322,7 +326,7 @@ await loadIntegrationConfigs();
 imapManager.startSnoozeWatcher();
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
-startCardavScheduler();
+startCarddavSchedulers().catch(err => console.warn('CardDAV scheduler start failed:', err.message));
 startExternalCalendarScheduler().catch(err => console.warn('External calendar scheduler start failed:', err.message));
 // Retry conversation persistence failures without blocking IMAP synchronization.
 setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);

@@ -343,7 +343,13 @@ export default function ConversationMessage({ conversationId, message, selectedC
     }}
   >
     <div className="msg-card" style={{
-      marginBottom: expanded ? 12 : 24,
+      // No marginBottom here: this article's own top padding above is already
+      // the uniform gap before every message, including the first — an
+      // additional bottom margin here would double up between two messages
+      // (previous card's margin + next article's padding) without doing so
+      // before the first message, which is exactly the inconsistent spacing
+      // this was reported for.
+      marginBottom: 0,
       background: 'var(--bg-elevated)',
       borderRadius: 10,
       border: '1px solid var(--border-subtle)',

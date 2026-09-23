@@ -5,6 +5,7 @@ import { folderLabel } from '../utils/folderLabels.ts';
 import { inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
+import DavServersSettings from './DavServersSettings.tsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -1677,6 +1678,34 @@ function CalendarSettingsTab() {
   const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
   // Only accounts that can actually send mail may be offered as a default sender.
   const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
+  // The contact-dates calendar is computed, not stored, so there is nothing to delete —
+  // this is a persistent show/hide, the same displayVisible flag its own rename/colour
+  // dialog already carries, just exposed here since most people never open that dialog.
+  const [contactCalendar, setContactCalendar] = useState<{ name?: string; color?: string | null; display_visible?: boolean; custom_name?: boolean } | null>(null);
+  const [contactCalendarSaving, setContactCalendarSaving] = useState(false);
+  useEffect(() => {
+    let active = true;
+    api.calendar.listCalendars().then((result: { calendars?: Array<Record<string, unknown>> }) => {
+      if (!active) return;
+      const entry = (result.calendars || []).find(calendar => calendar.id === 'contacts-birthdays');
+      if (entry) setContactCalendar(entry as { name?: string; color?: string | null; display_visible?: boolean; custom_name?: boolean });
+    }).catch(() => { /* the toggle simply stays hidden if this fails to load */ });
+    return () => { active = false; };
+  }, []);
+  const toggleContactCalendar = async (visible: boolean) => {
+    if (!contactCalendar) return;
+    setContactCalendarSaving(true);
+    try {
+      await api.calendar.updateCalendar('contacts-birthdays', { name: contactCalendar.name || 'Contact dates', color: contactCalendar.color, displayVisible: visible, customName: Boolean(contactCalendar.custom_name) });
+      setContactCalendar(current => current ? { ...current, display_visible: visible } : current);
+      // The calendar page listens for this instead of sharing React state with the
+      // settings panel, so a calendar already mounted behind this dialog picks up
+      // the change immediately instead of on its next full reload.
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('inboxora:calendar-changed'));
+    } finally {
+      setContactCalendarSaving(false);
+    }
+  };
   return <div data-testid="calendar-settings">
       <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
@@ -1715,6 +1744,13 @@ function CalendarSettingsTab() {
             <span className="settings-choice-description">{t('calendar.workHoursEndDescription')}</span>
           </label>
           {calendarWorkHoursError && <div id="calendar-work-hours-error" role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--red)' }}>{calendarWorkHoursError}</div>}
+          {contactCalendar && <label className="settings-switch-row" style={{ gridColumn: '1 / -1' }}>
+            <span>
+              <span className="settings-switch-label">{t('calendar.contactDates')}</span>
+              <p className="settings-choice-description">{t('calendar.contactCalendarToggleDescription')}</p>
+            </span>
+            <input type="checkbox" data-testid="calendar-contact-dates-toggle" checked={contactCalendar.display_visible !== false} disabled={contactCalendarSaving} onChange={event => toggleContactCalendar(event.target.checked)} />
+          </label>}
           <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
             {t('calendar.defaultInviteAccount')}
             <select data-testid="calendar-invite-account-setting" value={calendarInviteAccountId} onChange={event => setCalendarInviteAccountId(event.target.value)} style={inputStyle}>
@@ -2435,151 +2471,8 @@ function LayoutsTab() {
 }
 
 // ─── Integrations Tab ────────────────────────────────────────────────────────
-// CardDAV contact sync (e.g. Nextcloud). One-way, read-only pull.
-function CardDavCard() {
-  const { t } = useTranslation();
-  const [status, setStatus] = useState<{ username?: string; serverUrl?: string; contactCount?: number; bookCount?: number; lastSyncAt?: string; lastError?: string; dupMode?: string; intervalMin?: number | string; [key: string]: unknown } | null>(null); // null while loading
-  const [expanded, setExpanded] = useState(false);
-  const [form, setForm] = useState({ serverUrl: '', username: '', password: '', dupMode: 'separate', intervalMin: 60 });
-  const [connecting, setConnecting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => { api.carddav.status().then(setStatus).catch(() => setStatus({ connected: false })); }, []);
-
-  const connected = status?.connected;
-  const loading = status === null;
-
-  const handleConnect = async () => {
-    setConnecting(true); setError('');
-    try {
-      const s = await api.carddav.connect({
-        serverUrl: form.serverUrl.trim(), username: form.username.trim(),
-        password: form.password, dupMode: form.dupMode, intervalMin: Number(form.intervalMin),
-      });
-      setStatus(s); setForm(f => ({ ...f, password: '' }));
-    } catch (e) { setError(toAppError(e).message || t('admin.integrations.carddav.connectFailed')); }
-    finally { setConnecting(false); }
-  };
-  const handleSync = async () => {
-    setSyncing(true); setError('');
-    try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); }
-    catch (e) { setError(toAppError(e).message); }
-    finally { setSyncing(false); }
-  };
-  const handleDisconnect = async () => {
-    setDisconnecting(true); setError('');
-    try { await api.carddav.disconnect(); setStatus({ connected: false }); }
-    catch (e) { setError(toAppError(e).message); }
-    finally { setDisconnecting(false); }
-  };
-  const updateSetting = async (patch: Record<string, unknown>) => {
-    setStatus(s => ({ ...s, ...patch }));
-    try { await api.carddav.update(patch); } catch (e) { setError(toAppError(e).message); }
-  };
-
-  const inputStyle: CSSProperties = { padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' };
-  const labelStyle: CSSProperties = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 };
-  const errBox = error && (
-    <div style={{ fontSize: 13, color: 'var(--red, #f87171)', padding: '8px 10px', borderRadius: 6, background: 'rgba(248,113,113,0.08)' }}>{error}</div>
-  );
-
-  return (
-    <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)' }}
-        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
-          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
-        </svg>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.integrations.carddav.title')}</span>
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: (!loading && connected) ? 'rgba(34,197,94,0.1)' : 'var(--bg-primary)', color: (!loading && connected) ? '#22c55e' : 'var(--text-tertiary)', border: `1px solid ${(!loading && connected) ? '#22c55e' : 'var(--border)'}` }}>
-              {loading ? '...' : (connected ? t('admin.integrations.carddav.connected') : t('admin.integrations.carddav.notConnected'))}
-            </span>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.integrations.carddav.description')}</div>
-        </div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.5" style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-
-      {expanded && (
-        <div style={{ padding: '16px 18px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {loading ? (
-            <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('admin.integrations.loading')}</div>
-          ) : connected ? (
-            <>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                <div><strong style={{ color: 'var(--text-primary)' }}>{status.username}</strong> @ {status.serverUrl}</div>
-                <div style={{ marginTop: 4 }}>
-                  {t('admin.integrations.carddav.summary', { contacts: status.contactCount ?? 0, books: status.bookCount ?? 0 })}
-                  {' · '}
-                  {t('admin.integrations.carddav.lastSync', { when: status.lastSyncAt ? new Date(status.lastSyncAt).toLocaleString() : t('common.never') })}
-                </div>
-                {status.lastError && (
-                  <div style={{ marginTop: 4, color: 'var(--red, #f87171)' }}>{t('admin.integrations.carddav.syncFailed', { error: status.lastError })}</div>
-                )}
-              </div>
-
-              <div>
-                <label style={labelStyle}>{t('admin.integrations.carddav.dupLabel')}</label>
-                <select value={status.dupMode || 'separate'} onChange={e => updateSetting({ dupMode: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="separate">{t('admin.integrations.carddav.dupSeparate')}</option>
-                  <option value="merge">{t('admin.integrations.carddav.dupMerge')}</option>
-                  <option value="skip">{t('admin.integrations.carddav.dupSkip')}</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>{t('admin.integrations.carddav.intervalLabel')}</label>
-                <input type="number" min="15" max="1440" value={status.intervalMin || 60}
-                  onChange={e => setStatus(s => ({ ...s, intervalMin: e.target.value }))}
-                  onBlur={e => updateSetting({ intervalMin: Number(e.target.value) })} style={inputStyle} />
-              </div>
-              {errBox}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={handleSync} disabled={syncing} style={{ padding: '6px 14px', borderRadius: 7, cursor: syncing ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, opacity: syncing ? 0.7 : 1 }}>
-                  {syncing ? t('admin.integrations.carddav.syncing') : t('admin.integrations.carddav.syncNow')}
-                </button>
-                <button onClick={handleDisconnect} disabled={disconnecting} style={{ padding: '6px 14px', borderRadius: 7, cursor: disconnecting ? 'default' : 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, opacity: disconnecting ? 0.6 : 1 }}>
-                  {disconnecting ? t('common.loading') : t('admin.integrations.carddav.disconnect')}
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.serverLabel')}</label>
-                <input type="text" value={form.serverUrl} onChange={e => setForm(f => ({ ...f, serverUrl: e.target.value }))} placeholder={t('admin.integrations.carddav.serverPh')} style={inputStyle} /></div>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.userLabel')}</label>
-                <input type="text" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder={t('admin.integrations.carddav.userPh')} style={inputStyle} /></div>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.passLabel')}</label>
-                <input type="password" autoComplete="new-password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={t('admin.integrations.carddav.passPh')} style={inputStyle} /></div>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.dupLabel')}</label>
-                <select value={form.dupMode} onChange={e => setForm(f => ({ ...f, dupMode: e.target.value }))} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="separate">{t('admin.integrations.carddav.dupSeparate')}</option>
-                  <option value="merge">{t('admin.integrations.carddav.dupMerge')}</option>
-                  <option value="skip">{t('admin.integrations.carddav.dupSkip')}</option>
-                </select></div>
-              {errBox}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={handleConnect} disabled={connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password}
-                  style={{ padding: '6px 14px', borderRadius: 7, cursor: (connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password) ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, opacity: (connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password) ? 0.7 : 1 }}>
-                  {connecting ? t('admin.integrations.carddav.connecting') : t('admin.integrations.carddav.connect')}
-                </button>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{t('admin.integrations.carddav.help')}</div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
+// CardDAV/CalDAV account management lives in the unified DAV servers tab now
+// (DavServersSettings.tsx) — this used to hold a single-account CardDAV card.
 function IntegrationsTab() {
   const { t } = useTranslation();
   const { setAccounts, setTodoistConnected, user } = useStore();
@@ -3250,8 +3143,6 @@ function IntegrationsTab() {
               </div>
             )}
           </div>
-
-          <CardDavCard />
         </div>
       )}
     </div>
@@ -7177,7 +7068,7 @@ const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
   { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
-  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
+  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'dav-servers', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
 ];
 
@@ -7222,6 +7113,10 @@ const TABS = [
   {
     id: 'dav-credentials', labelKey: 'admin.tabs.davCredentials',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><path d="M12 15v2"/></svg>,
+  },
+  {
+    id: 'dav-servers', labelKey: 'admin.tabs.davServers',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg>,
   },
   {
     id: 'integrations', labelKey: 'admin.tabs.integrations',
@@ -8736,6 +8631,7 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     { label: t('admin.categories.gtdReveal'), keywords: ['gtd', 'todo', 'getting things done', 'watch', 'delegated', 'someday', 'reference', 'next action', 'waiting', 'inbox zero', 'pet'], tab: 'categories', subtab: 'gtd', breadcrumb: `${tabLabel('categories')} › ${t('admin.categories.gtdReveal')}` },
     // Security
     { label: tabLabel('davCredentials'), keywords: ['dav', 'davx5', 'carddav', 'caldav', 'app password', 'sync password'], tab: 'dav-credentials', breadcrumb: tabLabel('davCredentials') },
+    { label: tabLabel('davServers'), keywords: ['caldav', 'carddav', 'dav', 'nextcloud', 'radicale', 'address book', 'contacts server', 'calendar server'], tab: 'dav-servers', breadcrumb: tabLabel('davServers') },
     { label: t('admin.security.totpTitle'), keywords: ['2fa', 'totp', 'authenticator', 'two factor', 'otp', 'two-factor', 'mfa', 'security code'], tab: 'security', subtab: 'security', breadcrumb: secCrumb },
     { label: t('admin.security.ssoTitle'), keywords: ['sso', 'linked', 'identity', 'provider', 'link', 'unlink', 'oidc', 'connect identity'], tab: 'security', subtab: 'security', breadcrumb: secCrumb },
     { label: t('admin.security.loginProtectionTitle'), keywords: ['login', 'attempts', 'brute force', 'lockout', 'max attempts', 'rate limit'], tab: 'security', subtab: 'security', adminOnly: true, breadcrumb: secCrumb },
@@ -8889,6 +8785,7 @@ export default function AdminPanel() {
       {adminTab === 'sso' && <SSOTab />}
       {adminTab === 'security' && <SecurityPrivacyTab initialSubTab={pendingSubTab} />}
       {adminTab === 'dav-credentials' && <DavCredentialsTab />}
+      {adminTab === 'dav-servers' && <DavServersSettings />}
       {adminTab === 'notifications' && <NotificationsTab />}
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
       {adminTab === 'ai' && <AISection />}

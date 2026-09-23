@@ -111,6 +111,9 @@ declare global {
     details?: unknown;
     source?: string;
     sync?: unknown;
+    server?: unknown;
+    calendarSync?: unknown;
+    addressBookSync?: unknown;
     signedOut?: boolean;
   }
 

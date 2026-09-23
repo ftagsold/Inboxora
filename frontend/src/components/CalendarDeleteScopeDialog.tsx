@@ -31,7 +31,7 @@ export default function CalendarDeleteScopeDialog({ event, busy = false, onSelec
     <div className="ui-form">
       <p>{t('calendar.deleteRecurringBody')}</p>
       {when && <p className="calendar-delete-scope-when">{when}</p>}
-      <div className="calendar-delete-scope-actions">
+      <div className="calendar-scope-actions">
         <Button disabled={busy} data-testid="calendar-delete-scope-single" onClick={() => onSelect('single')}>{t('calendar.deleteScopeSingle')}</Button>
         <Button disabled={busy} data-testid="calendar-delete-scope-following" onClick={() => onSelect('following')}>{t('calendar.deleteScopeFollowing')}</Button>
         <Button variant="danger" disabled={busy} data-testid="calendar-delete-scope-all" onClick={() => onSelect('all')}>{t('calendar.deleteScopeAll')}</Button>

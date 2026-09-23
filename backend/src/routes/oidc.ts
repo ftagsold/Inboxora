@@ -1,27 +1,19 @@
 import { randomBytes, createHash } from 'crypto';
-import { request as httpsRequest } from 'https';
-import { request as httpRequest } from 'http';
 import { Router } from 'express';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import type { PoolClient } from 'pg';
-import { createRemoteJWKSet, jwtVerify, customFetch } from 'jose';
+import { jwtVerify } from 'jose';
 import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, isEncrypted } from '../services/encryption.js';
 import { imapManager } from '../index.js';
-import { validateHost } from '../services/hostValidation.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
 import { queryString } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
-
-interface OidcDiscoveryDocument {
-  issuer?: string;
-  authorization_endpoint?: string;
-  token_endpoint?: string;
-  jwks_uri?: string;
-  end_session_endpoint?: string;
-}
+import { getDiscovery, makeInsecureFetch } from '../services/oidcDiscovery.js';
+import { resolveClaimValue } from '../utils/claimName.js';
+import { provisionOidcMailAccount } from '../services/oidcMailAuth.js';
 
 interface OidcTokenResponse {
   id_token?: string;
@@ -46,6 +38,7 @@ type OidcIdTokenClaims = {
 /** Columns of oidc_providers read by this router. */
 type OidcProviderRow = {
   id: string;
+  name: string;
   slug: string;
   issuer_url: string;
   client_id: string;
@@ -65,108 +58,6 @@ type OidcProviderRow = {
 interface EndSessionInput {
   providerId?: string | null;
   idToken?: string | null;
-}
-
-// In-memory OIDC discovery cache keyed by issuerUrl
-const discoveryCache = new Map();
-const DISCOVERY_TTL_MS = 5 * 60 * 1000;
-
-// Node's HTTP request options expect a plain header record. undici (jose's customFetch
-// path) passes a Headers instance, which the previous implementation forwarded as-is and
-// node serialised to no headers; keep that behaviour and forward only plain records.
-function toNodeHeaders(headers: RequestInit['headers']): Record<string, string | string[]> {
-  if (!headers || Array.isArray(headers) || headers instanceof Headers) return {};
-  const out: Record<string, string | string[]> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    out[key] = typeof value === 'string' ? value : [...value];
-  }
-  return out;
-}
-
-// Fetch that skips TLS certificate verification — only used when allow_insecure is set.
-function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
-  return function insecureFetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    return new Promise<Response>((resolve, reject) => {
-      const effectiveSignal = init.signal ?? signal;
-      const parsed = new URL(url);
-      const isHttps = parsed.protocol === 'https:';
-      const port = parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80);
-      const reqFn = isHttps ? httpsRequest : httpRequest;
-      const chunks: Buffer[] = [];
-      const req = reqFn(
-        { hostname: parsed.hostname, port, path: parsed.pathname + parsed.search, method: init.method ?? 'GET', headers: toNodeHeaders(init.headers), rejectUnauthorized: false },
-        res => {
-          res.on('data', c => chunks.push(c));
-          res.on('end', () => {
-            const text = Buffer.concat(chunks).toString('utf8');
-            resolve(new Response(text, { status: res.statusCode ?? 200 }));
-          });
-          res.on('error', reject);
-        }
-      );
-      req.on('error', reject);
-      if (effectiveSignal) effectiveSignal.addEventListener('abort', () => req.destroy(), { once: true });
-      if (init.body) req.write(init.body);
-      req.end();
-    });
-  };
-}
-
-async function getDiscovery(issuerUrl: string, allowInsecure: boolean | null | undefined = false) {
-  const parsed = new URL(issuerUrl);
-  if (!allowInsecure && parsed.protocol !== 'https:') throw new Error('OIDC issuer URL must use HTTPS');
-
-  // Re-validate at runtime: the saved issuer may predate host validation,
-  // or DNS may have changed since the record was saved.
-  if (!allowInsecure) {
-    const issuerHostErr = await validateHost(parsed.hostname);
-    if (issuerHostErr) throw new Error(`OIDC issuer host rejected: ${issuerHostErr}`);
-  }
-
-  const cacheKey = `${issuerUrl}:${allowInsecure}`;
-  const cached = discoveryCache.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt < DISCOVERY_TTL_MS) {
-    return { doc: cached.doc, jwks: cached.jwks };
-  }
-  const wellKnown = issuerUrl.replace(/\/$/, '') + '/.well-known/openid-configuration';
-  const signal = AbortSignal.timeout(10000);
-  const fetchFn = allowInsecure ? makeInsecureFetch(signal) : fetch;
-  const fetchOpts = allowInsecure ? {} : { signal };
-  const res = await fetchFn(wellKnown, fetchOpts);
-  if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(`OIDC discovery blocked (${res.status}): the server cannot reach ${wellKnown} — ensure the well-known endpoint is publicly accessible from the Inboxora server`);
-    }
-    throw new Error(`OIDC discovery failed for ${issuerUrl}: ${res.status}`);
-  }
-  const doc = (await res.json()) as OidcDiscoveryDocument;
-  const normConfigured = issuerUrl.replace(/\/$/, '');
-  const normDiscovered = (doc.issuer || '').replace(/\/$/, '');
-  if (normDiscovered !== normConfigured) {
-    throw new Error(`OIDC issuer mismatch: configured "${normConfigured}", got "${normDiscovered}"`);
-  }
-  for (const field of ['authorization_endpoint', 'token_endpoint', 'jwks_uri'] as const) {
-    const url = doc[field];
-    if (!url) throw new Error(`OIDC discovery missing required field: ${field}`);
-    let endpointParsed;
-    try { endpointParsed = new URL(url); } catch {
-      throw new Error(`OIDC discovery returned invalid URL for ${field}: ${url}`);
-    }
-    if (!allowInsecure) {
-      if (endpointParsed.protocol !== 'https:') {
-        throw new Error(`OIDC discovery returned non-HTTPS ${field}: ${url}`);
-      }
-      const hostErr = await validateHost(endpointParsed.hostname);
-      if (hostErr) throw new Error(`OIDC discovery ${field} points to a disallowed host: ${hostErr}`);
-    }
-  }
-  const jwksUri = doc.jwks_uri;
-  if (!jwksUri) throw new Error('OIDC discovery missing required field: jwks_uri');
-  const jwksOptions = allowInsecure ? { [customFetch]: makeInsecureFetch() } : {};
-  const jwks = createRemoteJWKSet(new URL(jwksUri), jwksOptions);
-  discoveryCache.set(cacheKey, { doc, jwks, cachedAt: Date.now() });
-  return { doc, jwks };
 }
 
 function generatePKCE() {
@@ -201,15 +92,8 @@ function resolveAdminFromClaim(payload: OidcIdTokenClaims, provider: Pick<OidcPr
 // trimmed string, or null when the claim is absent/blank/non-string (which the caller treats as
 // "no matching account"). See issue #289. Never matches secondary email_accounts addresses —
 // proving control of a mailbox a user added must not log you in as that user.
-const DANGEROUS_CLAIM_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 export function resolveLoginMatchValue(provider: Pick<OidcProviderRow, 'login_match_claim'> | null | undefined, payload: OidcIdTokenClaims | null | undefined, email: string | null | undefined) {
-  const claim = (provider?.login_match_claim || 'email').trim() || 'email';
-  // Never index the payload by an object-prototype key. `payload["__proto__"]` from JSON.parse is
-  // a string own-property that would pass the typeof guard below; the others resolve to functions.
-  // Belt-and-suspenders with admin.js validation, and it also protects any pre-existing bad row.
-  if (claim !== 'email' && DANGEROUS_CLAIM_KEYS.has(claim)) return null;
-  const raw = claim === 'email' ? email : payload?.[claim];
-  return typeof raw === 'string' && raw.trim() ? raw.trim().toLowerCase() : null;
+  return resolveClaimValue(provider?.login_match_claim, payload, email);
 }
 
 // Seed users.display_name from the OIDC 'name' (profile) claim on first association, but only
@@ -275,7 +159,14 @@ oidcApiRouter.get('/providers', async (req, res) => {
     const result = await query(
       'SELECT id, name, slug FROM oidc_providers WHERE enabled = true ORDER BY name ASC'
     );
-    res.json({ providers: result.rows });
+    // OIDC_AUTO_LOGIN=<slug> skips the login page straight to that provider's SSO flow.
+    // Only surfaced when it actually matches an enabled provider, so a typo/misconfiguration
+    // falls back to showing the normal login page instead of redirecting somewhere broken.
+    const requestedAutoLogin = process.env.OIDC_AUTO_LOGIN?.trim().toLowerCase() || null;
+    const autoLoginSlug = requestedAutoLogin && result.rows.some(p => p.slug === requestedAutoLogin)
+      ? requestedAutoLogin
+      : null;
+    res.json({ providers: result.rows, autoLoginSlug });
   } catch {
     res.status(500).json({ error: 'Failed to load providers' });
   }
@@ -458,6 +349,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       tokenParams.set('client_secret', clientSecret);
     }
     const tokenFetch = provider.allow_insecure ? makeInsecureFetch() : fetch;
+    if (!doc.token_endpoint) return oidcError(res, pending.action, 'OIDC discovery missing required field: token_endpoint');
     const tokenRes = await tokenFetch(doc.token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
@@ -572,6 +464,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       req.session.isAdmin = user.is_admin;
       rememberOidcSession(req, provider.id, tokenData.id_token);
       await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+      await provisionOidcMailAccount({ userId: user.id, provider, payload, email, tokenData })
+        .catch((caught: unknown) => console.error('OIDC mail auto-provision failed:', toAppError(caught).message));
       imapManager.connectAllForUser(user.id);
       logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
       return res.redirect('/?oidc_success=login');
@@ -627,6 +521,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       req.session.isAdmin = user.is_admin;
       rememberOidcSession(req, provider.id, tokenData.id_token);
       await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+      await provisionOidcMailAccount({ userId: user.id, provider, payload, email, tokenData })
+        .catch((caught: unknown) => console.error('OIDC mail auto-provision failed:', toAppError(caught).message));
       imapManager.connectAllForUser(user.id);
       logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
       return res.redirect('/?oidc_success=login');
@@ -692,6 +588,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         req.session.isAdmin = user.is_admin;
         rememberOidcSession(req, provider.id, tokenData.id_token);
         await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+        await provisionOidcMailAccount({ userId: user.id, provider, payload, email, tokenData })
+          .catch((caught: unknown) => console.error('OIDC mail auto-provision failed:', toAppError(caught).message));
         imapManager.connectAllForUser(user.id);
         logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
         return res.redirect('/?oidc_success=login');

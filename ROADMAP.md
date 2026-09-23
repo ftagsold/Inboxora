@@ -19,6 +19,9 @@ community's needs become clear.
 
 ## Now
 
+- Two-way CalDAV sync, `.well-known` discovery, editable sources, and multi-calendar accounts
+  (import a subset of the calendars a CalDAV account exposes, changeable after adding). Builds on
+  the read-only external CalDAV/iCalendar sources shipped in 4.0.0.
 - Stabilising the native shells: Electron desktop and Android/Capacitor, including signing and
   the deferred security review before either can be published.
 - Documentation and onboarding polish for self-hosters (release notes, upgrade guidance,

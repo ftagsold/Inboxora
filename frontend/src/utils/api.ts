@@ -64,8 +64,13 @@ async function request(method: string, path: string, body: unknown = undefined, 
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     const error = new Error(err.error || 'Request failed');
     error.status = res.status;
-    if (err.source) error.source = err.source;
-    if (err.sync) error.sync = err.sync;
+    // A "created but broken" response (e.g. a source persisted despite its first
+    // sync failing) carries extra detail alongside `error` — copy it all onto the
+    // thrown Error so callers can render the persisted state, not just the message.
+    const errorRecord = error as unknown as Record<string, unknown>;
+    for (const [key, value] of Object.entries(err)) {
+      if (key !== 'error' && value !== undefined) errorRecord[key] = value;
+    }
     throw error;
   }
   // A successful DELETE may deliberately return no representation (HTTP 204).
@@ -379,13 +384,16 @@ export const api = {
     exportUrl: (id: string, format: string) =>`${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
   },
 
-  // CardDAV contact sync (Nextcloud etc.)
-  carddav: {
-    status:     ()     => request('GET',    '/carddav'),
-    connect:    (data: unknown) => request('POST',   '/carddav/connect', data),
-    update:     (data: unknown) => request('PATCH',  '/carddav', data),
-    sync:       ()     => request('POST',   '/carddav/sync'),
-    disconnect: ()     => request('DELETE', '/carddav'),
+  // Unified CalDAV/CardDAV server manager — one remote server (one set of
+  // credentials) with an optional calendar side and an optional address-book
+  // side, discovered and selected together.
+  davServers: {
+    list:      ()     => request('GET',    '/dav/servers'),
+    discover:  (data: unknown) => request('POST',   '/dav/servers/discover', data),
+    create:    (data: unknown) => request('POST',   '/dav/servers', data),
+    update:    (id: string, data: unknown) => request('PATCH', `/dav/servers/${encodeURIComponent(id)}`, data),
+    sync:      (id: string) => request('POST', `/dav/servers/${encodeURIComponent(id)}/sync`),
+    remove:    (id: string) => request('DELETE', `/dav/servers/${encodeURIComponent(id)}`),
   },
 
   // DAV Hub — dedicated, revocable app passwords for CardDAV/CalDAV clients.

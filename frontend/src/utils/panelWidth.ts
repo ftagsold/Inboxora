@@ -1,19 +1,27 @@
 // Side-panel widths for the workspace.
 //
-// Mail, Contacts and the calendar rail all show a list beside their content, so
-// they share ONE persisted width (`--list-width`): dragging any of those handles
-// resizes all of them and the workspace keeps a single, predictable column.
+// Mail, Contacts and the calendar rail each show a list beside their content,
+// but each is its own page with its own independently persisted width
+// (`--list-width` for mail, `--contacts-list-width` for contacts,
+// `--calendar-rail-width` for the calendar rail): dragging one page's resize
+// handle no longer resizes the others.
 //
-// The calendar day agenda is deliberately NOT part of that group. It is a
-// supplementary right-hand column, not a list of records, so it keeps its own
-// independently persisted width (`--agenda-width`): widening the agenda must not
-// narrow the mail list, and widening the mail list must not stretch the agenda.
+// The calendar day agenda was already independent of the (then-shared) list
+// width for the same reason it stays independent of the calendar rail now: it
+// is a supplementary right-hand column, not a list of records, so widening it
+// must not narrow/stretch any list column.
 
 export const PANEL_WIDTH_MIN = 180;
 export const PANEL_WIDTH_MAX = 700;
 export const PANEL_WIDTH_DEFAULT = 360;
-// Pre-existing key: saved widths from earlier releases stay valid.
+// Pre-existing key/variable: mail keeps its original name (and every user's
+// saved width) since it's also the layout-preset system's own default channel
+// (see layouts.ts/App.tsx) — only Contacts and the calendar rail are new.
 export const PANEL_WIDTH_STORAGE_KEY = 'mailflow_list_width';
+
+export const CONTACTS_LIST_WIDTH_STORAGE_KEY = 'mailflow_contacts_list_width';
+export const CALENDAR_RAIL_WIDTH_DEFAULT = 320;
+export const CALENDAR_RAIL_WIDTH_STORAGE_KEY = 'mailflow_calendar_rail_width';
 
 export const AGENDA_WIDTH_DEFAULT = 296;
 export const AGENDA_WIDTH_MIN = 200;
@@ -122,11 +130,26 @@ function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_
   return { variable, storageKey, fallback, clamp, read, apply, persist, saved, beginResize };
 }
 
-// Shared width for the mail list, the contact list and the calendar rail.
+// The mail list's own width — also the layout-preset system's channel.
 export const listPanelWidth = createWidthChannel({
   variable: '--list-width',
   storageKey: PANEL_WIDTH_STORAGE_KEY,
   fallback: PANEL_WIDTH_DEFAULT,
+});
+
+// The contacts page's address list — independent of mail's.
+export const contactsListPanelWidth = createWidthChannel({
+  variable: '--contacts-list-width',
+  storageKey: CONTACTS_LIST_WIDTH_STORAGE_KEY,
+  fallback: PANEL_WIDTH_DEFAULT,
+});
+
+// The calendar rail (mini-month + calendar list) — independent of both mail's
+// list and the day agenda (agendaPanelWidth, below).
+export const calendarRailPanelWidth = createWidthChannel({
+  variable: '--calendar-rail-width',
+  storageKey: CALENDAR_RAIL_WIDTH_STORAGE_KEY,
+  fallback: CALENDAR_RAIL_WIDTH_DEFAULT,
 });
 
 // Dedicated width for the calendar day agenda.
@@ -145,6 +168,22 @@ export const readPanelWidth = () => listPanelWidth.read();
 export const applyPanelWidth = (width: Parameters<typeof listPanelWidth.apply>[0]) => listPanelWidth.apply(width);
 export const persistPanelWidth = (width: Parameters<typeof listPanelWidth.persist>[0]) => listPanelWidth.persist(width);
 export const beginPanelResize = (event: PanelResizeHandleEvent, options?: PanelResizeOptions) => listPanelWidth.beginResize(event, options);
+
+// ── Contacts list width ───────────────────────────────────────────────────────
+
+export const savedContactsListWidth = () => contactsListPanelWidth.saved();
+export const readContactsListWidth = () => contactsListPanelWidth.read();
+export const applyContactsListWidth = (width: Parameters<typeof contactsListPanelWidth.apply>[0]) => contactsListPanelWidth.apply(width);
+export const persistContactsListWidth = (width: Parameters<typeof contactsListPanelWidth.persist>[0]) => contactsListPanelWidth.persist(width);
+export const beginContactsListResize = (event: PanelResizeHandleEvent, options?: PanelResizeOptions) => contactsListPanelWidth.beginResize(event, options);
+
+// ── Calendar rail width ─────────────────────────────────────────────────────
+
+export const savedCalendarRailWidth = () => calendarRailPanelWidth.saved();
+export const readCalendarRailWidth = () => calendarRailPanelWidth.read();
+export const applyCalendarRailWidth = (width: Parameters<typeof calendarRailPanelWidth.apply>[0]) => calendarRailPanelWidth.apply(width);
+export const persistCalendarRailWidth = (width: Parameters<typeof calendarRailPanelWidth.persist>[0]) => calendarRailPanelWidth.persist(width);
+export const beginCalendarRailResize = (event: PanelResizeHandleEvent, options?: PanelResizeOptions) => calendarRailPanelWidth.beginResize(event, options);
 
 // ── Day-agenda width (independent of the shared list column) ─────────────────
 
