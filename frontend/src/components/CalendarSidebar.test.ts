@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const source = () => readFile(new URL('./CalendarSidebar.tsx', import.meta.url), 'utf8');
 
 describe('CalendarSidebar contract', () => {
-  it('provides a mini-month, visible calendar toggles, and source management entry point', async () => {
+  it('provides a mini-month and visible calendar toggles', async () => {
     const component = await source();
     assert.match(component, /data-testid="calendar-mini-month"/);
     assert.match(component, /data-testid="calendar-mini-month-previous"/);
@@ -13,7 +13,36 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /onShiftMonth\?\.\(-1\)/);
     assert.match(component, /onShiftMonth\?\.\(1\)/);
     assert.match(component, /data-testid="calendar-visibility-toggle"/);
-    assert.match(component, /data-testid="calendar-sidebar-manage-sources"/);
+  });
+
+  it('keeps per-calendar rename/color/delete management', async () => {
+    const component = await source();
+    assert.match(component, /calendar\.rename/);
+    assert.match(component, /calendar\.changeColor/);
+    assert.match(component, /calendar\.deleteCalendar/);
+    assert.match(component, /testId="calendar-appearance-dialog"/);
+  });
+
+  it('has no remote source management entry point — that moved to Settings → DAV servers', async () => {
+    // The pane used to render its own "Manage sources" button and an inline
+    // add/edit/discover dialog for CalDAV/ICS sources. That whole workflow now
+    // lives in the unified DavServersSettings tab, so none of it belongs here.
+    const component = await source();
+    assert.doesNotMatch(component, /data-testid="calendar-sidebar-manage-sources"/);
+    assert.doesNotMatch(component, /calendar\.manageSources/);
+    assert.doesNotMatch(component, /discoverSource|api\.calendar\.createSource|api\.calendar\.deleteSource/);
+    assert.doesNotMatch(component, /sourcePanelRequest/);
+  });
+
+  it('shows a flat calendar list with no local/external grouping or badges', async () => {
+    // Confirmed product decision: drop the "Kalender" section heading, the
+    // "Quelle"/owned badges, and the my-calendars/source-calendar group headings
+    // entirely — just checkboxes, colors and names.
+    const component = await source();
+    assert.doesNotMatch(component, /calendar\.calendars\b/);
+    assert.doesNotMatch(component, /calendar\.myCalendars/);
+    assert.doesNotMatch(component, /calendar\.sourceCalendar/);
+    assert.doesNotMatch(component, /calendar\.owned\b/);
   });
 
   it('leaves closing to the one shared sheet header control', async () => {
@@ -25,32 +54,9 @@ describe('CalendarSidebar contract', () => {
     assert.doesNotMatch(component, /canCreate, onClose/);
   });
 
-  it('keeps application-wide calendar preferences out of the calendar source panel', async () => {
+  it('keeps application-wide calendar preferences out of the calendar rail', async () => {
     const component = await source();
     assert.doesNotMatch(component, /calendar\.firstDayOfWeek/);
     assert.doesNotMatch(component, /calendar\.mobileNavigation/);
-  });
-
-  it('waits for the asynchronous initial source sync with a bounded, cancellable poll', async () => {
-    const component = await source();
-    assert.match(component, /lastSyncAt|lastError/);
-    assert.match(component, /setTimeout/);
-    assert.match(component, /clearTimeout/);
-    assert.match(component, /unmount|mounted|cancel/i);
-    assert.match(component, /const maxAttempts = 70/);
-    assert.match(component, /attempts >= maxAttempts/);
-    assert.match(component, /pending\.clear\(\)/);
-  });
-
-  it('guards independent source-panel requests across cleanup and unmount', async () => {
-    const component = await source();
-    assert.match(component, /let active = true/);
-    assert.match(component, /!active \|\| !mounted\.current/);
-    assert.match(component, /return \(\) => \{ active = false; \}/);
-  });
-
-  it('cancels pending initial-sync polling after a successful source deletion', async () => {
-    const component = await source();
-    assert.match(component, /deleteSource\(id\); clearSourcePoll\(id\);/);
   });
 });

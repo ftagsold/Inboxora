@@ -13,6 +13,7 @@ import { setPending, pendingMarkReadMap } from '../utils/pendingReads.ts';
 import { useStore } from '../store/index.ts';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
+import { useMobile } from '../hooks/useMobile.ts';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
 // MessagePane owns the pane geometry and ConversationMessage uses MessagePane visuals.
@@ -93,6 +94,7 @@ export interface MessageBodyStatus { loading?: boolean; unavailable?: boolean; [
 
 export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable }: ConversationReaderProps) {
   const { t } = useTranslation();
+  const isMobile = useMobile();
   const [data, setData] = useState<ConversationReaderData | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -422,7 +424,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const handleReply = useCallback((message: ConversationReplyPayload, all?: boolean) => { onReply?.(message, all); }, [onReply]);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error instanceof Error ? toAppError(error).message : String(error)}</div>;
-  return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
+  return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, paddingBottom: isMobile ? 12 : 24, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
       return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={selectedAccountAvailable && physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={handleReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { Button } from './ui.tsx';
 import { formatInvitationRange } from '../utils/invitationTime.ts';
+import { isWritableCalendarSource } from './calendarView.ts';
 import type { CSSProperties } from 'react';
 
 interface WritableCalendar {
@@ -38,7 +39,7 @@ export default function CalendarInvitationCard({ messageId }: { messageId: strin
     setInvitation(null); setError(false); setOutcome(null); setLocalEvent(null);
     Promise.all([api.calendar.getInvitation(messageId), api.calendar.listCalendars()]).then(([result, list]) => {
       if (cancelled) return;
-      const writable = (list.calendars || []).filter((calendar: WritableCalendar) => !calendar.read_only && calendar.source === 'local');
+      const writable = (list.calendars || []).filter((calendar: WritableCalendar) => !calendar.read_only && isWritableCalendarSource(calendar.source));
       setInvitation(result.invitation);
       setLocalEvent(result.invitation?.localEvent || null);
       setCalendars(writable);

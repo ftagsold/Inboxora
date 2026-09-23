@@ -9,11 +9,13 @@ import { createSmtpTransport } from '../services/smtpTransport.js';
 import { getConnectionPolicy, invalidateConnectionPolicyCache } from '../services/connectionPolicy.js';
 import { reloadAuthSettings } from '../services/authLimiter.js';
 import { imapManager } from '../index.js';
-import { stopCardavUser } from '../services/carddavSync.js';
+import { stopCalendarSource } from '../services/externalCalendarSync.js';
+import { stopCarddavSide } from '../services/carddavCollectionSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
 import { queryInt } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import { normalizeClaimName } from '../utils/claimName.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -79,7 +81,11 @@ router.delete('/users/:id', async (req, res) => {
   // Stop live per-user workers BEFORE the delete — disconnectUser looks up the
   // user's accounts, which the cascade delete would remove.
   await imapManager.disconnectUser(id).catch(err => console.warn('disconnectUser on delete:', err.message));
-  stopCardavUser(id);
+  // Stop every DAV server timer this user owns before the cascade delete removes
+  // the rows out from under them — otherwise each keeps firing against a since-
+  // deleted source until the process restarts.
+  const davSources = await query<{ id: string }>('SELECT id FROM calendar_import_sources WHERE user_id = $1', [id]);
+  await Promise.all(davSources.rows.flatMap(row => [stopCalendarSource(row.id), stopCarddavSide(row.id)]));
   await query('DELETE FROM users WHERE id = $1', [id]);
   // Let plugins clean up any user-scoped data the FK cascade can't reach (GTD removes the
   // imported pet, stored under a slug derived from the user id rather than an FK). Best-effort
@@ -494,13 +500,7 @@ router.delete('/system-email', async (req, res) => {
 // login to an existing Inboxora account (matched against users.username). Restrict to a safe
 // claim-name charset. Returns the trimmed value, or null if it is not a valid claim name.
 function validateMatchClaim(v: unknown) {
-  const c = String(v).trim();
-  if (!/^[a-zA-Z0-9_.:-]{1,64}$/.test(c)) return null;
-  // Reject object-prototype key names: as a claim they can't name a real IdP claim, and
-  // `payload["__proto__"]` from JSON.parse is a string own-property that would otherwise slip
-  // past resolveLoginMatchValue's type guard. Defense-in-depth (also guarded at the sink).
-  if (c === '__proto__' || c === 'constructor' || c === 'prototype') return null;
-  return c;
+  return normalizeClaimName(v);
 }
 
 router.get('/oidc', async (req, res) => {

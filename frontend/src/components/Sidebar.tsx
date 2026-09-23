@@ -500,6 +500,12 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
     // through a provider with RP-initiated logout enabled; navigating there also clears
     // the upstream SSO session. Falls back to /login otherwise. (#310)
     const res = await api.logout().catch(() => ({}));
+    // An explicit sign-out must always land on a real login page — never bounce straight
+    // back into SSO because of OIDC_AUTO_LOGIN, which would make logging out impossible
+    // when the IdP still has an active session. LoginPage checks this flag once and skips
+    // the auto-redirect; a session that merely expired (not an explicit logout) doesn't set
+    // it, so auto-login still applies there.
+    sessionStorage.setItem('mailflow_skip_sso_autologin', '1');
     // Appearance/localization prefs (theme, font, layout, language) are deliberately
     // NOT cleared: keeping them means the login screen and the next visit retain the
     // last-used look instead of snapping back to the default dark theme (issue #208).
@@ -849,7 +855,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                 color: 'var(--text-primary)',
                 letterSpacing: '-0.02em', whiteSpace: 'nowrap',
               }}>
-                Inboxora
+                {import.meta.env.VITE_APP_NAME || 'Inboxora'}
               </span>
             </span>
           </div>
@@ -915,50 +921,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
           />
         )}
 
-        {!isMobile && (
-          <NavItem testId="calendar-nav-primary" icon={ICONS.calendar} label={t('calendar.title')} active={showCalendar} collapsed={sidebarCollapsed} onClick={() => setShowCalendar(true)} />
-        )}
-        {isMobile && (
-          <NavItem
-            testId="calendar-nav-mobile"
-            icon={ICONS.calendar}
-            label={t('calendar.title')}
-            active={showCalendar}
-            collapsed={sidebarCollapsed}
-            onClick={() => {
-              setShowCalendar(true);
-              setMobileSidebarOpen(false);
-            }}
-          />
-        )}
-        {/* Contacts is a primary desktop destination, not a secondary account action. */}
-        {!isMobile && (
-          <NavItem
-            testId="contacts-nav-primary"
-            icon={ICONS.contacts}
-            label={t('contacts.title')}
-            active={showContacts}
-            collapsed={sidebarCollapsed}
-            onClick={() => setShowContacts(true)}
-          />
-        )}
-        {isMobile && (
-          <NavItem
-            testId="contacts-nav-mobile"
-            icon={ICONS.contacts}
-            label={t('contacts.title')}
-            active={showContacts}
-            collapsed={sidebarCollapsed}
-            onClick={() => {
-              setShowContacts(true);
-              setMobileSidebarOpen(false);
-            }}
-          />
-        )}
-
-
         {/* Per-account */}
-        <div style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-tertiary)', padding: '10px 10px 4px' }}>{t('sidebar.accounts', 'Konta')}</div>
         {accounts.map(account => {
           const unread = unreadCounts.byAccount[account.id] || 0;
           const expanded = expandedAccounts[account.id];
@@ -1077,8 +1040,14 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
 
               {/* Folder tree */}
               {expanded && !sidebarCollapsed && (() => {
-                const BASE_INDENT = 26;
+                // Aligns a depth-0 folder's icon with the account row's leading dot
+                // (10px, that row's own padding-left). The expand chevron for a parent
+                // folder is positioned absolutely into the gutter this reserves, rather
+                // than taking up flow space before the icon, so it never pushes the
+                // icon/label right of that alignment.
+                const BASE_INDENT = 10;
                 const DEPTH_INDENT = 14;
+                const CHEVRON_GUTTER = 16;
 
                 const createFolderInput = (indent: number) => (
                   <div style={{
@@ -1189,8 +1158,9 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                   return (
                     <div key={folder.path} style={isHidden ? { opacity: 0.45 } : undefined}>
                       <div
+                        className="sidebar-folder-row"
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 6,
+                          display: 'flex', alignItems: 'center', gap: 6, position: 'relative',
                           padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
                           cursor: isRenaming ? 'default' : 'pointer',
                           background: (msgDragTarget === `${account.id}:${folder.path}`) ? 'var(--accent-dim)' : isFolderSelected ? 'var(--bg-hover)' : 'transparent',
@@ -1225,38 +1195,18 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                           handleMsgDrop(event, folder.path);
                         }}
                       >
-                        {canReorder ? (
-                          <span
-                            draggable
-                            onDragStart={event => handleFolderOrderDragStart(event, folder.path)}
-                            onDragEnd={clearFolderDrag}
-                            title={t('sidebar.reorderFolder', 'Drag to reorder folder')}
-                            style={{
-                              color: 'var(--text-tertiary)', flexShrink: 0,
-                              display: 'flex', opacity: 0.4, cursor: 'grab',
-                            }}
-                          >
-                            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-                              <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
-                              <circle cx="2" cy="7" r="1.5"/><circle cx="8" cy="7" r="1.5"/>
-                              <circle cx="2" cy="12" r="1.5"/><circle cx="8" cy="12" r="1.5"/>
-                            </svg>
-                          </span>
-                        ) : !isMobile && (
-                          // Keep single-child rows aligned with siblings that have a
-                          // drag handle — without this spacer the missing handle
-                          // visually cancels the depth indent.
-                          <span style={{ width: 10, flexShrink: 0 }} />
-                        )}
-                        {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
-                        {hasChildren ? (
+                        {/* Expand chevron for parent folders — positioned into the indent
+                            gutter (out of normal flow) so it never shifts the icon that
+                            follows it; a leaf folder simply has no chevron to place. */}
+                        {hasChildren && (
                           <button
                             onClick={ (e: React.MouseEvent<HTMLElement>) => { e.stopPropagation(); toggleCollapsedFolder(account.id, folder.path); }}
                             style={{
-                              background: 'none', border: 'none', padding: 2, margin: 0, flexShrink: 0,
+                              position: 'absolute', left: indent - CHEVRON_GUTTER, top: '50%',
+                              background: 'none', border: 'none', padding: 2, margin: 0,
                               color: 'var(--text-tertiary)', cursor: 'pointer',
                               display: 'flex', alignItems: 'center',
-                              transform: isExpanded ? 'rotate(90deg)' : 'none',
+                              transform: `translateY(-50%) ${isExpanded ? 'rotate(90deg)' : ''}`,
                               transition: 'transform 0.15s',
                             }}
                           >
@@ -1264,8 +1214,6 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                               <polyline points="9 18 15 12 9 6"/>
                             </svg>
                           </button>
-                        ) : (
-                          <span style={{ width: 14, flexShrink: 0 }} />
                         )}
 
                         <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
@@ -1312,6 +1260,26 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                             </span>
                           )
                         )}
+
+                        {canReorder && !isRenaming && (
+                          <span
+                            className="sidebar-drag-handle"
+                            draggable
+                            onDragStart={event => handleFolderOrderDragStart(event, folder.path)}
+                            onDragEnd={clearFolderDrag}
+                            title={t('sidebar.reorderFolder', 'Drag to reorder folder')}
+                            style={{
+                              color: 'var(--text-tertiary)', flexShrink: 0,
+                              display: 'flex', cursor: 'grab',
+                            }}
+                          >
+                            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                              <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
+                              <circle cx="2" cy="7" r="1.5"/><circle cx="8" cy="7" r="1.5"/>
+                              <circle cx="2" cy="12" r="1.5"/><circle cx="8" cy="12" r="1.5"/>
+                            </svg>
+                          </span>
+                        )}
                       </div>
 
                       {/* Children — shown when expanded */}
@@ -1331,7 +1299,10 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                   ? tree
                   : tree.filter(node => !accountHiddenPaths.includes(node.path));
                 return (
-                  <div>
+                  // marginTop gives the account row's own highlight box breathing room
+                  // before the first folder's — without it, two adjacent hover/selected
+                  // backgrounds touch and read as one merged block.
+                  <div style={{ marginTop: 4 }}>
                     {visibleTree.map(node => renderNode(node, 0, visibleTree))}
                     {/* Show/hide hidden folders toggle */}
                     {accountHiddenPaths.length > 0 && (
@@ -1339,7 +1310,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                         onClick={() => toggleShowHidden(account.id)}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 6,
-                          padding: '4px 10px 4px 26px', borderRadius: 7,
+                          padding: `4px 10px 4px ${BASE_INDENT}px`, borderRadius: 7,
                           background: 'none', border: 'none', cursor: 'pointer',
                           color: showingHidden ? 'var(--accent)' : 'var(--text-tertiary)',
                           fontSize: 11, width: '100%', transition: 'color 0.1s',
@@ -1364,7 +1335,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                           onClick={() => handleStartCreateFolder(account.id)}
                           style={{
                             display: 'flex', alignItems: 'center', gap: 8,
-                            padding: '5px 10px 5px 26px', borderRadius: 7,
+                            padding: `5px 10px 5px ${BASE_INDENT}px`, borderRadius: 7,
                             background: 'none', border: 'none', cursor: 'pointer',
                             color: 'var(--text-tertiary)', fontSize: 11, width: '100%',
                             transition: 'color 0.1s',
@@ -1597,6 +1568,53 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             </>
           );
         })()}
+
+      {/* Calendar and Contacts are pinned to the bottom of the rail, above the
+          profile section — not part of the scrollable account list above, so
+          the gap between them stays put regardless of how many accounts/
+          folders there are. */}
+      <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+        {!isMobile && (
+          <NavItem testId="calendar-nav-primary" icon={ICONS.calendar} label={t('calendar.title')} active={showCalendar} collapsed={sidebarCollapsed} onClick={() => setShowCalendar(true)} />
+        )}
+        {isMobile && (
+          <NavItem
+            testId="calendar-nav-mobile"
+            icon={ICONS.calendar}
+            label={t('calendar.title')}
+            active={showCalendar}
+            collapsed={sidebarCollapsed}
+            onClick={() => {
+              setShowCalendar(true);
+              setMobileSidebarOpen(false);
+            }}
+          />
+        )}
+        {/* Contacts is a primary desktop destination, not a secondary account action. */}
+        {!isMobile && (
+          <NavItem
+            testId="contacts-nav-primary"
+            icon={ICONS.contacts}
+            label={t('contacts.title')}
+            active={showContacts}
+            collapsed={sidebarCollapsed}
+            onClick={() => setShowContacts(true)}
+          />
+        )}
+        {isMobile && (
+          <NavItem
+            testId="contacts-nav-mobile"
+            icon={ICONS.contacts}
+            label={t('contacts.title')}
+            active={showContacts}
+            collapsed={sidebarCollapsed}
+            onClick={() => {
+              setShowContacts(true);
+              setMobileSidebarOpen(false);
+            }}
+          />
+        )}
+      </div>
 
       {/* Bottom — mobile: inline user section; desktop: user menu button */}
       {isMobile ? (

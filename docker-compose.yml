@@ -11,6 +11,7 @@ services:
       args:
         VITE_BUILD_SHA: ${GIT_SHA:-dev}
         VITE_EMAIL_DIV_RENDER: ${VITE_EMAIL_DIV_RENDER:-false}
+        VITE_APP_NAME: ${VITE_APP_NAME:-Inboxora}
     container_name: mailflow-frontend
     restart: unless-stopped
     ports:
@@ -58,6 +59,87 @@ services:
       FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
       PUSH_ALLOW_PRIVATE_ENDPOINTS: ${PUSH_ALLOW_PRIVATE_ENDPOINTS:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
+      # ── OIDC / SSO providers (optional) ──────────────────────────────────────
+      # Each OIDC_<N>_* block below declares one SSO provider without touching the admin UI.
+      # Wired up to 3 slots (N=1..3) by default — copy a block and bump N to add more.
+      # Providers are only ever CREATED from these vars on first boot (matched by slug); once
+      # a provider row exists, the admin UI owns it and further env changes are ignored.
+      # See .env.example for the full list of OIDC_<N>_* vars, including the MAIL_* ones that
+      # auto-provision a per-user IMAP/SMTP mailbox authenticated via that provider's OIDC token
+      # instead of a password ("OIDC passthrough").
+      OIDC_1_ISSUER_URL: ${OIDC_1_ISSUER_URL:-}
+      OIDC_1_CLIENT_ID: ${OIDC_1_CLIENT_ID:-}
+      OIDC_1_CLIENT_SECRET: ${OIDC_1_CLIENT_SECRET:-}
+      OIDC_1_NAME: ${OIDC_1_NAME:-}
+      OIDC_1_SLUG: ${OIDC_1_SLUG:-}
+      OIDC_1_SCOPES: ${OIDC_1_SCOPES:-}
+      OIDC_1_PROVISIONING_MODE: ${OIDC_1_PROVISIONING_MODE:-}
+      OIDC_1_ALLOWED_DOMAINS: ${OIDC_1_ALLOWED_DOMAINS:-}
+      OIDC_1_ENABLED: ${OIDC_1_ENABLED:-}
+      OIDC_1_REQUIRE_EMAIL_VERIFIED: ${OIDC_1_REQUIRE_EMAIL_VERIFIED:-}
+      OIDC_1_ALLOW_INSECURE: ${OIDC_1_ALLOW_INSECURE:-}
+      OIDC_1_ADMIN_GROUP_CLAIM: ${OIDC_1_ADMIN_GROUP_CLAIM:-}
+      OIDC_1_ADMIN_GROUP_VALUE: ${OIDC_1_ADMIN_GROUP_VALUE:-}
+      OIDC_1_RP_INITIATED_LOGOUT: ${OIDC_1_RP_INITIATED_LOGOUT:-}
+      OIDC_1_LOGIN_MATCH_CLAIM: ${OIDC_1_LOGIN_MATCH_CLAIM:-}
+      OIDC_1_MAIL_IMAP_HOST: ${OIDC_1_MAIL_IMAP_HOST:-}
+      OIDC_1_MAIL_IMAP_PORT: ${OIDC_1_MAIL_IMAP_PORT:-}
+      OIDC_1_MAIL_IMAP_TLS: ${OIDC_1_MAIL_IMAP_TLS:-}
+      OIDC_1_MAIL_SMTP_HOST: ${OIDC_1_MAIL_SMTP_HOST:-}
+      OIDC_1_MAIL_SMTP_PORT: ${OIDC_1_MAIL_SMTP_PORT:-}
+      OIDC_1_MAIL_SMTP_TLS: ${OIDC_1_MAIL_SMTP_TLS:-}
+      OIDC_1_MAIL_USERNAME_CLAIM: ${OIDC_1_MAIL_USERNAME_CLAIM:-}
+      OIDC_1_MAIL_SKIP_TLS_VERIFY: ${OIDC_1_MAIL_SKIP_TLS_VERIFY:-}
+      OIDC_1_MAIL_NAME: ${OIDC_1_MAIL_NAME:-}
+      OIDC_2_ISSUER_URL: ${OIDC_2_ISSUER_URL:-}
+      OIDC_2_CLIENT_ID: ${OIDC_2_CLIENT_ID:-}
+      OIDC_2_CLIENT_SECRET: ${OIDC_2_CLIENT_SECRET:-}
+      OIDC_2_NAME: ${OIDC_2_NAME:-}
+      OIDC_2_SLUG: ${OIDC_2_SLUG:-}
+      OIDC_2_SCOPES: ${OIDC_2_SCOPES:-}
+      OIDC_2_PROVISIONING_MODE: ${OIDC_2_PROVISIONING_MODE:-}
+      OIDC_2_ALLOWED_DOMAINS: ${OIDC_2_ALLOWED_DOMAINS:-}
+      OIDC_2_ENABLED: ${OIDC_2_ENABLED:-}
+      OIDC_2_REQUIRE_EMAIL_VERIFIED: ${OIDC_2_REQUIRE_EMAIL_VERIFIED:-}
+      OIDC_2_ALLOW_INSECURE: ${OIDC_2_ALLOW_INSECURE:-}
+      OIDC_2_ADMIN_GROUP_CLAIM: ${OIDC_2_ADMIN_GROUP_CLAIM:-}
+      OIDC_2_ADMIN_GROUP_VALUE: ${OIDC_2_ADMIN_GROUP_VALUE:-}
+      OIDC_2_RP_INITIATED_LOGOUT: ${OIDC_2_RP_INITIATED_LOGOUT:-}
+      OIDC_2_LOGIN_MATCH_CLAIM: ${OIDC_2_LOGIN_MATCH_CLAIM:-}
+      OIDC_2_MAIL_IMAP_HOST: ${OIDC_2_MAIL_IMAP_HOST:-}
+      OIDC_2_MAIL_IMAP_PORT: ${OIDC_2_MAIL_IMAP_PORT:-}
+      OIDC_2_MAIL_IMAP_TLS: ${OIDC_2_MAIL_IMAP_TLS:-}
+      OIDC_2_MAIL_SMTP_HOST: ${OIDC_2_MAIL_SMTP_HOST:-}
+      OIDC_2_MAIL_SMTP_PORT: ${OIDC_2_MAIL_SMTP_PORT:-}
+      OIDC_2_MAIL_SMTP_TLS: ${OIDC_2_MAIL_SMTP_TLS:-}
+      OIDC_2_MAIL_USERNAME_CLAIM: ${OIDC_2_MAIL_USERNAME_CLAIM:-}
+      OIDC_2_MAIL_SKIP_TLS_VERIFY: ${OIDC_2_MAIL_SKIP_TLS_VERIFY:-}
+      OIDC_2_MAIL_NAME: ${OIDC_2_MAIL_NAME:-}
+      OIDC_3_ISSUER_URL: ${OIDC_3_ISSUER_URL:-}
+      OIDC_3_CLIENT_ID: ${OIDC_3_CLIENT_ID:-}
+      OIDC_3_CLIENT_SECRET: ${OIDC_3_CLIENT_SECRET:-}
+      OIDC_3_NAME: ${OIDC_3_NAME:-}
+      OIDC_3_SLUG: ${OIDC_3_SLUG:-}
+      OIDC_3_SCOPES: ${OIDC_3_SCOPES:-}
+      OIDC_3_PROVISIONING_MODE: ${OIDC_3_PROVISIONING_MODE:-}
+      OIDC_3_ALLOWED_DOMAINS: ${OIDC_3_ALLOWED_DOMAINS:-}
+      OIDC_3_ENABLED: ${OIDC_3_ENABLED:-}
+      OIDC_3_REQUIRE_EMAIL_VERIFIED: ${OIDC_3_REQUIRE_EMAIL_VERIFIED:-}
+      OIDC_3_ALLOW_INSECURE: ${OIDC_3_ALLOW_INSECURE:-}
+      OIDC_3_ADMIN_GROUP_CLAIM: ${OIDC_3_ADMIN_GROUP_CLAIM:-}
+      OIDC_3_ADMIN_GROUP_VALUE: ${OIDC_3_ADMIN_GROUP_VALUE:-}
+      OIDC_3_RP_INITIATED_LOGOUT: ${OIDC_3_RP_INITIATED_LOGOUT:-}
+      OIDC_3_LOGIN_MATCH_CLAIM: ${OIDC_3_LOGIN_MATCH_CLAIM:-}
+      OIDC_3_MAIL_IMAP_HOST: ${OIDC_3_MAIL_IMAP_HOST:-}
+      OIDC_3_MAIL_IMAP_PORT: ${OIDC_3_MAIL_IMAP_PORT:-}
+      OIDC_3_MAIL_IMAP_TLS: ${OIDC_3_MAIL_IMAP_TLS:-}
+      OIDC_3_MAIL_SMTP_HOST: ${OIDC_3_MAIL_SMTP_HOST:-}
+      OIDC_3_MAIL_SMTP_PORT: ${OIDC_3_MAIL_SMTP_PORT:-}
+      OIDC_3_MAIL_SMTP_TLS: ${OIDC_3_MAIL_SMTP_TLS:-}
+      OIDC_3_MAIL_USERNAME_CLAIM: ${OIDC_3_MAIL_USERNAME_CLAIM:-}
+      OIDC_3_MAIL_SKIP_TLS_VERIFY: ${OIDC_3_MAIL_SKIP_TLS_VERIFY:-}
+      OIDC_3_MAIL_NAME: ${OIDC_3_MAIL_NAME:-}
+      OIDC_AUTO_LOGIN: ${OIDC_AUTO_LOGIN:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +159,8 @@ services:
     image: postgres:16-alpine
     container_name: mailflow-postgres
     restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
     # PUID/PGID default to 0:0 (root), identical to the image's normal behaviour.
     # Set them (e.g. 99:100 on Unraid) only when bind-mounting POSTGRES_DATA to a host
     # share, and chown that share to the same uid:gid first.

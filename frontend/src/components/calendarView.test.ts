@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { allDayEventSegment, createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutAllDayEvents, layoutTimedEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.ts';
+import { allDayEventSegment, createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutTimedEvents, layoutWeekAllDayEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.ts';
 
 describe('calendar desktop helpers', () => {
   it('returns an exclusive month range', () => {
@@ -62,7 +62,16 @@ describe('calendar desktop helpers', () => {
       assert.equal(eventsForDay([event], new Date(2026, 8, 9)).length, 0);
       assert.equal(eventsForDay([event], new Date(2026, 8, 10)).length, 1);
     } finally {
-      globalThis.process.env.TZ = originalTimeZone;
+      // `process.env.TZ = undefined` does NOT delete the variable — Node's env proxy
+      // coerces the assigned value to the string "undefined", which every later test
+      // in this process then reads as its timezone. On a host where TZ was never set
+      // (the common case: Node falls back to the OS default), that silently pinned
+      // every subsequent Date/Intl call in the whole file to UTC instead of the real
+      // local zone, which is exactly what made unrelated later tests (interval layout,
+      // "today" focus, and this file's other Date-based suites) fail depending on
+      // whether this test had already run — never a bug in what they were testing.
+      if (originalTimeZone === undefined) delete globalThis.process.env.TZ;
+      else globalThis.process.env.TZ = originalTimeZone;
     }
   });
   it('includes local multi-day events in each overlapped day', () => {
@@ -200,19 +209,8 @@ describe('week grid focus and centring', () => {
   });
 });
 
-describe('calendar all-day and multi-day stretch layout', () => {
-  const day = new Date(2026, 8, 14); // Mon 14 Sep 2026
+describe('calendar all-day segment continuation (month grid)', () => {
   const allDay = (id: string, start: string, end: string) => ({ id, all_day: true, starts_at: start, ends_at: end });
-
-  it('gives a single all-day event the whole day column', () => {
-    const laidOut = layoutAllDayEvents([allDay('a', '2026-09-14', '2026-09-15')], day);
-    assert.deepEqual(laidOut.map(item => [item.event.id, item.column, item.columns, item.continuesFrom, item.continuesTo]), [['a', 0, 1, false, false]]);
-  });
-
-  it('places several all-day events side by side so none hides another', () => {
-    const laidOut = layoutAllDayEvents([allDay('b', '2026-09-14', '2026-09-15'), allDay('a', '2026-09-14', '2026-09-15')], day);
-    assert.deepEqual(laidOut.map(item => [item.event.id, item.column, item.columns]), [['a', 0, 2], ['b', 1, 2]]);
-  });
 
   it('marks the middle days of a multi-day event as a continuation', () => {
     const event = allDay('span', '2026-09-13', '2026-09-16');
@@ -220,16 +218,52 @@ describe('calendar all-day and multi-day stretch layout', () => {
     assert.deepEqual(allDayEventSegment(event, new Date(2026, 8, 14)), { continuesFrom: true, continuesTo: true });
     assert.deepEqual(allDayEventSegment(event, new Date(2026, 8, 15)), { continuesFrom: true, continuesTo: false });
   });
+});
 
-  it('includes each covered day and excludes the exclusive end date', () => {
-    const event = allDay('span', '2026-09-13', '2026-09-16');
-    assert.equal(layoutAllDayEvents([event], new Date(2026, 8, 12)).length, 0);
-    assert.equal(layoutAllDayEvents([event], new Date(2026, 8, 15)).length, 1);
-    assert.equal(layoutAllDayEvents([event], new Date(2026, 8, 16)).length, 0);
+describe('calendar week all-day row layout', () => {
+  // Mon 14 - Sun 20 Sep 2026, the week the reference screenshot shows.
+  const week = Array.from({ length: 7 }, (_, index) => new Date(2026, 8, 14 + index));
+  const allDay = (id: string, start: string, end: string) => ({ id, all_day: true, starts_at: start, ends_at: end });
+
+  it('spans a single-day event across just its own day column', () => {
+    const placed = layoutWeekAllDayEvents([allDay('a', '2026-09-14', '2026-09-15')], week);
+    assert.deepEqual(placed, [{ event: { id: 'a', all_day: true, starts_at: '2026-09-14', ends_at: '2026-09-15' }, startIndex: 0, endIndex: 1, lane: 0, continuesFrom: false, continuesTo: false }]);
+  });
+
+  it('spans a multi-day event across every day column it covers, as one placement', () => {
+    // Fri 18 - Sun 20 inclusive -> exclusive end 2026-09-21, columns 4..7.
+    const placed = layoutWeekAllDayEvents([allDay('span', '2026-09-18', '2026-09-21')], week);
+    assert.deepEqual(placed, [{ event: { id: 'span', all_day: true, starts_at: '2026-09-18', ends_at: '2026-09-21' }, startIndex: 4, endIndex: 7, lane: 0, continuesFrom: false, continuesTo: false }]);
+  });
+
+  it('gives overlapping events different lanes, longer spans first', () => {
+    const short = allDay('short', '2026-09-14', '2026-09-15');
+    const long = allDay('long', '2026-09-13', '2026-09-16'); // continues from before the week
+    const placed = layoutWeekAllDayEvents([short, long], week);
+    const byId = Object.fromEntries(placed.map(p => [p.event.id, p]));
+    assert.notEqual(byId.short.lane, byId.long.lane);
+    assert.equal(byId.long.continuesFrom, true);
+    assert.equal(byId.long.startIndex, 0);
+  });
+
+  it('lets two non-overlapping events share a lane', () => {
+    const placed = layoutWeekAllDayEvents([allDay('a', '2026-09-14', '2026-09-15'), allDay('b', '2026-09-16', '2026-09-17')], week);
+    assert.equal(placed[0].lane, placed[1].lane);
+  });
+
+  it('marks an event continuing past the visible week', () => {
+    const placed = layoutWeekAllDayEvents([allDay('long', '2026-09-19', '2026-09-25')], week);
+    assert.equal(placed[0].continuesTo, true);
+    assert.equal(placed[0].endIndex, 7);
+  });
+
+  it('excludes events entirely outside the visible week', () => {
+    assert.deepEqual(layoutWeekAllDayEvents([allDay('before', '2026-09-01', '2026-09-05')], week), []);
+    assert.deepEqual(layoutWeekAllDayEvents([allDay('after', '2026-09-25', '2026-09-27')], week), []);
   });
 
   it('ignores timed events, which the time grid lays out separately', () => {
     const timed = { id: 'timed', starts_at: '2026-09-14T09:00:00', ends_at: '2026-09-14T10:00:00' };
-    assert.deepEqual(layoutAllDayEvents([timed], day), []);
+    assert.deepEqual(layoutWeekAllDayEvents([timed], week), []);
   });
 });

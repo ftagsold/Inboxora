@@ -97,17 +97,35 @@ export default function LoginPage() {
       })
       .catch(() => setRegistrationOpen(false)); // fail closed if unreachable
 
-    // Load SSO providers
-    api.oidc.getProviders()
-      .then(data => setOidcProviders(data.providers || []))
-      .catch(() => {});
-
     // Show any SSO error from a redirect callback
-    const oidcErrParam = new URLSearchParams(window.location.search).get('oidc_error');
+    const oidcErrParam = params.get('oidc_error');
     if (oidcErrParam) {
       setOidcError(oidcErrParam);
       window.history.replaceState({}, '', '/');
     }
+
+    // Load SSO providers, then auto-redirect to OIDC_AUTO_LOGIN's provider if the server
+    // has one configured — but never when we just landed here because that provider (or
+    // any SSO attempt) failed, mid an invite/password-reset flow, or since the user
+    // explicitly signed out (mailflow_skip_sso_autologin, set by Sidebar/LockScreen's sign-out
+    // — otherwise logging out would just bounce straight back into SSO whenever the IdP still
+    // has an active session, making it impossible to reach the login page at all). Deliberately
+    // NOT cleared here: Sidebar's handleLogout calls setUser(null) before its window.location.href
+    // navigation, and setUser(null) alone is enough for the router to client-side-mount this page
+    // once already (React Router's `user ? … : <Navigate to="/login">`) — a moment before the real
+    // full-page navigation lands and mounts it again for real. Clearing the flag on that first,
+    // throwaway mount would leave nothing for the real one to see. It naturally goes away when the
+    // tab closes; a manual SSO click from this page is unaffected either way.
+    const skipSsoAutoLogin = sessionStorage.getItem('mailflow_skip_sso_autologin') === '1';
+    api.oidc.getProviders()
+      .then(data => {
+        setOidcProviders(data.providers || []);
+        const skipAutoLogin = !!oidcErrParam || !!token || !!(params.get('reset_token') || sessionStorage.getItem('mailflow_reset_token')) || skipSsoAutoLogin;
+        if (data.autoLoginSlug && !skipAutoLogin) {
+          window.location.href = `/auth/oidc/${data.autoLoginSlug}/start`;
+        }
+      })
+      .catch(() => {});
 
     // Handle password reset link: ?reset_token= in URL or sessionStorage (set by App.jsx
     // when the user was not logged in and the URL contained a reset token)

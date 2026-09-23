@@ -19,8 +19,9 @@ test('V3 calendar selects a day, reveals overflow, filters both agendas and show
   const agenda = page.getByTestId('calendar-day-agenda');
   await expect(agenda.getByRole('button')).toHaveCount(6);
   await agenda.getByRole('button', { name: /Wyjazd zespołu/ }).click();
-  await expect(page.getByTestId('calendar-event-preview').getByRole('button', { name: 'Zamknij', exact: true })).toBeFocused();
-  const preview = page.getByTestId('calendar-event-preview');
+  // A read-only event opens the same edit dialog, every field disabled.
+  await expect(page.getByTestId('calendar-event-dialog').getByRole('button', { name: 'Zamknij', exact: true })).toBeFocused();
+  const preview = page.getByTestId('calendar-event-dialog');
   // The imported description renders through the sanitized body iframe mail uses,
   // so the copy is asserted inside that frame rather than on the dialog's DOM text.
   await expect(preview.getByTestId('calendar-event-description-body').frameLocator('iframe').locator('body')).toContainText('Wydarzenie ze źródła CalDAV.');

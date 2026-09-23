@@ -2,7 +2,7 @@ import MobileFloatingAction from './MobileFloatingAction.tsx';
 import { contactDateLabel, formatContactDate } from '../utils/contactDateLabels.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../utils/api.ts';
@@ -11,7 +11,7 @@ import { useMobile } from '../hooks/useMobile.ts';
 import { useCompactLayout } from '../hooks/useCompactLayout.ts';
 import { Button, Dialog, PanelResizeHandle, inputStyle as sharedInputStyle } from './ui.tsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
-import { beginPanelResize } from '../utils/panelWidth.ts';
+import { applyContactsListWidth, beginContactsListResize, readContactsListWidth } from '../utils/panelWidth.ts';
 import './contacts.css';
 import SenderAvatarImage from './SenderAvatarImage.tsx';
 import { safeHttpUrl } from '../utils/contactLinks.ts';
@@ -195,13 +195,16 @@ export default function ContactsPage({ isActive = true }) {
   const contactSelectionRequestRef  = useRef(0);
   const listResizeRef               = useRef<(() => void) | null>(null);
 
-  // The contact list resizes with the same shared width the mail list uses, so
-  // widening it in Contacts also widens the mail list (and the calendar panels).
+  // The contact list has its own persisted width, independent of the mail list
+  // and the calendar rail.
   const handleListResizeMouseDown = (event: React.MouseEvent) => {
     listResizeRef.current?.();
-    listResizeRef.current = beginPanelResize(event, { edge: 'right' });
+    listResizeRef.current = beginContactsListResize(event, { edge: 'right' });
   };
   useEffect(() => () => { listResizeRef.current?.(); }, []);
+  // Apply the persisted width before paint so a returning user doesn't see a
+  // flash of the fallback width before it snaps to their saved size.
+  useLayoutEffect(() => { applyContactsListWidth(readContactsListWidth()); }, []);
 
   // A navigation drawer re-entry must not
   // expose a retained contact detail or new-contact form.
@@ -438,6 +441,20 @@ export default function ContactsPage({ isActive = true }) {
   useBackLayer(showContacts && isMobile && mobilePanel === 'detail', goBackToList, 30);
   useBackLayer(showContacts && inForm, () => { if (!saving) cancelEdit(); }, 40);
   useBackLayer(showContacts && confirmDelete, () => setConfirmDelete(false), 9100);
+
+  // Each address book's "⋯" actions menu is a native <details>, which has no
+  // built-in outside-click-to-close behavior — only re-clicking its own
+  // <summary> toggles it. Close any open one when a click lands elsewhere.
+  useEffect(() => {
+    const handler = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) return;
+      document.querySelectorAll('details.contacts-book-menu[open]').forEach(details => {
+        if (!details.contains(event.target as Node)) (details as HTMLDetailsElement).open = false;
+      });
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const saveContact = async () => {
     setSaving(true);
@@ -832,7 +849,7 @@ export default function ContactsPage({ isActive = true }) {
 
       {/* Contact list panel */}
       <div data-testid="contacts-desktop-list" style={{
-        flex: '0 0 var(--list-width)', width: 'var(--list-width)', display: 'flex', flexDirection: 'column',
+        flex: '0 0 var(--contacts-list-width)', width: 'var(--contacts-list-width)', display: 'flex', flexDirection: 'column',
         borderRight: '1px solid var(--border-subtle)',
         background: 'var(--bg-primary)',
         overflow: 'hidden',

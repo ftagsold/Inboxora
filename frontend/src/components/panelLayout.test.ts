@@ -7,11 +7,16 @@ import {
   AGENDA_WIDTH_MAX,
   AGENDA_WIDTH_MIN,
   AGENDA_WIDTH_STORAGE_KEY,
+  CALENDAR_RAIL_WIDTH_DEFAULT,
+  CALENDAR_RAIL_WIDTH_STORAGE_KEY,
+  CONTACTS_LIST_WIDTH_STORAGE_KEY,
   PANEL_WIDTH_DEFAULT,
   PANEL_WIDTH_MAX,
   PANEL_WIDTH_MIN,
   PANEL_WIDTH_STORAGE_KEY,
   applyAgendaWidth,
+  applyCalendarRailWidth,
+  applyContactsListWidth,
   applyPanelWidth,
   beginAgendaResize,
   beginPanelResize,
@@ -19,8 +24,12 @@ import {
   persistAgendaWidth,
   persistPanelWidth,
   readAgendaWidth,
+  readCalendarRailWidth,
+  readContactsListWidth,
   readPanelWidth,
   savedAgendaWidth,
+  savedCalendarRailWidth,
+  savedContactsListWidth,
   savedPanelWidth,
 } from '../utils/panelWidth.ts';
 import { applyLayout } from '../layouts.ts';
@@ -183,36 +192,44 @@ test('the stacked layout preset still defines the shared panel width', t => {
   assert.equal(properties.get('--list-width'), '500px');
 });
 
-test('mail, contacts and calendar resize through the same shared handle', () => {
+test('mail, contacts and the calendar rail each resize through their own independent handle', () => {
   const mailApp = read('MailApp.tsx');
   const contacts = read('ContactsPage.tsx');
   const calendar = read('CalendarPage.tsx');
   const ui = read('ui.tsx');
 
-  for (const source of [mailApp, contacts, calendar]) {
-    assert.match(source, /beginPanelResize/);
-    assert.match(source, /PanelResizeHandle/);
-  }
-  // Every handle writes the same --list-width through the shared helper.
+  for (const source of [mailApp, contacts, calendar]) assert.match(source, /PanelResizeHandle/);
   assert.match(ui, /export function PanelResizeHandle/);
+
+  // Mail keeps its original channel — also the layout-preset system's default.
+  assert.match(mailApp, /beginPanelResize/);
+  assert.doesNotMatch(mailApp, /beginContactsListResize|beginCalendarRailResize/);
   assert.match(readUtil('panelWidth.ts'), /PANEL_WIDTH_STORAGE_KEY = 'mailflow_list_width'/);
   assert.doesNotMatch(mailApp, /localStorage\.setItem\('mailflow_list_width'/);
 
-  // Both calendar panels are resizable: the rail on the right edge (shared list
-  // width) and the day agenda on its left edge (its own width).
+  // Contacts has its own independent channel — dragging it must not move mail's.
+  assert.match(contacts, /beginContactsListResize/);
+  assert.doesNotMatch(contacts, /beginPanelResize\(/);
+  assert.match(readUtil('panelWidth.ts'), /CONTACTS_LIST_WIDTH_STORAGE_KEY = 'mailflow_contacts_list_width'/);
+
+  // Both calendar panels are resizable: the rail on the right edge (its own
+  // width) and the day agenda on its left edge (also its own, separate width).
   assert.match(calendar, /testId="calendar-rail-resize"/);
   assert.match(calendar, /testId="calendar-agenda-resize"/);
-  assert.match(calendar, /beginPanelResize\(event, \{ edge: 'right' \}\)/);
+  assert.match(calendar, /beginCalendarRailResize\(event, \{ edge: 'right' \}\)/);
   assert.match(calendar, /beginAgendaResize\(event, \{ edge: 'left' \}\)/);
+  assert.doesNotMatch(calendar, /beginPanelResize\(/);
+  assert.match(readUtil('panelWidth.ts'), /CALENDAR_RAIL_WIDTH_STORAGE_KEY = 'mailflow_calendar_rail_width'/);
 });
 
 test('calendar panels render their own widths instead of private fixed values', () => {
   const css = readFileSync(new URL('./calendar.css', import.meta.url), 'utf8');
-  // The rail follows the shared list column...
-  assert.match(css, /\.calendar-rail \{ width: var\(--list-width, \d+px\)/);
-  // ...while the agenda keeps its dedicated, independently sized channel.
+  // The rail has its own independent width...
+  assert.match(css, /\.calendar-rail \{ width: var\(--calendar-rail-width, \d+px\)/);
+  // ...as does the agenda, in its own separate channel.
   assert.match(css, /\.calendar-agenda \{ width: var\(--agenda-width, \d+px\)/);
-  assert.doesNotMatch(css, /\.calendar-agenda \{ width: var\(--list-width/);
+  assert.doesNotMatch(css, /\.calendar-agenda \{ width: var\(--calendar-rail-width/);
+  assert.doesNotMatch(css, /\.calendar-rail \{ width: var\(--list-width/);
   assert.doesNotMatch(css, /\.calendar-compact \.calendar-rail \{ width: 210px; \}/);
 });
 
@@ -241,6 +258,39 @@ test('the day agenda keeps a width separate from the shared list column', t => {
   assert.equal(persistAgendaWidth(1), AGENDA_WIDTH_MIN);
   assert.equal(persistAgendaWidth(9_999), AGENDA_WIDTH_MAX);
   assert.notEqual(applyPanelWidth(AGENDA_WIDTH_DEFAULT), null);
+});
+
+test('mail, contacts and the calendar rail keep fully independent persisted widths', t => {
+  t.after(restoreDom);
+  const { properties, storage } = stubDom();
+
+  // Resizing mail's list must not move contacts' or the calendar rail's.
+  assert.equal(applyPanelWidth(520), 520);
+  assert.equal(properties.get('--list-width'), '520px');
+  assert.equal(properties.has('--contacts-list-width'), false);
+  assert.equal(properties.has('--calendar-rail-width'), false);
+  assert.equal(readContactsListWidth(), PANEL_WIDTH_DEFAULT);
+  assert.equal(readCalendarRailWidth(), CALENDAR_RAIL_WIDTH_DEFAULT);
+
+  // Resizing contacts must not move mail's or the calendar rail's.
+  assert.equal(applyContactsListWidth(300), 300);
+  assert.equal(properties.get('--contacts-list-width'), '300px');
+  assert.equal(properties.get('--list-width'), '520px');
+  assert.equal(properties.has('--calendar-rail-width'), false);
+
+  // Resizing the calendar rail must not move mail's or contacts'.
+  assert.equal(applyCalendarRailWidth(410), 410);
+  assert.equal(properties.get('--calendar-rail-width'), '410px');
+  assert.equal(properties.get('--list-width'), '520px');
+  assert.equal(properties.get('--contacts-list-width'), '300px');
+
+  // Each persists to its own localStorage key.
+  assert.equal(persistPanelWidth(520), 520);
+  assert.equal(storage.get(PANEL_WIDTH_STORAGE_KEY), '520');
+  assert.equal(storage.get(CONTACTS_LIST_WIDTH_STORAGE_KEY), undefined);
+  assert.equal(storage.get(CALENDAR_RAIL_WIDTH_STORAGE_KEY), undefined);
+  assert.equal(savedContactsListWidth(), undefined);
+  assert.equal(savedCalendarRailWidth(), undefined);
 });
 
 test('the stacked mail list fills its column instead of a percentage of the width', () => {

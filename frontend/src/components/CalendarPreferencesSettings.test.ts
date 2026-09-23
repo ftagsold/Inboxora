@@ -37,13 +37,15 @@ test('the default invitation sender is configured in the calendar tab and presel
 });
 
 
-test('external calendar management is directly discoverable from the calendar visibility panel', async () => {
-  const [calendar, sidebar] = await Promise.all([
+test('external CalDAV/CardDAV server management moved to Settings, out of the calendar visibility panel', async () => {
+  const [calendar, sidebar, adminPanel] = await Promise.all([
     source('./CalendarPage.tsx'),
     source('./CalendarSidebar.tsx'),
+    source('./AdminPanel.tsx'),
   ]);
 
   assert.doesNotMatch(calendar, /data-testid="calendar-manage-sources"/);
-  assert.match(sidebar, /data-testid="calendar-sidebar-manage-sources"/);
-  assert.match(sidebar, /sourcePanelRequest/);
+  assert.doesNotMatch(sidebar, /data-testid="calendar-sidebar-manage-sources"/);
+  assert.doesNotMatch(sidebar, /sourcePanelRequest/);
+  assert.match(adminPanel, /adminTab === 'dav-servers' && <DavServersSettings \/>/);
 });

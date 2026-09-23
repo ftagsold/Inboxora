@@ -7,7 +7,6 @@ import 'express-async-errors';
 
 interface CalendarQueryResult {
   rows: Array<Record<string, unknown>>;
-  rowCount?: number;
 }
 
 type CalendarQuery = (sql: string, parameters?: unknown[]) => Promise<CalendarQueryResult>;
@@ -24,7 +23,7 @@ type CalendarInvitation = (invitation: {
   location?: string | null;
   method?: string;
   sequence?: number;
-}) => Promise<{ accepted: string[]; rejected: string[] }>;
+}) => Promise<void>;
 type CalendarSource = Record<string, unknown>;
 type CalendarSyncResult =
   | { ok: true; eventCount?: number; skipped?: Array<{ uid: string; reason: string }> }
@@ -51,13 +50,13 @@ vi.mock('../services/encryption.js', () => ({
   encrypt: (value: string) => `enc:v1:${value}`,
   decrypt: (value: string) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value,
 }));
-vi.mock('../services/calendarInvitation.js', () => ({
-  sendCalendarInvitation,
-  prepareCalendarInvitation: async (input: Parameters<CalendarInvitation>[0]) => ({
-    dispatch: () => sendCalendarInvitation(input),
-  }),
-}));
-vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
+vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
+vi.mock('../services/externalCalendarSync.js', async (importOriginal) => {
+  // hrefHash/parseSourceCollections are pure helpers the routes call directly —
+  // keep the real implementations and only stub the scheduler side effects.
+  const actual = await importOriginal<typeof import('../services/externalCalendarSync.js')>();
+  return { ...actual, releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource };
+});
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -155,10 +154,10 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  query.mockReset().mockResolvedValue({ rows: [] });
+  query.mockReset();
   withTransaction.mockClear();
   withTransaction.mockImplementation(async (fn: (client: { query: typeof query }) => unknown) => fn({ query }));
-  sendCalendarInvitation.mockReset().mockResolvedValue({ accepted: [], rejected: [] });
+  sendCalendarInvitation.mockReset();
   releaseCalendarSource.mockReset();
   scheduleCalendarSource.mockReset();
   stopCalendarSource.mockReset();
@@ -192,6 +191,31 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(400);
     expect((await response.json())).toEqual({ error: 'CalDAV sources require username and password' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('resolves a CalDAV server from the email domain when no url is given', async () => {
+    query.mockImplementation(async (sql: string) => sql.includes('INSERT INTO calendar_import_sources')
+      ? { rows: [{ id: 'source-1', kind: 'caldav', url: 'enc:v1:https://example.com/', display_name: 'Work' }] }
+      : { rows: [] });
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'caldav', username: 'person@example.com', password: 'app-password', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(201);
+    const [, insertParameters] = queryCallContaining('INSERT INTO calendar_import_sources');
+    expect(queryParameter(insertParameters, 2)).toBe('enc:v1:https://example.com/');
+  });
+
+  it('rejects a CalDAV source with no url and a non-email username', async () => {
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'caldav', username: 'not-an-email', password: 'app-password', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json())).toEqual({ error: 'Enter a server URL, or leave it blank and use your email address as the username' });
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -243,7 +267,7 @@ describe('local calendar API', () => {
   it('redacts all source secrets from the listing payload', async () => {
     query.mockResolvedValueOnce({ rows: [{
       id: 'source-1', kind: 'ical_url', url: 'enc:v1:ciphertext', username: 'remote-user', password: 'enc:v1:password',
-      url_fingerprint: 'fingerprint', display_name: 'Work', color: null, interval_min: 60, enabled: true,
+      url_fingerprint: 'fingerprint', display_name: 'Work', color: null, interval_seconds: 3600, writable: false, collections: null, enabled: true,
       last_sync_at: null, last_error: 'failure enc:v1:ciphertext',
     }] });
 
@@ -251,7 +275,7 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(200);
     const payload = responseRecord(await response.json());
-    expect(payload.sources).toEqual([{ id: 'source-1', kind: 'ical_url', displayName: 'Work', color: null, intervalMin: 60, enabled: true, lastSyncAt: null, lastError: 'failure [redacted]' }]);
+    expect(payload.sources).toEqual([{ id: 'source-1', kind: 'ical_url', displayName: 'Work', color: null, intervalSeconds: 3600, writable: false, collections: null, enabled: true, lastSyncAt: null, lastError: 'failure [redacted]' }]);
     expect(JSON.stringify(payload)).not.toContain('ciphertext');
     expect(JSON.stringify(payload)).not.toContain('remote-user');
   });
@@ -616,17 +640,6 @@ describe('local calendar API', () => {
       expect(startsOf(rawIcal)).toContain('01-14T08:00');
     });
 
-    it('fails closed instead of mutating an invited series occurrence (V3-09)', async () => {
-      query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
-        .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', raw_ical: daily(), invite_account_id: 'account-1' }] });
-
-      const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following' });
-      expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({ error: 'Invited recurring occurrence mutations are not supported' });
-      expect(query.mock.calls.some(([statement]) => String(statement).startsWith('UPDATE calendar_events SET raw_ical') || String(statement).startsWith('DELETE FROM calendar_events'))).toBe(false);
-      expect(sendCalendarInvitation).not.toHaveBeenCalled();
-    });
-
     it('refuses a following-scope edit, which has no defined meaning', async () => {
       const response = await fetch(`${base}/api/calendar/events/event-1/occurrence`, {
         method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -650,40 +663,12 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-
-  it('persists rejected POST invite recipients without an idempotency header (V4-07)', async () => {
-    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
-    let storedPayload: { actions?: unknown } | null = null;
-    let retryPayload: unknown;
-    query.mockImplementation(async (statement: string, parameters?: unknown[]) => {
-      if (statement.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
-      if (statement.includes('FROM email_accounts')) return { rows: [sender] };
-      if (statement.includes('FROM calendar_invitation_outbox') && statement.startsWith('SELECT')) return { rows: [] };
-      if (statement.includes('INSERT INTO calendar_events')) return { rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 }] };
-      if (statement.includes('INSERT INTO calendar_invitation_outbox')) { storedPayload = JSON.parse(String(parameters?.[4])); return { rows: [{ id: 'outbox-1' }] }; }
-      if (statement.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1', user_id: 'user-1', payload: storedPayload, invite_account_id: 'account-1' }], rowCount: 1 };
-      if (statement.includes('SET claim_expires_at')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
-      if (statement.includes("SET status = 'failed'")) { retryPayload = JSON.parse(String(parameters?.[3])); return { rows: [{ attempts: 1 }], rowCount: 1 }; }
-      return { rows: [], rowCount: 0 };
-    });
-    sendCalendarInvitation.mockResolvedValueOnce({ accepted: ['accepted@example.test'], rejected: ['rejected@example.test'] });
-
-    const response = await fetch(base + '/api/calendar/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['accepted@example.test', 'rejected@example.test'], startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' }) });
-    expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({ invitationStatus: { status: 'failed' } });
-    expect(retryPayload).toEqual([expect.objectContaining({ attendees: ['rejected@example.test'] })]);
-    const insert = query.mock.calls.find(([statement]) => String(statement).includes('INSERT INTO calendar_invitation_outbox'));
-    expect(String(insert?.[1]?.[2])).toMatch(/^server:/);
-  });
-
   it('uses only the selected owned SMTP account to deliver a calendar invitation', async () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [sender] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1' }] });
 
     const response = await fetch(`${base}/api/calendar/events`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -696,12 +681,12 @@ describe('local calendar API', () => {
     expect(response.status).toBe(201);
     expect(queryCall(1)[0]).toContain('id = $1 AND user_id = $2');
     expect(queryCall(1)[1]).toEqual(['account-1', 'user-1']);
-    expect(queryCall(3)[0]).toContain('attendees, invite_account_id');
+    expect(queryCall(2)[0]).toContain('attendees, invite_account_id');
     // attendees is a jsonb column: the driver must receive a JSON string, never a
     // JavaScript array (node-postgres would render that as a PostgreSQL array
     // literal, which jsonb rejects with "invalid input syntax for type json").
-    expect(queryCall(3)[1]).toContainEqual(JSON.stringify(['guest@example.test']));
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(queryCall(2)[1]).toContainEqual(JSON.stringify(['guest@example.test']));
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ account: sender, attendees: ['guest@example.test'], summary: 'Planning' }));
   });
 
   it('stores a valid iCalendar representation when creating a local event', async () => {
@@ -858,10 +843,8 @@ describe('local calendar API', () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [sender] })
-      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 0 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 1 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 1 }] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -872,13 +855,13 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(queryCall(4)[0]).toContain('invitation_sequence = CASE');
-    expect(queryCall(4)[0]).toContain('invitation_sequence + 1');
-    expect(queryCall(4)[0]).toContain('WHERE id = $13 AND calendar_id = $14 AND user_id = $15');
-    expect(queryCall(4)[1]).toContainEqual(JSON.stringify(['guest@example.test']));
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(queryCall(3)[0]).toContain('invitation_sequence = CASE');
+    expect(queryCall(3)[0]).toContain('invitation_sequence + 1');
+    expect(queryCall(3)[0]).toContain('WHERE id = $13 AND calendar_id = $14 AND user_id = $15');
+    expect(queryCall(3)[1]).toContainEqual(JSON.stringify(['guest@example.test']));
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'REQUEST', sequence: 1 }));
     expect(withTransaction).toHaveBeenCalledTimes(1);
-    expect(queryCall(3)[0]).toContain('FOR UPDATE');
+    expect(queryCall(2)[0]).toContain('FOR UPDATE');
   });
 
   it('cancels a previously sent invitation when invitations are removed', async () => {
@@ -903,63 +886,11 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
-    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO calendar_invitation_outbox'))).toBe(true);
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+      account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'CANCEL', sequence: 3,
+      startsAt: new Date('2026-09-01T09:00:00.000Z'), endsAt: new Date('2026-09-01T10:00:00.000Z'),
+    }));
     expect(queryCall(2)[0]).not.toContain('enabled = true');
-  });
-
-  it('returns an uncertain cancellation result and durable operation reference (V7-01)', async () => {
-    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
-    const existing = { uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 2, summary: 'Planning', description: null, location: null, starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
-    const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: [], invite_account_id: null, invitation_sequence: 3 };
-    query.mockImplementation(async (statement: string) => {
-      if (statement.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
-      if (statement.includes('FROM calendar_events') && statement.includes('FOR UPDATE')) return { rows: [existing] };
-      if (statement.includes('FROM email_accounts')) return { rows: [sender] };
-      if (statement.includes('UPDATE calendar_events SET raw_ical')) return { rows: [event] };
-      if (statement.includes('INSERT INTO calendar_invitation_outbox')) return { rows: [{ id: 'cancel-1' }] };
-      if (statement.includes('SET cancellation_outbox_id')) return { rows: [{ id: 'event-1' }] };
-      if (statement.includes("SET status = 'processing'")) return { rows: [], rowCount: 0 };
-      if (statement.includes('SELECT status, last_error')) return { rows: [{ status: 'uncertain', lastError: 'SMTP dispatch outcome is not confirmed' }] };
-      return { rows: [] };
-    });
-
-    const response = await fetch(`${base}/api/calendar/events/event-1`, {
-      method: 'PATCH', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Planning', attendees: [], sendInvites: false, startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      invitationStatus: { status: 'uncertain', lastError: 'SMTP dispatch outcome is not confirmed' },
-      invitationOperation: { kind: 'cancellation', outboxId: 'cancel-1' },
-    });
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
-  });
-
-  it('rechecks every stored cancellation status without mutating the event (V7-01)', async () => {
-    const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: [], invite_account_id: null, cancellation_outbox_id: 'cancel-1' };
-    for (const delivery of [
-      { status: 'processing', lastError: null },
-      { status: 'uncertain', lastError: 'SMTP dispatch outcome is not confirmed' },
-      { status: 'failed', lastError: 'temporary SMTP rejection' },
-      { status: 'sent', lastError: null },
-    ]) {
-      query.mockReset().mockImplementation(async (statement: string) => {
-        if (statement.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
-        if (statement.includes('JOIN calendar_invitation_outbox')) return { rows: [event] };
-        if (statement.includes("SET status = 'processing'")) return { rows: [], rowCount: 0 };
-        if (statement.includes('SELECT status, last_error')) return { rows: [delivery] };
-        return { rows: [] };
-      });
-      const response = await fetch(`${base}/api/calendar/events/event-1/cancellation-delivery/retry`, { method: 'POST' });
-
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ invitationStatus: delivery, operation: { kind: 'cancellation', outboxId: 'cancel-1' } });
-      expect(query.mock.calls.some(([statement]) => statement.includes('UPDATE calendar_events SET raw_ical'))).toBe(false);
-      expect(query.mock.calls.some(([statement]) => statement.includes('INSERT INTO calendar_invitation_outbox'))).toBe(false);
-    }
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
   });
 
   it('cancels attendees removed from an updated invitation', async () => {
@@ -967,13 +898,11 @@ describe('local calendar API', () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [sender] })
-      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{
         uid: 'uid-1', attendees: ['kept@example.test', 'removed@example.test'], invite_account_id: 'account-1', invitation_sequence: 2,
         summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
       }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['kept@example.test'], invite_account_id: 'account-1', invitation_sequence: 3 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['kept@example.test'], invite_account_id: 'account-1', invitation_sequence: 3 }] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -984,8 +913,12 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
-    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO calendar_invitation_outbox'))).toBe(true);
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      account: sender, attendees: ['removed@example.test'], method: 'CANCEL', sequence: 3,
+    }));
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      account: sender, attendees: ['kept@example.test'], method: 'REQUEST', sequence: 3,
+    }));
   });
 
   it('keeps the event unchanged when the previous invitation cannot be cancelled during an update', async () => {
@@ -997,8 +930,7 @@ describe('local calendar API', () => {
         uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 2,
         summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
       }] })
-      .mockResolvedValueOnce({ rows: [sender] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1' }] });
+      .mockResolvedValueOnce({ rows: [sender] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -1008,9 +940,10 @@ describe('local calendar API', () => {
       }),
     });
 
-    expect(response.status).toBe(200);
-    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events'))).toBe(true);
-    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('INSERT INTO calendar_invitation_outbox'))).toBe(true);
+    expect(response.status).toBe(502);
+    expect((await response.json())).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events'))).toBe(false);
   });
 
   it('returns a cancellation failure for an idempotent update when the previous sender is unavailable', async () => {
@@ -1046,10 +979,8 @@ describe('local calendar API', () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [sender] })
-      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', attendees: [], invite_account_id: null, invitation_sequence: 3 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 4 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 4 }] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -1060,7 +991,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ method: 'REQUEST', sequence: 4 }));
   });
 
   it('cancels the prior organizer invitation before changing sender accounts', async () => {
@@ -1069,14 +1000,12 @@ describe('local calendar API', () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [newSender] })
-      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{
         uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-old', invitation_sequence: 2,
         summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
       }] })
       .mockResolvedValueOnce({ rows: [oldSender] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-new', invitation_sequence: 3 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-new', invitation_sequence: 3 }] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -1087,8 +1016,8 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
-    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO calendar_invitation_outbox'))).toBe(true);
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({ account: oldSender, method: 'CANCEL', sequence: 3 }));
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({ account: newSender, method: 'REQUEST', sequence: 3 }));
   });
 
   it('refuses an event update with an invalid range before querying the database', async () => {
@@ -1122,29 +1051,6 @@ describe('local calendar API', () => {
     expect(queryCall(2)[1]).toEqual(['event-1', 'calendar-1', 'user-1']);
   });
 
-  it('keeps rejected deletion cancellations in the outbox after deleting the event (V3-03)', async () => {
-    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
-    const event = { id: 'event-1', uid: 'uid-1', attendees: ['accepted@example.test', 'rejected@example.test'], invite_account_id: 'account-1', invitation_sequence: 2, summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
-    let failedPayload: unknown;
-    query.mockImplementation(async (statement: string, parameters?: unknown[]) => {
-      if (statement.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
-      if (statement.includes('FROM calendar_events WHERE id = $1') && statement.includes('FOR UPDATE')) return { rows: [event] };
-      if (statement.includes('FROM email_accounts')) return { rows: [sender] };
-      if (statement.includes('INSERT INTO calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }] };
-      if (statement.startsWith('DELETE FROM calendar_events')) return { rows: [{ id: 'event-1' }] };
-      if (statement.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1', user_id: 'user-1', payload: { actions: [{ accountId: 'account-1', attendees: event.attendees, summary: event.summary, uid: event.uid, allDay: false, method: 'CANCEL', sequence: 3, startsAt: event.starts_at, endsAt: event.ends_at }] }, invite_account_id: null }], rowCount: 1 };
-      if (statement.includes('SET claim_expires_at')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
-      if (statement.includes("SET status = 'failed'")) { failedPayload = JSON.parse(String(parameters?.[3])); return { rows: [{ attempts: 1 }], rowCount: 1 }; }
-      return { rows: [], rowCount: 0 };
-    });
-    sendCalendarInvitation.mockResolvedValueOnce({ accepted: ['accepted@example.test'], rejected: ['rejected@example.test'] });
-
-    const response = await fetch(base + '/api/calendar/events/event-1?calendarId=calendar-1', { method: 'DELETE' });
-    expect(response.status).toBe(204);
-    expect(failedPayload).toEqual([expect.objectContaining({ method: 'CANCEL', attendees: ['rejected@example.test'] })]);
-    expect(query.mock.calls.some(([statement]) => String(statement).startsWith('DELETE FROM calendar_events'))).toBe(true);
-  });
-
   it('cancels an invitation when deleting its event', async () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     query
@@ -1154,15 +1060,16 @@ describe('local calendar API', () => {
         summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
       }] })
       .mockResolvedValueOnce({ rows: [sender] })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1?calendarId=calendar-1`, { method: 'DELETE' });
 
     expect(response.status).toBe(204);
     expect(queryCall(1)[0]).toContain("SELECT uid, raw_ical, CASE WHEN jsonb_typeof(attendees) = 'array'");
-    expect(queryCall(4)[0]).toContain('DELETE FROM calendar_events');
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(queryCall(3)[0]).toContain('DELETE FROM calendar_events');
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+      account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'CANCEL', sequence: 3,
+    }));
     expect(queryCall(2)[0]).not.toContain('enabled = true');
     expect(withTransaction).toHaveBeenCalledTimes(1);
     expect(queryCall(1)[0]).toContain('FOR UPDATE');
@@ -1177,14 +1084,13 @@ describe('local calendar API', () => {
         id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 2,
         summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
       }] })
-      .mockResolvedValueOnce({ rows: [sender] })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+      .mockResolvedValueOnce({ rows: [sender] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1?calendarId=calendar-1`, { method: 'DELETE' });
 
-    expect(response.status).toBe(204);
-    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO calendar_invitation_outbox'))).toBe(true);
+    expect(response.status).toBe(502);
+    expect((await response.json())).toEqual({ error: 'The invitation could not be cancelled, so the event was not deleted.' });
+    expect(query).toHaveBeenCalledTimes(3);
   });
 
   it('persists an invitation outbox row for an idempotent send', async () => {
@@ -1195,11 +1101,10 @@ describe('local calendar API', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 }] })
       .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }], rowCount: 1 });
+      .mockResolvedValueOnce({ rows: [] });
     const response = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'invite-1' }, body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'], startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' }) });
     expect(response.status).toBe(201);
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
     expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('calendar_invitation_outbox'))).toBe(true);
   });
 
@@ -1224,8 +1129,7 @@ describe('local calendar API', () => {
       if (sql.includes('FROM calendar_events')) return { rows: [event] };
       if (sql.includes('UPDATE calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: 'event-1', request_fingerprint: queryParameter(params, 3) }; return { rows: [{ id: 'outbox-1' }] }; }
-      if (sql.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
-      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
       return { rows: [] };
     });
     const body = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['kept@example.test'], startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' };
@@ -1234,7 +1138,9 @@ describe('local calendar API', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({ method: 'CANCEL', account: sender, attendees: ['removed@example.test'], sequence: 3 }));
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({ method: 'REQUEST', account: sender, attendees: ['kept@example.test'], sequence: 3 }));
     expect(query.mock.calls.filter(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events')).length).toBe(1);
   });
 
@@ -1263,8 +1169,7 @@ describe('local calendar API', () => {
       }
       if (sql.includes('INSERT INTO calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: queryParameter(params, 3) }; return { rows: [{ id: 'outbox-1' }] }; }
-      if (sql.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
-      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
       if (sql.includes('FROM calendar_events')) return { rows: [event] };
       return { rows: [] };
     });
@@ -1274,12 +1179,12 @@ describe('local calendar API', () => {
     const second = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'post-failed' }, body: JSON.stringify(body) });
 
     expect(first.status).toBe(201);
-    expect(await first.json()).toMatchObject({ invitationStatus: { status: 'failed', lastError: 'no invitation actions are available for delivery' } });
+    expect(await first.json()).toMatchObject({ invitationStatus: { status: 'failed', lastError: 'SMTP unavailable' }, invitationError: expect.stringContaining('SMTP unavailable') });
     // A retry of an undelivered invitation must actually send it again, not replay
     // the earlier error — that was the reported bug.
     expect(second.status).toBe(201);
-    expect(await second.json()).toMatchObject({ invitationStatus: { status: 'failed', lastError: 'no invitation actions are available for delivery' } });
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(await second.json()).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
     // The idempotency key still guarantees a single event row.
     expect(query.mock.calls.filter(([sql]: unknown[]) => String(sql).includes('INSERT INTO calendar_events')).length).toBe(1);
   });
@@ -1294,8 +1199,7 @@ describe('local calendar API', () => {
       if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [{ ...outbox, status: 'sent', last_error: null, payload: { actions: [] } }] : [] };
       if (sql.includes('INSERT INTO calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: queryParameter(params, 3) }; return { rows: [{ id: 'outbox-1' }] }; }
-      if (sql.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
-      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
       if (sql.includes('FROM calendar_events')) return { rows: [event] };
       return { rows: [] };
     });
@@ -1308,8 +1212,8 @@ describe('local calendar API', () => {
     const payload = responseRecord(await second.json());
     expect(payload).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
     expect(payload.invitationError).toBeUndefined();
-    // A sent row is never claimed or delivered again.
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    // Delivered once, never duplicated by a repeated save.
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
   });
 
   it('resends a failed invitation when the same idempotent PATCH is retried', async () => {
@@ -1327,8 +1231,7 @@ describe('local calendar API', () => {
       if (sql.includes('FOR UPDATE')) return { rows: [existing] };
       if (sql.includes('UPDATE calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: queryParameter(params, 3) }; return { rows: [{ id: 'outbox-1' }] }; }
-      if (sql.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
-      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
       if (sql.includes('FROM calendar_events')) return { rows: [event] };
       return { rows: [] };
     });
@@ -1338,10 +1241,10 @@ describe('local calendar API', () => {
     const second = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'patch-failed' }, body: JSON.stringify(body) });
 
     expect(first.status).toBe(200);
-    expect(await first.json()).toMatchObject({ invitationStatus: { status: 'failed', lastError: 'no invitation actions are available for delivery' } });
+    expect(await first.json()).toMatchObject({ invitationStatus: { status: 'failed', lastError: 'SMTP unavailable' }, invitationError: expect.stringContaining('SMTP unavailable') });
     expect(second.status).toBe(200);
-    expect(await second.json()).toMatchObject({ invitationStatus: { status: 'failed', lastError: 'no invitation actions are available for delivery' } });
-    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(await second.json()).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
     expect(query.mock.calls.filter(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events')).length).toBe(1);
   });
 
