@@ -915,9 +915,17 @@ export function applyTheme(themeName: string) {
     themeEl.id = 'mailflow-theme';
     document.head.appendChild(themeEl);
   }
+  // --text-max-contrast: the highest-contrast text colour for this theme's tone —
+  // pure black on a light theme, pure white on a dark one. Computed from `tone`
+  // rather than hand-picked per theme (like every other token above) so it's
+  // correct for all themes, including future ones, without per-palette upkeep.
+  // Used where legibility matters most and the theme's tuned --text-primary
+  // (intentionally off-black/off-white for most palettes) isn't contrasty enough:
+  // account/folder names in the sidebar and sender/subject in the message list.
+  const maxContrast = theme.tone === 'light' ? '#000000' : '#ffffff';
   themeEl.textContent = `:root {\n${
     Object.entries(theme.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
-  }\n}`;
+  }\n  --text-max-contrast: ${maxContrast};\n}`;
 
   // Recompute PWA theme-color + logo from the *effective* accent. If a
   // custom-CSS override of --accent is present, getComputedStyle picks it up here;

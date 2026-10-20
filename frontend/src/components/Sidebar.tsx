@@ -987,7 +987,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                   <>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{
-                        fontSize: 13, color: 'var(--text-primary)',
+                        fontSize: 13, color: 'var(--text-max-contrast)',
                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                         fontWeight: unread > 0 ? 500 : 400,
                       }}>
@@ -1239,7 +1239,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                           />
                         ) : (
                           <span style={{
-                            fontSize: 12, color: 'var(--text-secondary)',
+                            fontSize: 12, color: 'var(--text-max-contrast)',
                             flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>
                             {folderLabel(folder, t, account.folder_mappings)}
@@ -1482,13 +1482,13 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                       borderRadius: 7, cursor: 'pointer',
                       touchAction: 'pan-y',
                       background: (msgDragTarget === `${accountId}:${path}`) ? 'var(--accent-dim)' : isActive ? 'var(--bg-hover)' : 'transparent',
-                      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      color: 'var(--text-max-contrast)',
                       transition: 'background 0.1s, color 0.1s',
                       opacity: isDragging ? 0.4 : 1,
                       borderTop: isDropTarget ? '2px solid var(--accent)' : '2px solid transparent',
                     }}
-                    onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (!isActive) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
-                    onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
+                    onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (!isActive) { e.currentTarget.style.background = 'var(--bg-tertiary)'; } }}
+                    onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; } }}
                   >
                     {canDrag && (
                       <span

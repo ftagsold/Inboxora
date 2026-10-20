@@ -4575,7 +4575,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               )}
               <span style={{
                 fontSize: 13, fontWeight: unreadCount > 0 ? 600 : 400,
-                color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
+                color: 'var(--text-max-contrast)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
               }}>
                 {showParentDirection && <span style={{ marginRight: 4 }}><MessageDirection direction={parentDirection} label={isOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
@@ -4631,7 +4631,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           {/* Row 2: subject */}
           <div data-thread-row-subject="true" style={{
             fontSize: 13, fontWeight: unreadCount > 0 ? 500 : 400,
-            color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
+            color: 'var(--text-max-contrast)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
           }}>
             {message.subject || t('common.noSubject')}
@@ -4711,7 +4711,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{
                     fontSize: 12, fontWeight: msg.is_read ? 400 : 600,
-                    color: msg.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
+                    color: 'var(--text-max-contrast)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
                   }}>
                     {(() => {
@@ -4971,7 +4971,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             )}
             <span style={{
               fontSize: 13, fontWeight: message.is_read ? 400 : 600,
-              color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
+              color: 'var(--text-max-contrast)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               flex: 1, minWidth: 0,
             }}>
@@ -5006,7 +5006,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         {/* Row 2: Subject */}
         <div style={{
           fontSize: 13, fontWeight: message.is_read ? 400 : 500,
-          color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
+          color: 'var(--text-max-contrast)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           marginBottom: 3,
         }}>

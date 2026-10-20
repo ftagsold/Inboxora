@@ -21,6 +21,8 @@
   --text-primary: #e8e8ed;
   --text-secondary: #9898a8;
   --text-tertiary: #5a5a6a;
+  /* Fallback for the pre-JS paint; applyTheme() (themes.ts) overrides this per theme/tone. */
+  --text-max-contrast: #ffffff;
   --accent: #7c6af7;
   --accent-dim: #3d3569;
   --accent-glow: rgba(124, 106, 247, 0.15);
