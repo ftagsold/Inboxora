@@ -10,6 +10,23 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 
 ## [Unreleased]
 
+### Added
+
+- Add a full-text calendar search box (left of the month/week/day selector) that searches every
+  event in every calendar you own, with no date horizon: a match can be arbitrarily far in the
+  past or future, and a matched recurring series expands to every one of its own occurrences, not
+  just its base definition. Results open the agenda pane (or the compact day sheet) automatically
+  and list in descending order, most recent first.
+
+### Changed
+
+- Let a single-day all-day event be resized from either edge in month view, the same way a
+  multi-day all-day event already can — it can now grow into a multi-day event by dragging either
+  edge, instead of only via the edit dialog.
+- Raise the text contrast of account names, folder names, and message sender/subject text in the
+  sidebar and message list to each theme's maximum (pure black on a light theme, pure white on a
+  dark one), rather than the theme's own dimmer secondary tone.
+
 ### Fixed
 
 - Poll every non-INBOX folder (Sent, Drafts, Trash, Archive, Junk, custom and label folders) on the
@@ -17,6 +34,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   device (webmail, phone, a different mail client) no longer goes missing locally once that folder
   has already been opened once. Previously only an empty folder's first view triggered a sync, so
   later cross-device moves into an already-populated folder were never picked up.
+- Add matching top padding to the "remote images blocked" banner in the message reader, so the
+  space above it matches the space below it to the message body.
 
 ## [4.0.2] - 2026-09-17
 

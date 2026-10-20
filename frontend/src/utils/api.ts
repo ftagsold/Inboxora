@@ -422,6 +422,11 @@ export const api = {
       if (Array.isArray(calendarIds)) params.set('calendarIds', calendarIds.join(','));
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
     },
+    // Full-text search across every owned calendar event, not scoped to the visible range the
+    // way listEvents is. See the backend route for the materialised-occurrence-window
+    // limitation. `q` empty resolves server-side to an empty result rather than erroring.
+    searchEvents: (q: string, { signal }: { signal?: AbortSignal } = {}) =>
+      request('GET', `/calendar/events/search?q=${encodeURIComponent(q)}`, undefined, undefined, { signal }),
     createEvent: (data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     updateEvent: (id: string, data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     getCancellationDelivery: (id: string, { signal }: { signal?: AbortSignal } = {}) => request('GET', `/calendar/events/${encodeURIComponent(id)}/cancellation-delivery`, undefined, undefined, { signal }),

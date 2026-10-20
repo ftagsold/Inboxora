@@ -243,17 +243,26 @@ test('a multi-day month-view event can be picked up to move from any of its segm
   assert.match(source, /const movable = !event\.read_only && isWritableCalendarSource\(event\.source\);/);
 });
 
-// A multi-day month-view event's left/right edge resizes it, same as the all-day row — reusing
+// A month-view all-day event's left/right edge resizes it, same as the all-day row — reusing
 // useAllDayResizeDrag unmodified. Each handle only appears on the segment that's the event's
-// real boundary within the visible month (not a squared-off continuation edge), gated the same
-// way the all-day row gates its own handles.
-test('a multi-day month-view event resizes by its left/right edge, via the same hook as the all-day row', async () => {
+// real boundary within the visible month (not a squared-off continuation edge). This is NOT
+// gated on `spanning` (multi-day) — a single-day all-day event gets the same two handles, so it
+// can grow into a multi-day one exactly like the all-day row already lets it (see
+// calendarResponsiveness.test.ts for that non-gating); `resizable` (Boolean(segmentRaw) &&
+// movable) only ever excludes a timed event (month view has no time axis to resize by
+// day-granularity) or a read-only/non-writable one.
+test('a month-view all-day event — single-day or multi-day — resizes by its left/right edge, via the same hook as the all-day row', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.match(source, /const monthResize = useAllDayResizeDrag\(moveEvent\);/);
-  assert.match(source, /\{spanning && movable && !segment\?\.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start"/);
-  assert.match(source, /\{spanning && movable && !segment\?\.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end"/);
+  assert.match(source, /const resizable = Boolean\(segmentRaw\) && movable;/);
+  assert.match(source, /\{resizable && !segment\?\.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start"/);
+  assert.match(source, /\{resizable && !segment\?\.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end"/);
   assert.match(source, /monthResize\.startResize\(event, eventLastInclusiveDay, dayFromKey\(startKey\)\);/);
   assert.match(source, /monthResize\.startResize\(event, dayFromKey\(startKey\), eventLastInclusiveDay\);/);
+  // Not gated on `spanning` — that still exists (title/corner/z-index logic still needs it) but
+  // must never appear in the resize-handle conditions themselves.
+  assert.doesNotMatch(source, /spanning && !segment\?\.continuesFrom && <div className="calendar-event-resize-handle/);
+  assert.doesNotMatch(source, /spanning && !segment\?\.continuesTo && <div className="calendar-event-resize-handle/);
 });
 
 // A multi-day event's title shows once, on its first visible day — every later segment is just
@@ -952,4 +961,37 @@ test('the week view\'s sticky day header stays above every absolutely-positioned
   assert.ok(headerMatch, 'sticky week-view header not found');
   const headerZIndex = Number(headerMatch[1]);
   assert.ok(headerZIndex > 4, `sticky header zIndex (${headerZIndex}) must stay above the now-line (4) and move/resize previews (3)`);
+});
+
+// A full-text search across every event (not just the visible range) sits to the left of the
+// month/week/day selector. It must debounce (not fire one request per keystroke), reveal the
+// agenda pane (or the compact day sheet) the moment a search begins rather than waiting for the
+// first response — there would be nowhere else for results to land — and hand its results to
+// CalendarAgenda rather than building its own separate result list.
+test('the calendar search box sits left of the view selector, debounces, and reveals the agenda pane', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+  const searchIndex = source.indexOf('className="calendar-search"');
+  const segmentsIndex = source.indexOf('className="calendar-segments"');
+  const selectIndex = source.indexOf('data-testid="calendar-view-select"');
+  assert.ok(searchIndex > 0, 'calendar-search box not found');
+  assert.ok(searchIndex < segmentsIndex && searchIndex < selectIndex, 'search box must render before the view selector');
+  assert.match(source, /}, 300\);/); // the debounce delay
+  assert.match(source, /if \(compact\) setDayPanelOpen\(true\); else setAgendaHidden\(false\);/);
+  assert.match(source, /api\.calendar\.searchEvents\(trimmed, \{ signal: controller\.signal \}\)/);
+  assert.match(source, /searchQuery: searchQuery\.trim\(\), searchResults, searchError, onClearSearch: clearSearch/);
+});
+
+// Every locale that ships the search box's own strings — not just English — so a non-English
+// viewer sees results described in their own language, same bar every other calendar string
+// added this way (see "every locale explains the three delete scopes") already holds to.
+test('every locale provides the calendar search strings', async () => {
+  const locales = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
+  assert.equal(locales.length, 9);
+  for (const name of locales) {
+    const strings = JSON.parse(await readFile(new URL(name, localesPath), 'utf8'));
+    for (const key of ['searchEvents', 'searchResultsCount', 'noSearchResults', 'clearSearch']) {
+      assert.equal(typeof strings.calendar[key], 'string', `${name} is missing calendar.${key}`);
+      assert.ok(strings.calendar[key].length > 0, `${name} has an empty calendar.${key}`);
+    }
+  }
 });

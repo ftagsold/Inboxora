@@ -117,6 +117,17 @@ export function sortedDayEvents(events: CalendarViewEvent[] | null | undefined, 
     String(a.id).localeCompare(String(b.id)));
 }
 
+// Latest start first — the order calendar search results list in, as distinct from every
+// other agenda grouping here (sortedDayEvents/agendaDays), which is always ascending within
+// a day because a day's own events read top-to-bottom as the day unfolds. A flat cross-date
+// search result list has no single day to unfold through, so "most recent on top" is the one
+// that reads naturally scanning down from today-or-later into the past.
+export function sortEventsByRecency(events: CalendarViewEvent[] | null | undefined): CalendarViewEvent[] {
+  return (Array.isArray(events) ? [...events] : []).sort((a, b) =>
+    parseEventDate(b.starts_at ?? b.startsAt).getTime() - parseEventDate(a.starts_at ?? a.startsAt).getTime() ||
+    String(a.id).localeCompare(String(b.id)));
+}
+
 // Build a per-day lookup for a fixed event array.
 //
 // The month grid asks for 42 days on every render, and the week grid asks twice

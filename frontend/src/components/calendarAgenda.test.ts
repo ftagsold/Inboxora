@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agendaDays, calendarVisibleRange, shiftCalendarAnchor, sortedDayEvents } from './calendarView.ts';
+import { agendaDays, calendarVisibleRange, shiftCalendarAnchor, sortedDayEvents, sortEventsByRecency } from './calendarView.ts';
 
 test('month fetch includes all 42 visible days while agenda covers exactly its month', () => {
   const anchor = new Date(2026, 8, 10);
@@ -26,4 +26,15 @@ test('agendas use end-exclusive multi-day membership and put all-day events befo
   assert.deepEqual(agendaDays(events, new Date(2026, 8, 1)).map(group => [group.day.getDate(), group.events.length]), [[10, 3], [11, 1]]);
   assert.deepEqual(agendaDays(events, new Date(2026, 9, 1)), []);
   assert.equal(events[0], later, 'presentation must not mutate fetched data');
+});
+
+// Search results have no single day to group by (unlike every other agenda helper above),
+// so "descending, most recent on top" means the flat list itself sorts latest-start-first.
+test('search results sort by start date descending, latest first', () => {
+  const past = { id: 'past', starts_at: new Date(2026, 0, 5).toISOString(), ends_at: new Date(2026, 0, 5, 1).toISOString() };
+  const future = { id: 'future', starts_at: new Date(2026, 11, 20).toISOString(), ends_at: new Date(2026, 11, 20, 1).toISOString() };
+  const middle = { id: 'middle', starts_at: new Date(2026, 5, 1).toISOString(), ends_at: new Date(2026, 5, 1, 1).toISOString() };
+  assert.deepEqual(sortEventsByRecency([past, future, middle]).map(event => event.id), ['future', 'middle', 'past']);
+  assert.deepEqual(sortEventsByRecency(null), []);
+  assert.deepEqual(sortEventsByRecency(undefined), []);
 });

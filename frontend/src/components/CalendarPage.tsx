@@ -210,6 +210,15 @@ export default function CalendarPage({ isActive = true }) {
     try { localStorage.setItem(AGENDA_HIDDEN_STORAGE_KEY, next ? '1' : '0'); } catch { /* per-viewer convenience only */ }
     return next;
   });
+  // Full-text search across every event, independent of the visible month/week/day range
+  // (unlike `events`/`rawEvents` above, which only ever cover that range) — see
+  // api.calendar.searchEvents. null = no active search, so the agenda pane keeps rendering
+  // its normal date-based view; an empty array is a real zero-result search.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<CalendarViewEvent[] | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchGeneration = useRef(0);
   const [anchor, setAnchor] = useState(() => new Date());
   const loadGeneration = useRef(0);
   // The last view is remembered per device, so leaving the calendar and coming back
@@ -279,6 +288,42 @@ export default function CalendarPage({ isActive = true }) {
     window.addEventListener('inboxora:calendar-changed', refresh);
     return () => window.removeEventListener('inboxora:calendar-changed', refresh);
   }, [load]);
+  // Debounced so every keystroke doesn't fire its own request — only the latest query still
+  // being typed 300ms later actually goes out. `searchGeneration` (not just the abort) guards
+  // the response too: an abort landing as a resolved-not-rejected promise (rare, but not ruled
+  // out by every fetch polyfill) must still never overwrite a newer search's results.
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      searchAbortRef.current?.abort();
+      ++searchGeneration.current;
+      setSearchResults(null);
+      setSearchError(null);
+      return;
+    }
+    // Results have nowhere else to land — reveal the agenda pane the same way the "+N more"
+    // month-cell overflow already does (openDayAgenda), the instant a search begins rather
+    // than waiting for the first response.
+    if (compact) setDayPanelOpen(true); else setAgendaHidden(false);
+    const generation = ++searchGeneration.current;
+    const timer = setTimeout(async () => {
+      searchAbortRef.current?.abort();
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      try {
+        const result = await api.calendar.searchEvents(trimmed, { signal: controller.signal });
+        if (generation !== searchGeneration.current) return;
+        setSearchResults(Array.isArray(result?.events) ? result.events : []);
+        setSearchError(null);
+      } catch (err) {
+        if (isAbortError(err) || generation !== searchGeneration.current) return;
+        setSearchResults([]);
+        setSearchError(toAppError(err).message || t('calendar.loadFailed'));
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, compact, t]);
+  const clearSearch = () => { setSearchQuery(''); searchAbortRef.current?.abort(); setSearchResults(null); setSearchError(null); };
   useEffect(() => {
     if (!isMobile || !isActive) return;
     invitation.reset();
@@ -521,7 +566,7 @@ export default function CalendarPage({ isActive = true }) {
   const sidebarProps = { anchor, calendars, visibleCalendarIds, weekStartsOn: calendarWeekStartsOn, locale,
     onSelectDate: setAnchor, onShiftMonth: shiftMiniMonth, onToggleCalendar: toggleCalendar,
     onCalendarsChanged: load, onCreate: () => openCreate(), canCreate: writable.length > 0, t };
-  const agendaProps = { events: visibleEvents, anchor, locale, onOpen: openEdit, t };
+  const agendaProps = { events: visibleEvents, anchor, locale, onOpen: openEdit, t, searchQuery: searchQuery.trim(), searchResults, searchError, onClearSearch: clearSearch };
   return <div ref={surfaceRef} data-testid="calendar-page" className={`calendar-page calendar-v3${compact ? ' calendar-compact' : ''}${isMobile ? ' calendar-mobile' : ''}`}>
     {isActive && <MobileFloatingAction label={t('calendar.newEvent')} onClick={() => openCreate()} disabled={!writable.length || Boolean(form)} />}
     {isMobile && <MobileModuleHeader title={t('calendar.title')} subtitle={title}>
@@ -535,6 +580,13 @@ export default function CalendarPage({ isActive = true }) {
       <header className="calendar-header">
         {!isMobile && <h1>{title}</h1>}
         <div className="calendar-toolbar">
+          {!isMobile && <div className="calendar-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.4-4.4" /></svg>
+            <input type="search" data-testid="calendar-search-input" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} aria-label={t('calendar.searchEvents')} placeholder={t('calendar.searchEvents')} />
+            {searchQuery && <button type="button" data-testid="calendar-search-clear" aria-label={t('calendar.clearSearch')} title={t('calendar.clearSearch')} onClick={clearSearch}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>}
+          </div>}
           {isMobile ? <select data-testid="calendar-view-select" aria-label={t('calendar.view')} value={view} onChange={event => setView(event.target.value)} className="calendar-view-select">
             {['month', 'week', 'workweek', 'agenda'].map(value => <option key={value} value={value}>{t(value === 'workweek' ? 'calendar.workWeek' : `calendar.${value}`)}</option>)}
           </select> : <div role="group" className="calendar-segments" aria-label={t('calendar.view')}>
@@ -1398,6 +1450,17 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
           // of reading as "continues on the next row".
           const segment = segmentRaw ? { continuesFrom: !isRowStart && segmentRaw.continuesFrom, continuesTo: !isRowEnd && segmentRaw.continuesTo } : null;
           const spanning = Boolean(segment?.continuesFrom || segment?.continuesTo);
+          // Resize handles aren't gated on `spanning` — a single-day all-day event can grow into
+          // a multi-day one exactly the same way week view's all-day band already lets it (that
+          // band never required spanning either; see its own resize handles below). `segmentRaw`
+          // (not `spanning`) is the real gate: it's truthy only for an all-day event, so a timed
+          // event — month view has no time axis to resize by day-granularity — still never gets
+          // one, while a single-day all-day event's segment (continuesFrom/To both false) now
+          // does. monthWeekLanes already handles the lane alignment this needs mid-drag: it folds
+          // the resize preview's range into spanningById even when the real event isn't a spanner
+          // yet (see its `previewTouchesWeek` fallback above), so the growing bar still lands on
+          // the same row across every day it comes to cover.
+          const resizable = Boolean(segmentRaw) && movable;
           const titleVisible = !segment?.continuesFrom;
           // Hovering any one segment of a multi-day event highlights every one of its segments
           // (see `hoveredEventId` above) — single-day events already get the same effect for
@@ -1433,8 +1496,8 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
                 The title comes first and shrinks (ellipsis) so the time — fixed width, never
                 shrinks — always stays fully visible at the end of the line instead of getting
                 clipped along with an overly long title. */}<span style={titleVisible ? eventCardTitle : { ...eventCardTitle, visibility: 'hidden' }}>{event.summary || t('calendar.untitled')}</span>{!(event.all_day || event.allDay) && <strong style={eventCardTime}>{eventTime(event)}</strong>}</button>
-            {spanning && movable && !segment?.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, eventLastInclusiveDay, dayFromKey(startKey)); }} />}
-            {spanning && movable && !segment?.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end" style={{ left: 'auto', right: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, dayFromKey(startKey), eventLastInclusiveDay); }} />}
+            {resizable && !segment?.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, eventLastInclusiveDay, dayFromKey(startKey)); }} />}
+            {resizable && !segment?.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end" style={{ left: 'auto', right: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, dayFromKey(startKey), eventLastInclusiveDay); }} />}
           </div>;
         };
         // Unlike week view's all-day-row drag target (an otherwise-empty div with no children

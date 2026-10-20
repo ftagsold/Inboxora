@@ -233,3 +233,128 @@ describe('GET /api/calendar/events projection outcome', () => {
     }
   });
 });
+
+describe('GET /api/calendar/events/search', () => {
+  // The search match itself is a plain calendar_events read — no occurrence-table join and no
+  // date/horizon filter of any kind, which is the whole point: a match must never depend on
+  // whether (or how far) the event has been materialised. See searchResponse() below for how
+  // ordering/limit are checked instead — those now happen after projection, in JS, not in SQL.
+  function searchQuery(): QueryCall {
+    const call = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events e') && sql.includes('ILIKE'));
+    if (!call) throw new Error('Expected a calendar_events search query');
+    return call;
+  }
+
+  async function searchResponse(q: string, extra = ''): Promise<{ events: Array<Record<string, unknown>> }> {
+    const response = await fetch(`${base}/api/calendar/events/search?q=${encodeURIComponent(q)}${extra}`);
+    expect(response.status).toBe(200);
+    return response.json() as Promise<{ events: Array<Record<string, unknown>> }>;
+  }
+
+  it('returns no results and issues no query for an empty or missing q', async () => {
+    const empty = await fetch(`${base}/api/calendar/events/search`);
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({ events: [] });
+    expect(query).not.toHaveBeenCalled();
+
+    const blank = await fetch(`${base}/api/calendar/events/search?q=%20%20`);
+    expect(blank.status).toBe(200);
+    expect(await blank.json()).toEqual({ events: [] });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('rejects a query over 200 characters before touching the database', async () => {
+    const response = await fetch(`${base}/api/calendar/events/search?q=${'a'.repeat(201)}`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Search query is too long' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('scopes the match to calendar_events owned by this user, with no occurrence-window restriction', async () => {
+    await fetch(`${base}/api/calendar/events/search?q=standup`);
+    const call = searchQuery();
+    expect(call[0]).toContain('e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1');
+    const [sql, parameters] = call;
+    expect(sql).toContain('JOIN calendars c ON c.id = e.calendar_id');
+    // No window/horizon predicate of any kind on the match itself — only the owner-scope and
+    // the ILIKE term constrain which rows match (starts_at/ends_at appear in the SELECT list,
+    // as plain data the projector needs, but never in the WHERE clause).
+    const where = sql.slice(sql.indexOf('WHERE'));
+    expect(where).not.toMatch(/starts_at|ends_at|built_from|built_to/);
+    expect(parameters?.[0]).toBe('user-1');
+  });
+
+  it('wraps the term for a case-insensitive substring match across summary, description and location', async () => {
+    await fetch(`${base}/api/calendar/events/search?q=${encodeURIComponent('Team Sync')}`);
+    const [sql, parameters] = searchQuery();
+    expect(sql).toContain('e.summary ILIKE $2');
+    expect(sql).toContain('e.description ILIKE $2');
+    expect(sql).toContain('e.location ILIKE $2');
+    expect(parameters?.[1]).toBe('%Team Sync%');
+  });
+
+  it('binds only the owner id and the search term — no window/limit of any kind reaches the SQL', async () => {
+    await fetch(`${base}/api/calendar/events/search?q=standup&limit=10000`);
+    const [sql] = searchQuery();
+    expect(sql).not.toMatch(/\$3|\$4/); // only $1 (owner id) and $2 (the ILIKE term) are bound
+  });
+
+  it('orders results by start date descending — latest first — regardless of how far outside any horizon they fall', async () => {
+    query.mockResolvedValue({ rows: [
+      { id: 'past', calendar_id: calendarId, summary: 'Standup', starts_at: new Date('2015-01-01T09:00:00Z'), ends_at: new Date('2015-01-01T09:30:00Z'), all_day: false, calendar_name: 'Work', calendar_color: '#4b75ff', source: 'local', read_only: false },
+      { id: 'future', calendar_id: calendarId, summary: 'Standup', starts_at: new Date('2099-01-01T09:00:00Z'), ends_at: new Date('2099-01-01T09:30:00Z'), all_day: false, calendar_name: 'Work', calendar_color: '#4b75ff', source: 'local', read_only: false },
+      { id: 'near', calendar_id: calendarId, summary: 'Standup', starts_at: new Date('2026-09-10T09:00:00Z'), ends_at: new Date('2026-09-10T09:30:00Z'), all_day: false, calendar_name: 'Work', calendar_color: '#4b75ff', source: 'local', read_only: false },
+    ] });
+    const { events } = await searchResponse('standup');
+    expect(events.map(event => event.id)).toEqual(['future', 'near', 'past']);
+  });
+
+  it('clamps an out-of-range limit after projection rather than passing it to SQL', async () => {
+    query.mockResolvedValue({ rows: [
+      { id: 'a', calendar_id: calendarId, summary: 'Standup', starts_at: new Date('2026-01-01T09:00:00Z'), ends_at: new Date('2026-01-01T09:30:00Z'), all_day: false },
+      { id: 'b', calendar_id: calendarId, summary: 'Standup', starts_at: new Date('2026-02-01T09:00:00Z'), ends_at: new Date('2026-02-01T09:30:00Z'), all_day: false },
+      { id: 'c', calendar_id: calendarId, summary: 'Standup', starts_at: new Date('2026-03-01T09:00:00Z'), ends_at: new Date('2026-03-01T09:30:00Z'), all_day: false },
+    ] });
+    expect((await searchResponse('standup', '&limit=0')).events).toHaveLength(1); // clamped up to the minimum of 1
+    expect((await searchResponse('standup')).events).toHaveLength(3); // well under the 200 default
+  });
+
+  it('returns a matched non-recurring event using its own stored start/end, unchanged', async () => {
+    // A unique id+etag (never reused by another test in this file) — projectCalendarResources
+    // caches by (userId, row.id, row.etag, …), and a collision with another test's cache entry
+    // would silently serve that test's stale result instead of actually re-projecting this one.
+    query.mockResolvedValue({ rows: [{
+      id: 'standup-single-1', calendar_id: calendarId, uid: 'standup-1', etag: 'etag-single-1', raw_ical: null,
+      starts_at: new Date('2026-09-10T09:00:00Z'), ends_at: new Date('2026-09-10T09:30:00Z'), all_day: false,
+      summary: 'Standup', calendar_name: 'Work', calendar_color: '#4b75ff', source: 'local', read_only: false,
+    }] });
+    const { events } = await searchResponse('standup');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ id: 'standup-single-1', summary: 'Standup', calendar_name: 'Work' });
+  });
+
+  // This is the behaviour the horizon-based (materialised-occurrence) version of this route
+  // could not offer: a recurring series matched by text expands to every one of its own
+  // occurrences, including ones far outside the 3-month/18-month render-path window, because
+  // the window handed to projectCalendarResources here is a century wide, not that one.
+  it('expands a matched recurring series to occurrences both long past and far future', async () => {
+    // Unique id+etag — see the note on the non-recurring test above for why reusing one from
+    // another test in this file would silently serve that test's cached projection instead.
+    query.mockResolvedValue({ rows: [{
+      id: 'standup-series-1', calendar_id: calendarId, uid: 'standup-series', etag: 'etag-series-1',
+      raw_ical: ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:standup-series', 'DTSTAMP:20150101T000000Z',
+        'DTSTART:20150105T090000Z', 'DTEND:20150105T093000Z', 'RRULE:FREQ=YEARLY;COUNT=20', 'SUMMARY:Annual standup', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n'),
+      summary: 'Annual standup', starts_at: new Date('2015-01-05T09:00:00Z'), ends_at: new Date('2015-01-05T09:30:00Z'), all_day: false,
+      calendar_name: 'Work', calendar_color: '#4b75ff', source: 'local', read_only: false,
+    }] });
+    const { events } = await searchResponse('standup');
+    // 20 yearly occurrences starting 2015-01-05 run through 2034 — well past the live render
+    // path's 18-month-forward horizon and well before its 3-month-back one.
+    expect(events).toHaveLength(20);
+    expect(events.every(event => event.series_id === 'standup-series-1')).toBe(true);
+    const years = events.map(event => new Date(String(event.starts_at)).getUTCFullYear());
+    expect(Math.min(...years)).toBe(2015);
+    expect(Math.max(...years)).toBe(2034);
+    expect(years).toEqual([...years].sort((a, b) => b - a)); // descending, most recent on top
+  });
+});

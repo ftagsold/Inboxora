@@ -5,7 +5,7 @@ import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvit
 import { parseCalendarEvent } from '../utils/ical.js';
 import { descriptionContentLines, normalizeDescription } from '../utils/richText.js';
 import { Router } from 'express';
-import type { Request } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -651,6 +651,92 @@ router.get('/events', async (req, res) => {
     });
   }
   res.json({ events, truncated: false });
+});
+
+// Simple in-memory rate limiter: 20 searches per minute per user — same bucket shape and
+// limit as the mail/contacts search routes (search.ts), kept local here rather than shared
+// since that limiter is module-private and this is a different, independent query shape.
+const calendarSearchBuckets = new Map<string, { count: number; resetAt: number }>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of calendarSearchBuckets) {
+    if (now > bucket.resetAt) calendarSearchBuckets.delete(key);
+  }
+}, 60_000);
+
+function calendarSearchLimiter(req: Request, res: Response, next: NextFunction) {
+  const key = sessionUserId(req);
+  const now = Date.now();
+  const bucket = calendarSearchBuckets.get(key);
+  if (!bucket || now > bucket.resetAt) {
+    calendarSearchBuckets.set(key, { count: 1, resetAt: now + 60_000 });
+    return next();
+  }
+  if (bucket.count >= 20) {
+    res.setHeader('Retry-After', Math.ceil((bucket.resetAt - now) / 1000));
+    return res.status(429).json({ error: 'Too many search requests. Try again shortly.' });
+  }
+  bucket.count += 1;
+  next();
+}
+
+// How far "no horizon" actually reaches. A real Date/ICAL walk still needs concrete bounds,
+// so this is not literally unbounded — it is wide enough that no realistic calendar event or
+// recurrence falls outside it either way, which is the only sense in which a search feature
+// can honestly promise "everything". The per-series iteration cap inside projectCalendarResources
+// (not this window) is what actually bounds the work for a pathological open-ended RRULE.
+const SEARCH_HORIZON_YEARS = 100;
+function unboundedSearchWindow(now = new Date()) {
+  return {
+    from: new Date(now.getFullYear() - SEARCH_HORIZON_YEARS, 0, 1),
+    to: new Date(now.getFullYear() + SEARCH_HORIZON_YEARS, 0, 1),
+  };
+}
+
+// Full-text search across every calendar event the user owns — not scoped to the currently
+// viewed month/week/day range the way GET /events is, and NOT limited to the occurrence-
+// materialisation horizon either (CALENDAR_OCCURRENCE_HORIZON_*_MONTHS; see occurrenceHorizon).
+// That window exists purely to make the normal month/week/day *render* path fast — a search is
+// a deliberate, infrequent, rate-limited action, so it can afford to match against the base
+// calendar_events rows directly (always present, regardless of what's materialised) and then
+// live-project only what matched over `unboundedSearchWindow`, via the same recurrence engine
+// and per-series iteration cap the normal view's live-fallback path already relies on for an
+// uncovered event. A non-recurring matched row projects to exactly itself; a recurring one
+// expands to every one of its individual occurrences within the window (each tagged with its
+// own series_id/recurrence_id, same addressing GET /events uses) — not just its one base
+// definition. Contact-calendar birthdays/anniversaries are synthetic (computed per request, not
+// stored text), so they are not included.
+router.get('/events/search', calendarSearchLimiter, async (req, res) => {
+  const q = (queryString(req.query.q) ?? '').trim();
+  if (!q) return res.json({ events: [] });
+  if (q.length > 200) return res.status(400).json({ error: 'Search query is too long' });
+  // `|| 200` would also catch a literal `limit=0` (falsy) and silently replace it with the
+  // default instead of clamping it up to the minimum of 1 — Number.isFinite tells "absent or
+  // not a number" apart from "a real, if degenerate, value" so only the former falls back.
+  const parsedLimit = Number.parseInt(queryString(req.query.limit) ?? '', 10);
+  const limit = Math.min(Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 200, 1), 500);
+  const like = `%${q}%`;
+  const matched = await query<CalendarEventRow>(
+    `SELECT ${EVENT_COLUMNS},
+            CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
+            sm.folder AS source_folder,
+            sa.id AS source_account_id,
+            c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
+     FROM calendar_events e
+     JOIN calendars c ON c.id = e.calendar_id
+     LEFT JOIN messages sm ON sm.id = e.source_message_id
+     LEFT JOIN email_accounts sa ON sa.id = sm.account_id AND sa.user_id = e.user_id
+     WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1
+       AND (e.summary ILIKE $2 OR e.description ILIKE $2 OR e.location ILIKE $2)`,
+    [req.session.userId, like],
+  );
+  if (!matched.rows.length) return res.json({ events: [] });
+  const { from, to } = unboundedSearchWindow();
+  const projection = await projectCalendarResources(matched.rows, from, to, { userId: req.session.userId });
+  const events = projection.events
+    .sort((left, right) => eventStartTime(right.starts_at) - eventStartTime(left.starts_at))
+    .slice(0, limit);
+  res.json({ events, truncated: projection.truncated });
 });
 
 router.post('/events', async (req, res) => {
