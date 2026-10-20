@@ -15,7 +15,7 @@ import { decrypt } from './encryption.js';
 import { buildMailNotificationEvent } from './mailNotificationEvent.js';
 import { dispatchMailNotification } from './pushDispatcher.js';
 import { redactEmail } from '../utils/redact.js';
-import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
+import { adjustFolderCounts, resolveSpamFolder, resolveTrashFolder, resolveArchiveFolder, isAllMailFolder } from '../utils/mailUtils.js';
 import { RELOCATE_COPY_COLS } from '../utils/relocateColumns.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
@@ -2628,6 +2628,12 @@ export class ImapManager {
         // neither blocks the tick nor disturbs the INBOX IDLE connection. Fire-and-forget;
         // _syncSpamFolder handles its own errors.
         setImmediate(() => this._syncSpamFolder(syncAccount).catch(() => {}));
+        // Same rationale, for Trash/Archive: a delete/archive performed on another device moves
+        // the message there directly on the server, bypassing our INBOX sync entirely. Without
+        // this poll those folders only refresh the first time the user opens them (when the
+        // local cache is empty) — see _syncTrashFolder for the full explanation.
+        setImmediate(() => this._syncTrashFolder(syncAccount).catch(() => {}));
+        setImmediate(() => this._syncArchiveFolder(syncAccount).catch(() => {}));
       }
 
       // Some providers (e.g. Google) don't push flag changes via IDLE — poll on the
@@ -4710,6 +4716,81 @@ export class ImapManager {
     } catch (caught) {
       const err = toAppError(caught);
       console.warn(`Periodic spam sync failed for ${logAccount(account)}/${spamPath}:`, err.message);
+    } finally {
+      this.onDemandSyncing.delete(key);
+    }
+  }
+
+  // Periodically pull new mail into Trash/Archive on the same slow cadence as _syncSpamFolder,
+  // for the identical reason: a message moved there by ANOTHER client (webmail, phone, desktop
+  // app) never passes through our INBOX sync, so without this poll it sits on the server
+  // forever while our local cache still shows the message in its old folder (or not at all,
+  // once reconcileDeletes drops the now-orphaned INBOX row) — issue reported as "mail missing
+  // from Trash/Archive, especially when deleted/archived on a different device". The frontend's
+  // own on-demand sync (syncFolderOnDemand) only fires when the folder's local cache is EMPTY,
+  // so it never catches a later cross-device move into an already-populated folder; this periodic
+  // poll is what keeps Trash/Archive current after that first load. Shares _syncTrashFolder's
+  // guards and connection discipline with _syncSpamFolder: dedup via onDemandSyncing, a pooled
+  // per-host-capped connection (_bgConnSem) so it never disturbs the INBOX IDLE connection, and a
+  // folders_synced-only broadcast so it never reloads a message list the user has open elsewhere.
+  async _syncTrashFolder(account: EmailAccountRow) {
+    let trashPath;
+    try {
+      trashPath = await resolveTrashFolder(account.id, account.folder_mappings);
+    } catch { return; }
+    if (!trashPath) return;
+    const key = `${account.id}:${trashPath}`;
+    if (this.onDemandSyncing.has(key)) return;
+    this.onDemandSyncing.add(key);
+    const host = (account.imap_host || '').toLowerCase();
+    try {
+      await this._bgConnSem.acquire(host);
+      try {
+        await withFreshClient(account, async (client) => {
+          await this.syncMessages(account, client, trashPath, 50, false, true);
+        });
+        this.broadcast({ type: 'folders_synced', accountId: account.id }, account.user_id);
+      } finally {
+        this._bgConnSem.release(host);
+      }
+    } catch (caught) {
+      const err = toAppError(caught);
+      console.warn(`Periodic trash sync failed for ${logAccount(account)}/${trashPath}:`, err.message);
+    } finally {
+      this.onDemandSyncing.delete(key);
+    }
+  }
+
+  // Archive counterpart of _syncTrashFolder — see that comment for why this periodic poll is
+  // needed. Skips Gmail's "All Mail" (special_use '\All'), which resolveArchiveFolder falls back
+  // to on accounts with no real \Archive folder: All Mail is deliberately excluded from every
+  // sync/backfill loop (see isAllMailFolder / skipFolderPatterns) because it mirrors nearly every
+  // message in the account under Gmail's label model, not a distinct Archive mailbox — syncing it
+  // here would fight that exclusion and flood the local cache.
+  async _syncArchiveFolder(account: EmailAccountRow) {
+    let archivePath;
+    try {
+      archivePath = await resolveArchiveFolder(account.id, account.folder_mappings);
+      if (archivePath && await isAllMailFolder(account.id, archivePath)) return;
+    } catch { return; }
+    if (!archivePath) return;
+    const key = `${account.id}:${archivePath}`;
+    if (this.onDemandSyncing.has(key)) return;
+    this.onDemandSyncing.add(key);
+    const host = (account.imap_host || '').toLowerCase();
+    try {
+      await this._bgConnSem.acquire(host);
+      try {
+        await withFreshClient(account, async (client) => {
+          await this.syncMessages(account, client, archivePath, 50, false, true);
+        });
+        this.broadcast({ type: 'folders_synced', accountId: account.id }, account.user_id);
+      } finally {
+        this._bgConnSem.release(host);
+      }
+    } catch (caught) {
+      const err = toAppError(caught);
+      console.warn(`Periodic archive sync failed for ${logAccount(account)}/${archivePath}:`, err.message);
     } finally {
       this.onDemandSyncing.delete(key);
     }

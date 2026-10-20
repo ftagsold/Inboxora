@@ -8,6 +8,16 @@ For the narrative version — what the release means, what to expect when upgrad
 limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
+## [Unreleased]
+
+### Fixed
+
+- Poll Trash and Archive on the same slow background cadence as the Junk/Spam folder, so a message
+  deleted or archived from another device (webmail, phone, a different mail client) no longer goes
+  missing locally once that folder has already been opened once. Previously only an empty folder's
+  first view triggered a sync, so later cross-device moves into an already-populated Trash/Archive
+  were never picked up.
+
 ## [4.0.2] - 2026-09-17
 
 ### Fixed
