@@ -1361,92 +1361,40 @@ describe('syncMessages — unread_count recompute ordering (folder badge fix)', 
   });
 });
 
-describe('_syncSpamFolder — periodic spam poll guards', () => {
+describe('_syncOtherFolders — periodic non-INBOX poll guards', () => {
   const account = { id: 'a1', user_id: 'u1', folder_mappings: null, imap_host: 'imap.example.com' };
 
-  it('no-ops when the account has no resolvable spam folder', async () => {
+  it('does nothing when the account has no non-INBOX folders', async () => {
     query.mockReset();
-    query.mockResolvedValue({ rows: [] }); // resolveSpamFolder finds nothing
-    const ctx = { onDemandSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
-    await ImapManager.prototype._syncSpamFolder.call(ctx, account);
+    query.mockResolvedValue({ rows: [] }); // folder lookup finds nothing besides INBOX
+    const ctx = { onDemandSyncing: new Set(), _otherFoldersSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
+    await ImapManager.prototype._syncOtherFolders.call(ctx, account);
+    expect(ctx.syncMessages).not.toHaveBeenCalled();
+    expect(ctx.broadcast).not.toHaveBeenCalled();
+    expect(ctx._otherFoldersSyncing.has('a1')).toBe(false); // guard released after the pass
+  });
+
+  it('skips a folder excluded by the provider\'s skip rules — e.g. Gmail "All Mail"', async () => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [{ path: '[Gmail]/All Mail' }] });
+    // Gmail's provider profile (matched by imap_host) is the one with a non-empty
+    // skipFolderPatterns list, so this proves the filter — not just an empty folder list —
+    // is what stops the sync. Its "all mail" pattern matches this path on a substring basis.
+    const gmailAccount = { ...account, imap_host: 'imap.gmail.com' };
+    const ctx = { onDemandSyncing: new Set(), _otherFoldersSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
+    await ImapManager.prototype._syncOtherFolders.call(ctx, gmailAccount);
     expect(ctx.syncMessages).not.toHaveBeenCalled();
     expect(ctx.broadcast).not.toHaveBeenCalled();
   });
 
-  it('skips when an on-demand sync of that spam folder is already running (no collision)', async () => {
+  it('skips entirely when a pass is already running for this account (no overlapping runs)', async () => {
     query.mockReset();
-    // resolveSpamFolder's special-use lookup (identified by its name-regex clause) yields "Junk".
-    query.mockImplementation((sql) =>
-      sql.includes('lower(name) ~') ? Promise.resolve({ rows: [{ path: 'Junk' }] }) : Promise.resolve({ rows: [] }));
-    const ctx = { onDemandSyncing: new Set(['a1:Junk']), broadcast: vi.fn(), syncMessages: vi.fn() };
-    await ImapManager.prototype._syncSpamFolder.call(ctx, account);
+    const ctx = { onDemandSyncing: new Set(), _otherFoldersSyncing: new Set(['a1']), broadcast: vi.fn(), syncMessages: vi.fn() };
+    await ImapManager.prototype._syncOtherFolders.call(ctx, account);
+    expect(query).not.toHaveBeenCalled(); // returns before even looking up the folder list
     expect(ctx.syncMessages).not.toHaveBeenCalled();
     expect(ctx.broadcast).not.toHaveBeenCalled();
-    expect(ctx.onDemandSyncing.has('a1:Junk')).toBe(true); // guard left intact for the running sync
-  });
-});
-
-describe('_syncTrashFolder — periodic trash poll guards', () => {
-  const account = { id: 'a1', user_id: 'u1', folder_mappings: null, imap_host: 'imap.example.com' };
-
-  it('no-ops when the account has no resolvable trash folder', async () => {
-    query.mockReset();
-    query.mockResolvedValue({ rows: [] }); // resolveTrashFolder finds nothing
-    const ctx = { onDemandSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
-    await ImapManager.prototype._syncTrashFolder.call(ctx, account);
-    expect(ctx.syncMessages).not.toHaveBeenCalled();
-    expect(ctx.broadcast).not.toHaveBeenCalled();
-  });
-
-  it('skips when an on-demand sync of that trash folder is already running (no collision)', async () => {
-    query.mockReset();
-    // resolveTrashFolder's name-heuristic lookup (identified by its name-LIKE clause) yields "Trash".
-    query.mockImplementation((sql) =>
-      sql.includes(`lower(name) LIKE '%trash%'`) ? Promise.resolve({ rows: [{ path: 'Trash' }] }) : Promise.resolve({ rows: [] }));
-    const ctx = { onDemandSyncing: new Set(['a1:Trash']), broadcast: vi.fn(), syncMessages: vi.fn() };
-    await ImapManager.prototype._syncTrashFolder.call(ctx, account);
-    expect(ctx.syncMessages).not.toHaveBeenCalled();
-    expect(ctx.broadcast).not.toHaveBeenCalled();
-    expect(ctx.onDemandSyncing.has('a1:Trash')).toBe(true); // guard left intact for the running sync
-  });
-});
-
-describe('_syncArchiveFolder — periodic archive poll guards', () => {
-  const account = { id: 'a1', user_id: 'u1', folder_mappings: null, imap_host: 'imap.example.com' };
-
-  it('no-ops when the account has no resolvable archive folder', async () => {
-    query.mockReset();
-    query.mockResolvedValue({ rows: [] }); // resolveArchiveFolder finds nothing
-    const ctx = { onDemandSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
-    await ImapManager.prototype._syncArchiveFolder.call(ctx, account);
-    expect(ctx.syncMessages).not.toHaveBeenCalled();
-    expect(ctx.broadcast).not.toHaveBeenCalled();
-  });
-
-  it('skips when an on-demand sync of that archive folder is already running (no collision)', async () => {
-    query.mockReset();
-    query.mockImplementation((sql) =>
-      sql.includes(`lower(name) LIKE '%archive%'`) ? Promise.resolve({ rows: [{ path: 'Archive' }] }) : Promise.resolve({ rows: [] }));
-    const ctx = { onDemandSyncing: new Set(['a1:Archive']), broadcast: vi.fn(), syncMessages: vi.fn() };
-    await ImapManager.prototype._syncArchiveFolder.call(ctx, account);
-    expect(ctx.syncMessages).not.toHaveBeenCalled();
-    expect(ctx.broadcast).not.toHaveBeenCalled();
-    expect(ctx.onDemandSyncing.has('a1:Archive')).toBe(true); // guard left intact for the running sync
-  });
-
-  it('never polls Gmail "All Mail" even when it is the only archive-like folder resolved', async () => {
-    query.mockReset();
-    // resolveArchiveFolder falls back to the '\All' special-use folder; isAllMailFolder
-    // (distinguished by its "path = $2 AND special_use" clause) confirms the match.
-    query.mockImplementation((sql) => {
-      if (sql.includes('path = $2 AND special_use')) return Promise.resolve({ rows: [{ x: 1 }] });
-      if (sql.includes('special_use = \'\\All\'')) return Promise.resolve({ rows: [{ path: '[Gmail]/All Mail' }] });
-      return Promise.resolve({ rows: [] });
-    });
-    const ctx = { onDemandSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
-    await ImapManager.prototype._syncArchiveFolder.call(ctx, account);
-    expect(ctx.syncMessages).not.toHaveBeenCalled();
-    expect(ctx.broadcast).not.toHaveBeenCalled();
+    expect(ctx._otherFoldersSyncing.has('a1')).toBe(true); // guard left intact for the running pass
   });
 });
 
