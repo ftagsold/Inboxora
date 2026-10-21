@@ -292,3 +292,31 @@ describe('Google CSV import persistence', () => {
     expect(JSON.parse(stringParameter(insert[1], 23))).toMatchObject({ 'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42' });
   });
 });
+
+describe('Contact photo responses', () => {
+  async function fetchPhoto(photoData: string) {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ photo_data: photoData }] });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/photo?email=ada@example.test`);
+    await new Promise(resolve => server.close(resolve));
+    return response;
+  }
+
+  it('serves a raster photo sandboxed so opening its URL cannot run script', async () => {
+    const response = await fetchPhoto(`data:image/png;base64,${Buffer.from('png').toString('base64')}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(response.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+  });
+
+  it.each([
+    ['HTML', 'text/html'],
+    ['SVG', 'image/svg+xml'],
+  ])('refuses a stored %s photo instead of serving it from the app origin', async (_label, type) => {
+    const response = await fetchPhoto(`data:${type};base64,${Buffer.from('<script>alert(1)</script>').toString('base64')}`);
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type') ?? '').not.toContain(type);
+  });
+});

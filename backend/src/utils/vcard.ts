@@ -1,6 +1,8 @@
 // vCard 3.0 parser and generator (RFC 2426).
 // Used by the contacts REST API and the CardDAV server.
 
+import { safeImageType } from './imageResponse.js';
+
 // Sanitize a vCard parameter value (e.g. TYPE=...).
 // Strips CR, LF, and other characters that are structural in vCard lines.
 function escapeParam(str: string): string {
@@ -361,8 +363,9 @@ export function parseVCard(raw: string): ParsedVCard {
         const v = value.trim();
         if (!v) break;
         if (v.startsWith('data:')) {
-          // vCard 4.0 inline data URI — store as-is.
-          result.photoData = v;
+          // vCard 4.0 inline data URI — store as-is, but only a raster image: the photo is later
+          // served from this origin, where an HTML or SVG payload could run script.
+          result.photoData = safeImageType(/^data:([^;,]*)/.exec(v)?.[1]) ? v : null;
         } else if (/^https?:\/\//i.test(v)) {
           // External URL — skip to avoid privacy leak / fetch complexity.
           result.photoData = null;

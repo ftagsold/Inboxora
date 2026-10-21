@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
+import DOMPurify from 'dompurify';
 
 const BTN = {
   background: 'none', border: 'none', borderRadius: 4,
@@ -48,7 +49,8 @@ export default function SignatureEditor({ value, onChange }: { value: string; on
   useEffect(() => {
     const editor = editorRef.current;
     if (editor && editor.innerHTML !== value) {
-      editor.innerHTML = value;
+      // Same sanitizer ComposeModal applies when it inserts a signature into a message.
+      editor.innerHTML = DOMPurify.sanitize(value);
     }
   }, [showSource, value]);
 

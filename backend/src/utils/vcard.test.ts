@@ -214,3 +214,16 @@ it('round trips birthdays without a year without inventing a birth year', () => 
   expect(parseVCard(generateVCard(parsed)).contactDates).toEqual(parsed.contactDates);
   expect(parseVCard('BEGIN:VCARD\r\nBDAY:--0230\r\nEND:VCARD').invalidDates).toEqual(['--0230']);
 });
+
+describe('vCard PHOTO', () => {
+  const card = (photo: string) => `BEGIN:VCARD\r\nVERSION:4.0\r\nUID:p-1\r\nFN:Ada\r\nPHOTO:${photo}\r\nEND:VCARD\r\n`;
+
+  it('keeps an inline raster data URI', () => {
+    expect(parseVCard(card('data:image/png;base64,AAAA')).photoData).toBe('data:image/png;base64,AAAA');
+  });
+
+  it.each(['data:text/html;base64,PHNjcmlwdD4=', 'data:image/svg+xml;base64,PHN2Zz4=', 'data:,plain'])(
+    'drops a non-raster data URI that could run script when served (%s)',
+    photo => { expect(parseVCard(card(photo)).photoData).toBeNull(); },
+  );
+});

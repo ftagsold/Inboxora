@@ -9,6 +9,7 @@ import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogle
 import crypto from 'crypto';
 import { queryInt, queryString, queryStringOr, routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import { safeImageType, sendImage } from '../utils/imageResponse.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -270,13 +271,11 @@ router.get('/photo', async (req, res) => {
       if (commaIdx < 0) return res.status(404).end();
       const mimeMatch = photoData.slice(0, commaIdx).match(/data:([^;]+)/);
       const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      res.set('Content-Type', mimeType);
-      return res.send(Buffer.from(photoData.slice(commaIdx + 1), 'base64'));
+      return sendImage(res, mimeType, Buffer.from(photoData.slice(commaIdx + 1), 'base64'));
     }
 
     // Fallback: treat as raw base64 JPEG (shouldn't occur after vcard.js fix).
-    res.set('Content-Type', 'image/jpeg');
-    return res.send(Buffer.from(photoData, 'base64'));
+    return sendImage(res, 'image/jpeg', Buffer.from(photoData, 'base64'));
   } catch (err) {
     console.error('Contact photo error:', err);
     res.status(500).end();
@@ -304,8 +303,7 @@ router.get('/gravatar', async (req, res) => {
   if (cached && cached.expires > now) {
     if (cached.miss) return res.status(404).end();
     res.set('Cache-Control', 'private, max-age=86400');
-    res.set('Content-Type', cached.type);
-    return res.send(cached.buf);
+    return sendImage(res, cached.type, cached.buf);
   }
 
   try {
@@ -322,13 +320,12 @@ router.get('/gravatar', async (req, res) => {
       return res.status(404).end();
     }
     const type = resp.headers.get('content-type') || '';
-    if (!resp.ok || !type.startsWith('image/')) return res.status(502).end();
+    if (!resp.ok || !safeImageType(type)) return res.status(502).end();
     const buf = Buffer.from(await resp.arrayBuffer());
     if (buf.length === 0 || buf.length > 512 * 1024) return res.status(502).end();
     gravatarCacheSet(hash, { buf, type, expires: now + GRAVATAR_TTL_MS });
     res.set('Cache-Control', 'private, max-age=86400');
-    res.set('Content-Type', type);
-    return res.send(buf);
+    return sendImage(res, type, buf);
   } catch {
     return res.status(502).end();
   }

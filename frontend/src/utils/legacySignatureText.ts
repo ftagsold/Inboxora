@@ -1,9 +1,10 @@
+import { parseInertHtml } from './inertHtml.ts';
+
 const BLOCK_TAGS = new Set(['ADDRESS', 'ARTICLE', 'BLOCKQUOTE', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'P', 'PRE', 'SECTION']);
 
 /** Convert legacy HTML-only signature metadata without relying on rendered DOM layout. */
 export function legacySignatureHtmlToText(html: string): string {
-  const root = document.createElement('div');
-  root.innerHTML = html;
+  const root = parseInertHtml(html);
   let result = '';
   const appendBreak = () => { if (!result.endsWith('\n')) result += '\n'; };
   const visit = (node: Node) => {

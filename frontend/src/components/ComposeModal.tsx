@@ -26,6 +26,7 @@ import { toAppError } from '../utils/errors.ts';
 import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
 import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
+import { parseInertHtml } from '../utils/inertHtml.ts';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -123,9 +124,8 @@ const ResizableImage = Image.extend({
 });
 
 function stripHtml(html: string): string {
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  return div.innerText || div.textContent || '';
+  const body = parseInertHtml(html);
+  return body.innerText || body.textContent || '';
 }
 
 // Normalize address arrays to comma-separated string
