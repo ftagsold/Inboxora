@@ -1050,14 +1050,16 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Conversation Engine v2: list grouping is controlled exclusively by the native
   // threadedView preference. The old CE-specific list flag is read only as a
   // compatibility fallback for users who saved it before the canonical mapping.
-  conversationReaderViewEnabled: false,
+  // On by default; a saved preference (server or this device) still wins.
+  conversationReaderViewEnabled: true,
   setConversationReaderViewEnabled: (val: boolean) =>{
     set({ conversationReaderViewEnabled: val });
     schedulePrefSave({ conversation_reader_view_enabled: val });
   },
 
   // Threaded view
-  threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
+  // Conversation grouping is on by default; only an explicit saved "false" turns it off.
+  threadedView: localStorage.getItem('mailflow_threaded_view') !== 'false',
   setThreadedView: (val: boolean) =>{
     localStorage.setItem('mailflow_threaded_view', String(val));
     set({ threadedView: val, expandedThreadId: null, threadMessages: {} });
