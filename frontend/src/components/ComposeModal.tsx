@@ -361,7 +361,7 @@ export default function ComposeModal() {
   const setHtmlMode = (value: React.SetStateAction<boolean>) => { recordDraftEdit(); setHtmlModeState(value); };
   const [htmlSource, setHtmlSourceState] = useState('');
   const setHtmlSource = (value: React.SetStateAction<string>) => { recordDraftEdit(); setHtmlSourceState(value); };
-  const [aiStatus, setAiStatus] = useState<{ enabled?: boolean; features?: { summarize?: boolean; compose?: boolean; [key: string]: unknown }; [key: string]: unknown } | null>(null);
+  const aiStatus = useStore(state => state.aiStatus);
   const [aiPanel, setAiPanel] = useState<{ text?: string; status?: string; [key: string]: unknown } | null>(null);
   const aiAbortRef = useRef<AbortController | null>(null);
   // Stable idempotency key for the current logical send. Generated on the first send
@@ -514,7 +514,6 @@ export default function ComposeModal() {
   }, [isMobile]);
 
   useEffect(() => {
-    api.ai.status().then(setAiStatus).catch(() => {});
     return () => { aiAbortRef.current?.abort(); };
   }, []);
 

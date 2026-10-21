@@ -435,6 +435,10 @@ export default function MailApp() {
   }, [setSelectedMessage]);
   useBackNavigation(isMobile);
   useRouteSync(isMobile);
+  // One AI status fetch per signed-in user; every AI control reads it from the store.
+  const userId = useStore(state => state.user?.id);
+  const refreshAiStatus = useStore(state => state.refreshAiStatus);
+  useEffect(() => { if (userId) void refreshAiStatus(); }, [userId, refreshAiStatus]);
   useBackLayer(readerOpen && !showContacts && !showCalendar, closeReader, 10);
   useBackLayer(showContacts, () => setShowContacts(false), 20);
   useBackLayer(showCalendar, () => setShowCalendar(false), 20);

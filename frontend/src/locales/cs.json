@@ -661,6 +661,7 @@
       "passwordLoginDisabled": "Přihlašování heslem je vypnuté",
       "passwordLoginEnabledDesc": "Uživatelé se mohou přihlásit uživatelským jménem a heslem",
       "passwordLoginDisabledDesc": "Uživatelé se musí přihlásit přes SSO",
+      "passwordLoginLockedByEnv": "Nastaveno proměnnou PASSWORD_LOGIN_DISABLED v prostředí serveru",
       "passwordLoginDisableTitle": "Vypnout přihlašování heslem?",
       "passwordLoginDisableMsg": "Uživatelé se budou moci přihlásit pouze přes SSO. Pokud poskytovatel SSO přestane být dostupný, bude pro opětovné zapnutí přihlašování heslem nutný přímý přístup k databázi.",
       "passwordLoginDisableConfirm": "Vypnout přihlašování heslem",

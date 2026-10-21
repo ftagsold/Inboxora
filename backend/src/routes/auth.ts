@@ -39,6 +39,7 @@ import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
 import { toAppError } from '../utils/errors.js';
+import { isPasswordLoginDisabled, passwordLoginDisabledByEnv } from '../services/passwordLogin.js';
 
 const router = Router();
 
@@ -143,6 +144,12 @@ router.post('/register', authLimiter, async (req, res) => {
   });
   if (hasControlCharacter) {
     return res.status(400).json({ error: 'Username contains invalid characters' });
+  }
+
+  // PASSWORD_LOGIN_DISABLED blocks every password registration, the first account included:
+  // such an account could never sign in, so the first admin must arrive through SSO.
+  if (passwordLoginDisabledByEnv()) {
+    return res.status(403).json({ error: 'Password-based registration is disabled. Please sign in with your SSO provider.' });
   }
 
   // Hash before opening the transaction — bcrypt is intentionally slow and we
@@ -259,10 +266,7 @@ router.post('/login', authLimiter, async (req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
   try {
-    const authSetting = await query<{ value: string }>(
-      "SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'"
-    );
-    if (authSetting.rows[0]?.value === 'true') {
+    if (await isPasswordLoginDisabled()) {
       return res.status(403).json({ error: 'Password login is disabled. Please sign in with your SSO provider.' });
     }
 
@@ -762,9 +766,10 @@ router.get('/registration-status', async (req, res) => {
   );
   const map: Record<string, string> = {};
   for (const row of result.rows) map[row.key] = row.value;
+  const disabledByEnv = passwordLoginDisabledByEnv();
   res.json({
-    open: map.registration_open === 'true',
-    internalAuthDisabled: map.internal_auth_disabled === 'true',
+    open: !disabledByEnv && map.registration_open === 'true',
+    internalAuthDisabled: disabledByEnv || map.internal_auth_disabled === 'true',
   });
 });
 
@@ -1075,10 +1080,7 @@ router.patch('/profile/recovery-email', async (req, res) => {
 // Looks up a user by recovery_email and sends a reset link.
 // Always returns 200 to avoid leaking whether a recovery email exists.
 router.post('/forgot-password', authLimiter, async (req, res) => {
-  const authSetting = await query<{ value: string }>(
-    "SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'"
-  );
-  if (authSetting.rows[0]?.value === 'true') {
+  if (await isPasswordLoginDisabled()) {
     return res.status(403).json({ error: 'Password login is disabled on this server.' });
   }
 

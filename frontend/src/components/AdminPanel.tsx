@@ -3323,6 +3323,8 @@ function SSOTab() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [templateNote, setTemplateNote] = useState('');
   const [internalAuthDisabled, setInternalAuthDisabled] = useState(false);
+  // PASSWORD_LOGIN_DISABLED in the server environment forces password login off.
+  const [passwordLoginLockedByEnv, setPasswordLoginLockedByEnv] = useState(false);
   const [internalAuthSaving, setInternalAuthSaving] = useState(false);
   const [internalAuthError, setInternalAuthError] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -3332,7 +3334,10 @@ function SSOTab() {
       .then(d => setProviders(d.providers))
       .catch(err => setLoadError(toAppError(err).message));
     const fetchSettings = api.admin.getSettings()
-      .then(d => setInternalAuthDisabled(d.settings.internal_auth_disabled === 'true'))
+      .then(d => {
+        setInternalAuthDisabled(d.settings.internal_auth_disabled === 'true');
+        setPasswordLoginLockedByEnv(d.passwordLoginLockedByEnv === true);
+      })
       .catch(err => setLoadError(toAppError(err).message));
     Promise.all([fetchProviders, fetchSettings]).finally(() => setLoading(false));
   }, []);
@@ -3472,18 +3477,20 @@ function SSOTab() {
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
               {internalAuthDisabled ? t('admin.sso.passwordLoginDisabledDesc') : t('admin.sso.passwordLoginEnabledDesc')}
+              {passwordLoginLockedByEnv && <> · {t('admin.sso.passwordLoginLockedByEnv')}</>}
             </div>
           </div>
           <button
             onClick={handleToggleInternalAuth}
-            disabled={internalAuthSaving}
+            disabled={internalAuthSaving || passwordLoginLockedByEnv}
+            aria-disabled={internalAuthSaving || passwordLoginLockedByEnv}
             style={{
               width: 44, height: 24, borderRadius: 12,
               background: internalAuthDisabled ? TOGGLE_OFF_BACKGROUND : 'var(--accent)',
               border: `1px solid ${internalAuthDisabled ? 'var(--border)' : 'var(--accent)'}`,
-              cursor: internalAuthSaving ? 'not-allowed' : 'pointer',
+              cursor: internalAuthSaving || passwordLoginLockedByEnv ? 'not-allowed' : 'pointer',
               position: 'relative', transition: 'all 0.2s', flexShrink: 0,
-              opacity: internalAuthSaving ? 0.6 : 1,
+              opacity: internalAuthSaving || passwordLoginLockedByEnv ? 0.6 : 1,
             }}
           >
             <div style={{
@@ -3891,6 +3898,8 @@ function AISection() {
     const saved = result.config || payload;
     const normalized = normalizeAiForm(saved);
     setConfig(saved);
+    // AI controls across the app follow the provider status, so refresh it after a change.
+    void useStore.getState().refreshAiStatus();
     formRef.current = normalized;
     setForm(normalized);
   }, []);
@@ -4240,7 +4249,7 @@ function AiActionsTab() {
   const { t } = useTranslation();
   const { aiActions, setAiActions } = useStore();
   const [items, setItems] = useState(() => (aiActions || []).map(a => ({ ...a })));
-  const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
+  const aiEnabled = useStore(state => state.aiStatus?.enabled ?? null);
 
   // Populate once when prefs finish loading, without clobbering in-progress edits.
   useEffect(() => {
@@ -4248,9 +4257,6 @@ function AiActionsTab() {
       setItems(currentItems => currentItems.length === 0 ? aiActions.map(a => ({ ...a })) : currentItems);
     }
   }, [aiActions]);
-  useEffect(() => {
-    api.ai.status().then(s => setAiEnabled(!!s?.enabled)).catch(() => setAiEnabled(false));
-  }, []);
 
   // Persist only complete, trimmed, bounded actions (mirrors the backend validation).
   const save = (list: Array<{ id: string; label: string; prompt?: string }>) => setAiActions(
@@ -8696,9 +8702,12 @@ function DavCredentialsTab() {
 
 export default function AdminPanel() {
   const { t } = useTranslation();
-  const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
+  const { setShowAdmin, adminTab, setAdminTab, user, aiStatus } = useStore();
   const isMobile = useMobile();
-  const visibleTabs = TABS.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
+  // AI actions only make sense with a configured provider; admins configure it on the AI tab.
+  const aiActionsAvailable = aiStatus?.enabled === true;
+  const visibleTabs = TABS.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile)
+    && (tab.id !== 'ai-actions' || aiActionsAvailable));
 
   const tabScrollRef = useRef<HTMLDivElement | null>(null);
   const [tabRightOverflow, setTabRightOverflow] = useState(false);
@@ -8731,6 +8740,7 @@ export default function AdminPanel() {
     ? searchIndex.filter(item => {
         if (item.adminOnly && !user?.isAdmin) return false;
         if (item.mobileHidden && isMobile) return false;
+        if (item.tab === 'ai-actions' && !aiActionsAvailable) return false;
         const q = searchQuery.toLowerCase();
         return item.label.toLowerCase().includes(q) || item.keywords.some(k => k.includes(q));
       })
@@ -8789,7 +8799,7 @@ export default function AdminPanel() {
       {adminTab === 'notifications' && <NotificationsTab />}
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
       {adminTab === 'ai' && <AISection />}
-      {adminTab === 'ai-actions' && <AiActionsTab />}
+      {adminTab === 'ai-actions' && aiActionsAvailable && <AiActionsTab />}
       {adminTab === 'plugins' && <PluginsSection onNavigate={navigateTo} />}
       {adminTab === 'about' && <AboutTab />}
     </>

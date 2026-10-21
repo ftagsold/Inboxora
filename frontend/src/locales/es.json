@@ -746,6 +746,7 @@
       "passwordLoginTitle": "Inicio de sesión con contraseña",
       "passwordLoginDisableConfirm": "Desactivar inicio de sesión con contraseña",
       "passwordLoginDisabledDesc": "Los usuarios deben iniciar sesión mediante SSO",
+      "passwordLoginLockedByEnv": "Definido por PASSWORD_LOGIN_DISABLED en el entorno del servidor",
       "passwordLoginDesc": "Cuando está desactivado, los usuarios solo pueden iniciar sesión mediante SSO. Requiere al menos un proveedor SSO habilitado y que tu cuenta de administrador esté vinculada a una identidad SSO.",
       "passwordLoginEnabledDesc": "Los usuarios pueden iniciar sesión con nombre de usuario y contraseña",
       "passwordLoginEnabled": "El inicio de sesión con contraseña está habilitado"

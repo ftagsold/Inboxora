@@ -746,6 +746,7 @@
       "passwordLoginTitle": "Вход с паролем",
       "passwordLoginDisableConfirm": "Отключить вход с паролем",
       "passwordLoginDisabledDesc": "Пользователи должны входить через SSO",
+      "passwordLoginLockedByEnv": "Задано переменной PASSWORD_LOGIN_DISABLED в окружении сервера",
       "passwordLoginDesc": "При отключении пользователи могут входить только через SSO. Требуется хотя бы один включённый провайдер SSO и привязка учётной записи администратора к удостоверению SSO.",
       "passwordLoginEnabledDesc": "Пользователи могут входить с именем пользователя и паролем",
       "passwordLoginEnabled": "Вход с паролем включён"

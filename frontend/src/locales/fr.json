@@ -746,6 +746,7 @@
       "passwordLoginTitle": "Connexion par mot de passe",
       "passwordLoginDisableConfirm": "Désactiver la connexion par mot de passe",
       "passwordLoginDisabledDesc": "Les utilisateurs doivent se connecter via SSO",
+      "passwordLoginLockedByEnv": "Défini par PASSWORD_LOGIN_DISABLED dans l'environnement du serveur",
       "passwordLoginDesc": "Lorsque désactivé, les utilisateurs peuvent uniquement se connecter via SSO. Nécessite au moins un fournisseur SSO activé et que votre compte administrateur soit lié à une identité SSO.",
       "passwordLoginEnabledDesc": "Les utilisateurs peuvent se connecter avec un nom d'utilisateur et un mot de passe",
       "passwordLoginEnabled": "La connexion par mot de passe est activée"

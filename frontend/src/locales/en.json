@@ -692,6 +692,7 @@
       "passwordLoginDisabled": "Password login is disabled",
       "passwordLoginEnabledDesc": "Users can sign in with username and password",
       "passwordLoginDisabledDesc": "Users must sign in via SSO",
+      "passwordLoginLockedByEnv": "Set by PASSWORD_LOGIN_DISABLED in the server environment",
       "passwordLoginDisableTitle": "Disable password login?",
       "passwordLoginDisableMsg": "Users will only be able to sign in via SSO. If your SSO provider becomes unavailable, direct database access will be required to re-enable password login.",
       "passwordLoginDisableConfirm": "Disable password login",

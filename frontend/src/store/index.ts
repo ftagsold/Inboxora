@@ -91,6 +91,12 @@ export interface ComposeDraft {
 }
 
 
+export interface AiStatus {
+  enabled?: boolean;
+  features?: { summarize?: boolean; compose?: boolean; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
 export interface StoreState {
   user: StoreUserRow | null;
   /** Monotonic generation for invalidating asynchronous work from prior auth sessions. */
@@ -323,6 +329,9 @@ export interface StoreState {
   setShortcuts: (overrides: Record<string, string | null | undefined>) => void;
   aiActions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }> | null;
   setAiActions: (actions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>) => void;
+  /** AI provider availability (/api/ai/status); null until loaded, which counts as unavailable. */
+  aiStatus: AiStatus | null;
+  refreshAiStatus: () => Promise<void>;
   hiddenFolders: Record<string, string[]>;
   setHiddenFolders: (hf: Record<string, string[]>) => void;
   folderOrder: Record<string, string[]>;
@@ -543,7 +552,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         searchQuery: '', searchResults: [], isSearching: false, loadingMessages: false,
         notifications: [], expandedThreadId: null, threadMessages: {}, loadingThread: null,
         backfillProgress: {}, categoryCounts: {}, activeGtdTab: null, gtdSections: null,
-        rulesPreFill: null, showAdmin: false,
+        rulesPreFill: null, showAdmin: false, aiStatus: null,
       } : {}),
     }));
   },
@@ -1450,6 +1459,21 @@ export const useStore = create<StoreState>()((set, get) => ({
   setAiActions: (actions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>) =>{
     set({ aiActions: actions });
     return api.savePreferences({ aiActions: actions }).catch(() => {});
+  },
+
+  // Every AI control (summarize, custom actions, compose assistant) is shown only while this
+  // reports a configured, connected provider. A response that arrives after the signed-in user
+  // changed is dropped, so it can never describe a different session.
+  aiStatus: null,
+  refreshAiStatus: async () => {
+    const owner = get().user?.id;
+    let status: AiStatus;
+    try {
+      status = await api.ai.status();
+    } catch {
+      status = { enabled: false };
+    }
+    if (get().user?.id === owner) set({ aiStatus: status });
   },
 
   // Hidden folders — { [accountId]: [path, ...] }

@@ -746,6 +746,7 @@
       "passwordLoginTitle": "密码登录",
       "passwordLoginDisableConfirm": "禁用密码登录",
       "passwordLoginDisabledDesc": "用户必须通过 SSO 登录",
+      "passwordLoginLockedByEnv": "由服务器环境中的 PASSWORD_LOGIN_DISABLED 设置",
       "passwordLoginDesc": "禁用后，用户只能通过 SSO 登录。至少需要一个已启用的 SSO 提供商，且管理员账户必须关联到 SSO 身份。",
       "passwordLoginEnabledDesc": "用户可以使用用户名和密码登录",
       "passwordLoginEnabled": "密码登录已启用"

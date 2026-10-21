@@ -303,7 +303,11 @@ export default function ConversationMessage({ conversationId, message, selectedC
     win.print();
   };
   const inSpamFolder = /(^|\/)(spam|junk)(\/|$)/i.test(String(copy.folder || ''));
-  const availableAiActions = body ? [{ id: 'summarize', label: t('message.summarize'), prompt: 'Summarize this email.' }, ...(aiActions || [])] : [];
+  // AI entries exist only while a provider is configured; mirrors the single-message pane.
+  const aiStatus = useStore(state => state.aiStatus);
+  const availableAiActions = aiStatus?.enabled && aiStatus.features?.summarize && body
+    ? [{ id: 'summarize', label: t('message.summarize'), prompt: 'Summarize this email.' }, ...(aiActions || [])]
+    : [];
   const runAiAction = async (action: { id: string; [key: string]: unknown }) => {
     const text = bodyText || String(bodyHtml || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     const prompt = typeof action.prompt === 'string' ? action.prompt : '';
@@ -393,7 +397,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onPrint={body ? handlePrint : undefined}
         aiActions={availableAiActions}
         onAiAction={action => { void runAiAction(action); }}
-        onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
+        onManageAiActions={aiStatus?.enabled ? () => { setAdminTab('ai-actions'); setShowAdmin(true); } : undefined}
         onStar={() => {
           const isStarred = !(copy.isStarred ?? copy.is_starred);
           return runAction(() => conversationApi.setStarred(conversationId, isStarred, actionOptions), 'star', { isStarred });

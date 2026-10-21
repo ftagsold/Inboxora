@@ -746,6 +746,7 @@
       "passwordLoginTitle": "Accesso con password",
       "passwordLoginDisableConfirm": "Disabilita accesso con password",
       "passwordLoginDisabledDesc": "Gli utenti devono accedere tramite SSO",
+      "passwordLoginLockedByEnv": "Impostato da PASSWORD_LOGIN_DISABLED nell'ambiente del server",
       "passwordLoginDesc": "Quando disabilitato, gli utenti possono accedere solo tramite SSO. Richiede almeno un provider SSO abilitato e che il tuo account amministratore sia collegato a un'identità SSO.",
       "passwordLoginEnabledDesc": "Gli utenti possono accedere con nome utente e password",
       "passwordLoginEnabled": "L'accesso con password è abilitato"

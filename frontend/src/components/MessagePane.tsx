@@ -395,7 +395,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [findMatchCase, setFindMatchCase] = useState(false);
   const [findMatchIndex, setFindMatchIndex] = useState(-1);
   const findInputRef = useRef<HTMLInputElement | null>(null);
-  const [aiStatus, setAiStatus] = useState<{ enabled?: boolean; features?: { summarize?: boolean; [key: string]: unknown }; [key: string]: unknown } | null>(null);
+  const aiStatus = useStore(state => state.aiStatus);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
   const [aiResults, setAiResults] = useState<Record<string, { status?: string; text?: string; [key: string]: unknown }>>({});
@@ -1360,7 +1360,6 @@ ${bodyContent}
   }, []);
 
   useEffect(() => {
-    api.ai.status().then(setAiStatus).catch(() => {});
     return () => { Object.values(aiAbortRefs.current).forEach(c => c?.abort()); };
   }, []);
 
@@ -2029,7 +2028,7 @@ ${bodyContent}
           ? [{ ...BUILTIN_SUMMARIZE, label: t('message.summarize') }, ...(aiActions || [])]
           : []}
         onAiAction={runAiAction}
-        onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
+        onManageAiActions={aiStatus?.enabled ? () => { setAdminTab('ai-actions'); setShowAdmin(true); } : undefined}
         onStar={handleStarToggle}
         onDelete={handleDelete}
         shortcutLabel={shortcutLabel}

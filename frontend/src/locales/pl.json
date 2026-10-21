@@ -676,6 +676,7 @@
       "passwordLoginDisabled": "logowanie hasłem jest wyłączone",
       "passwordLoginEnabledDesc": "Użytkownicy mogą logować się za pomocą nazwy użytkownika i hasła",
       "passwordLoginDisabledDesc": "Użytkownicy muszą logować się przez SSO",
+      "passwordLoginLockedByEnv": "Ustawione przez PASSWORD_LOGIN_DISABLED w środowisku serwera",
       "passwordLoginDisableTitle": "Wyłączyć logowanie hasłem?",
       "passwordLoginDisableMsg": "Użytkownicy będą mogli logować się tylko przez SSO. Jeśli dostawca SSO stanie się niedostępny, do ponownego włączenia logowania hasłem będzie wymagany bezpośredni dostęp do bazy danych.",
       "passwordLoginDisableConfirm": "Wyłącz logowanie hasłem",

@@ -16,6 +16,7 @@ import { uuidParam } from '../utils/uuid.js';
 import { queryInt } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 import { normalizeClaimName } from '../utils/claimName.js';
+import { isPasswordLoginDisabled, passwordLoginDisabledByEnv } from '../services/passwordLogin.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -102,7 +103,10 @@ router.get('/settings', async (req, res) => {
   const result = await query<{ key: string; value: string }>('SELECT key, value FROM system_settings');
   const settings: Record<string, string> = {};
   for (const row of result.rows) settings[row.key] = row.value;
-  res.json({ settings });
+  // PASSWORD_LOGIN_DISABLED overrides the stored toggle; report it so the UI can lock it.
+  const passwordLoginLockedByEnv = passwordLoginDisabledByEnv();
+  if (passwordLoginLockedByEnv) settings.internal_auth_disabled = 'true';
+  res.json({ settings, passwordLoginLockedByEnv });
 });
 
 router.get('/auth-events', async (req, res) => {
@@ -130,6 +134,9 @@ router.patch('/settings', async (req, res) => {
        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
       [registration_open ? 'true' : 'false']
     );
+  }
+  if (internal_auth_disabled === false && passwordLoginDisabledByEnv()) {
+    return res.status(409).json({ error: 'Password login is disabled by PASSWORD_LOGIN_DISABLED in the server environment.' });
   }
   if (typeof internal_auth_disabled === 'boolean') {
     if (internal_auth_disabled) {
@@ -571,8 +578,7 @@ router.post('/oidc', async (req, res) => {
 // Guard against locking everyone out: if password login is disabled, refuse to
 // disable/delete the last enabled OIDC provider. Returns an error string or null.
 async function wouldLockOut(providerId: string) {
-  const s = await query("SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'");
-  if (s.rows[0]?.value !== 'true') return null; // password login still available
+  if (!(await isPasswordLoginDisabled())) return null; // password login still available
   const others = await query<{ count: string }>(
     'SELECT COUNT(*) AS count FROM oidc_providers WHERE enabled = true AND id <> $1',
     [providerId]

@@ -692,6 +692,7 @@
       "passwordLoginDisabled": "Passwort-Login ist deaktiviert",
       "passwordLoginEnabledDesc": "Benutzer können sich mit Benutzername und Passwort anmelden",
       "passwordLoginDisabledDesc": "Benutzer müssen sich über SSO anmelden",
+      "passwordLoginLockedByEnv": "Durch PASSWORD_LOGIN_DISABLED in der Serverumgebung festgelegt",
       "passwordLoginDisableTitle": "Passwort-Login deaktivieren?",
       "passwordLoginDisableMsg": "Benutzer können sich nur noch über SSO anmelden. Falls der SSO-Anbieter nicht verfügbar ist, ist direkter Datenbankzugriff erforderlich, um den Passwort-Login wieder zu aktivieren.",
       "passwordLoginDisableConfirm": "Passwort-Login deaktivieren",
