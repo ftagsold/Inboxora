@@ -825,6 +825,8 @@ interface ProviderProfile {
   connectStaggerMs?: number;
   flagPollEveryTicks?: number;
   freshInboxSync?: boolean;
+  /** Advertises CONDSTORE but ignores CHANGEDSINCE (returns every message): bound the delta scan. */
+  ignoresChangedSince?: boolean;
   idleKeepaliveMs?: number;
   maxPersistentPerHost?: number;
   maxSyncIntervalMs?: number;
@@ -862,6 +864,7 @@ const PROVIDERS: Record<string, ProviderProfile> = {
     batchSize: 200, batchDelay: 1000, errorDelay: 10000, batchesPerConn: 20,
     fetchBody: false,
     pushesFlags: true,
+    ignoresChangedSince: true,
     snippetIndex: true,
     speculativeFetch: true,
     skipFolderPatterns: [],
@@ -3454,7 +3457,10 @@ export class ImapManager {
           // that is a cheap fetch + one bulk UPDATE (~a second) instead of thousands of full-
           // envelope fetches and upserts. changedSince still trims the set on servers that honor
           // it (PurelyMail, Gmail). A tiny mailbox clamps to 1:* anyway.
-          const deltaLow = Math.max(1, maxKnownUid - DELTA_SCAN_UID_WINDOW + 1);
+          // Servers that honor CHANGEDSINCE return only what changed, so the whole mailbox is
+          // scanned and every flag change is picked up; only providers that ignore it (iCloud)
+          // are bounded to the recent window.
+          const deltaLow = provider.ignoresChangedSince ? Math.max(1, maxKnownUid - DELTA_SCAN_UID_WINDOW + 1) : 1;
           const deltaStartedAt = Date.now();
           const flagsToUpdate: Array<{ uid: number; isRead: boolean; isStarred: boolean }> = [];
           try {
@@ -3521,6 +3527,26 @@ export class ImapManager {
             if (outcome === FLAG_SCAN_TIMED_OUT) {
               flagScanComplete = false;
               console.warn(`Sequence flag scan deferred for ${logAccount(account)}/${folder}: over ${FLAG_SCAN_TIMEOUT_MS}ms (provider throttling) — retrying next tick`);
+            } else if (maxKnownUid > 0) {
+              // Without CONDSTORE the metadata scan above only revisits the newest `limit`
+              // messages. Read/star changed elsewhere on older mail is caught by a flags-only
+              // UID scan over the recent window, under the same time budget.
+              const flagLow = Math.max(1, maxKnownUid - DELTA_SCAN_UID_WINDOW + 1);
+              const flagUpdates: Array<{ uid: number; isRead: boolean; isStarred: boolean }> = [];
+              const flagScan = (async () => {
+                for await (const msg of client.fetch(`${flagLow}:*`, { uid: true, flags: true }, { uid: true })) {
+                  flagUpdates.push({ uid: msg.uid, isRead: msg.flags?.has('\\Seen') ?? false, isStarred: msg.flags?.has('\\Flagged') ?? false });
+                }
+              })();
+              flagScan.catch(() => {});
+              const flagOutcome = await Promise.race([
+                flagScan,
+                new Promise(res => setTimeout(() => res(FLAG_SCAN_TIMED_OUT), FLAG_SCAN_TIMEOUT_MS)),
+              ]);
+              if (flagOutcome !== FLAG_SCAN_TIMED_OUT && flagUpdates.length) {
+                const changed = await this._applyFlagUpdates(account, folder, flagUpdates);
+                if (changed > 0) this.broadcast({ type: 'flags_synced', accountId: account.id }, account.user_id);
+              }
             }
           } catch (err) {
             if (!extractImapError(err).toLowerCase().includes('invalid messageset')) throw err;

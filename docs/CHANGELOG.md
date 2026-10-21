@@ -81,14 +81,19 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 
 - Conversations show the newest message on top by default; Settings → "Newest message first"
   switches back to oldest first. Expanded thread rows in the message list follow the same order.
-- In a conversation with more than one message, each message's quoted history is omitted
-  instead of folded (those messages are cards of the same conversation). Forwarded content stays
-  visible; single messages keep the foldable "Show quoted text".
+- Quoted history in messages is folded behind "Show quoted text", collapsed by default, and is
+  now recognised in more reply formats: German "Am … schrieb …:", Outlook/Exchange header blocks
+  ("From/Von: … Sent/Gesendet: …", including ones separated by line breaks in HTML),
+  "-----Ursprüngliche Nachricht-----" and other localised separators, and reply markers wrapped
+  over two lines. Forwarded content stays visible.
 - Conversation reader spacing: side padding and the gap between messages are halved (14 px /
   12 px), and the first card starts level with the message list's toolbar.
 - Everything syncs on the configured sync interval: the server now reconciles deletions/moves
   in every folder and polls INBOX read/star state on every sync tick (previously every 10th tick,
-  or only for providers without IDLE flag push); the open message list, an expanded thread and the
+  or only for providers without IDLE flag push), and the per-folder flag scan covers the whole
+  mailbox on servers that support CONDSTORE (previously the newest 5,000 UIDs; iCloud stays
+  bounded because it ignores CHANGEDSINCE), with a flags-only scan for servers without CONDSTORE
+  (previously only the newest 50 messages per folder); the open message list, an expanded thread and the
   unread counts soft-refresh every interval while the tab is visible (previously only when the
   WebSocket was down); and the calendar view reloads its events every interval while visible,
   silently and never during a drag or an open dialog.

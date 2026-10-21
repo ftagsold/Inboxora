@@ -2193,3 +2193,70 @@ it('drains a queued arrival after the active sync releases its account lock', as
   expect(mgr._pendingInboxSync.has(account.id)).toBe(false);
   clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
 });
+
+describe('syncMessages — every flag change in every folder', () => {
+  const base = { user_id: 'user-1', email_address: 'me@example.com', gtd_enabled: false, categorization_enabled: false };
+  const routeQueries = (storedModseq: string | null, maxUid: number) => query.mockImplementation((sql) => {
+    if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: storedModseq }] });
+    if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+    if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: maxUid }] });
+    if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) return Promise.resolve({ rows: [{ gtd_enabled: false, gtd_folders: {} }] });
+    return Promise.resolve({ rows: [] });
+  });
+  const manager = () => ({ _applyFlagUpdates: vi.fn(async () => 1), broadcast: vi.fn(), pluginFacade: {} });
+
+  beforeEach(() => { query.mockReset(); parseMessage.mockReset(); });
+
+  it('scans the whole mailbox with CHANGEDSINCE on servers that honor it', async () => {
+    const account = { ...base, id: 'acct-delta-all', imap_host: 'mail.example.test' };
+    invalidateGtdConfigCache(account.id);
+    routeQueries('400', 9000);
+    const client = mockImapClient({
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 9000, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* (range: string, options?: { flags?: boolean; envelope?: boolean }, _third?: unknown) {
+        if (options?.flags && !options?.envelope && range === '1:*') yield { uid: 12, flags: new Set(['\\Seen']) };
+      }),
+    });
+    const mgr = manager();
+    await ImapManager.prototype.syncMessages.call(mgr, account, client, 'Archive', 50, false, true);
+    const flagCall = vi.mocked(client.fetch).mock.calls.find(([, options]) => (options as { envelope?: boolean })?.envelope !== true);
+    expect(flagCall?.[0]).toBe('1:*');
+    expect(flagCall?.[2]).toEqual({ uid: true, changedSince: 400n });
+    expect(mgr._applyFlagUpdates).toHaveBeenCalledWith(account, 'Archive', [{ uid: 12, isRead: true, isStarred: false }]);
+  });
+
+  it('keeps iCloud, which ignores CHANGEDSINCE, to the recent UID window', async () => {
+    const account = { ...base, id: 'acct-delta-icloud', imap_host: 'imap.mail.me.com' };
+    invalidateGtdConfigCache(account.id);
+    routeQueries('400', 9000);
+    const client = mockImapClient({
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 9000, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* (_range: string, _options?: unknown, _third?: unknown) {}),
+    });
+    await ImapManager.prototype.syncMessages.call(manager(), account, client, 'Archive', 50, false, true);
+    const flagCall = vi.mocked(client.fetch).mock.calls.find(([, options]) => (options as { envelope?: boolean })?.envelope !== true);
+    expect(flagCall?.[0]).toBe('4001:*');
+  });
+
+  it('without CONDSTORE, still reads flags of older messages after the metadata scan', async () => {
+    const account = { ...base, id: 'acct-no-condstore', imap_host: 'mail.example.test' };
+    invalidateGtdConfigCache(account.id);
+    routeQueries(null, 300);
+    const client = mockImapClient({
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 300, uidValidity: 100 },
+      fetch: vi.fn(async function* (range: string, options?: { flags?: boolean; envelope?: boolean }, _third?: unknown) {
+        if (options?.flags && !options?.envelope && range === '1:*') yield { uid: 7, flags: new Set(['\\Flagged']) };
+      }),
+    });
+    const mgr = manager();
+    await ImapManager.prototype.syncMessages.call(mgr, account, client, 'Sent', 50, false, true);
+    const flagCall = vi.mocked(client.fetch).mock.calls.find(([, options]) => (options as { envelope?: boolean })?.envelope !== true);
+    expect(flagCall?.[0]).toBe('1:*');
+    expect(flagCall?.[2]).toEqual({ uid: true });
+    expect(mgr._applyFlagUpdates).toHaveBeenCalledWith(account, 'Sent', [{ uid: 7, isRead: false, isStarred: true }]);
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'flags_synced', accountId: account.id }, account.user_id);
+  });
+});
