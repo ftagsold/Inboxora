@@ -56,6 +56,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   and connected. The conversation reader previously showed its AI menu regardless. The status
   is fetched once per session and refreshed when an admin saves the AI settings.
 
+- Every configurable sync interval now defaults to its smallest option until you choose one:
+  mail sync 15 s (was 60 s), folder-list sync 15 min (was 30 min), and new calendar
+  subscriptions and CalDAV/CardDAV servers 15 s (was 1 h). Intervals you already chose, and
+  existing sources, are unchanged. The public-holiday subscription keeps its daily interval.
+
 ### Removed
 
 - The update check and its "Update available" entries in the sidebar and user menu, together
@@ -73,6 +78,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   later cross-device moves into an already-populated folder were never picked up.
 - Add matching top padding to the "remote images blocked" banner in the message reader, so the
   space above it matches the space below it to the message body.
+- The conversation reader's "Always allow sender" and "Always allow domain" buttons on the
+  blocked-images notice did nothing; they now save the allow-list entry and reload that sender's
+  messages in the conversation with their images.
+- In month view, dragging an all-day event into a week with a multi-day event later in that week
+  showed the preview one row too low, with an empty row above it. The preview now takes the first
+  free row; no other event's row changes.
 - Keep the calendar search's clear (✕) button inside the search field; the search-icon rule also
   matched the clear button's icon and pushed it past the field's right edge.
 
