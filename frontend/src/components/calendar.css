@@ -7,7 +7,7 @@
 .calendar-segments button { border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); padding: 5px 11px; font-size: 12px; cursor: pointer; }
 .calendar-segments button[aria-pressed=true] { color: var(--text-primary); background: var(--bg-elevated); box-shadow: var(--shadow-soft); font-weight: 600; }
 .calendar-search { position: relative; display: flex; align-items: center; width: 200px; flex-shrink: 1; min-width: 100px; }
-.calendar-search svg:first-child { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
+.calendar-search > svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
 .calendar-search input { width: 100%; padding: 6px 28px 6px 28px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 12px; }
 .calendar-search input::placeholder { color: var(--text-tertiary); }
 .calendar-search input:focus { outline: none; border-color: var(--accent); }
