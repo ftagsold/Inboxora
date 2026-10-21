@@ -31,3 +31,38 @@ describe('message quote folding classification', () => {
     assert.equal(plainTextBoundary('> question one\nanswer one\n> question two\nanswer two'), -1);
   });
 });
+
+describe('reply formats beyond Gmail', () => {
+  it('recognises German, Outlook header-block and wrapped reply markers', () => {
+    assert.equal(startsWithReplyMarker('Am 21.10.2026 um 10:00 schrieb Max Mustermann <max@example.test>:'), true);
+    assert.equal(startsWithReplyMarker('Von: Max Mustermann <max@example.test>\nGesendet: Dienstag, 21. Oktober 2026\nAn: me@example.test\nBetreff: Planung'), true);
+    assert.equal(startsWithReplyMarker('From: Max <max@example.test>\nSent: Tuesday, October 21, 2026 10:00\nTo: me@example.test'), true);
+    assert.equal(startsWithReplyMarker('-----Ursprüngliche Nachricht-----\nVon: Max'), true);
+    assert.equal(startsWithReplyMarker('On Tue, Oct 21, 2026 at 10:00 AM\nMax Mustermann <max@example.test> wrote:'), true);
+  });
+
+  it('does not treat ordinary text as a reply header', () => {
+    assert.equal(startsWithReplyMarker('From: the team, thanks for all the work\nSee you on Monday'), false);
+    assert.equal(startsWithReplyMarker('Am Montag treffen wir uns.\nBis dann'), false);
+  });
+
+  it('cuts plain-text bodies at a German or Outlook-style reply header', () => {
+    const german = 'Antwort\n\nAm 21.10.2026 schrieb Max:\n> alt';
+    assert.equal(plainTextBoundary(german), german.indexOf('Am 21.10.2026'));
+    const outlook = 'Answer\n\nFrom: Max <max@example.test>\nSent: Tuesday\nTo: me\n\nOld text';
+    assert.equal(plainTextBoundary(outlook), outlook.indexOf('From: Max'));
+  });
+});
+
+describe('HTML header blocks flattened by textContent', () => {
+  it('recognises a From/Sent header whose lines were separated by <br>', () => {
+    assert.equal(startsWithReplyMarker('Von: Max Mustermann <max@example.test>Gesendet: Dienstag, 21. Oktober 2026 10:00An: me@example.test'), true);
+    assert.equal(startsWithReplyMarker('From: Max <max@example.test> Sent: Tuesday, October 21, 2026 To: me'), true);
+  });
+});
+
+describe('inline header label boundaries', () => {
+  it('ignores a label that is only the end of another word', () => {
+    assert.equal(startsWithReplyMarker('From: the release notes Update: new version is out'), false);
+  });
+});

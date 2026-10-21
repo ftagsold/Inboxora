@@ -11,7 +11,7 @@ test('an expanded conversation message renders header, details and body inside o
   const headerModal = message.indexOf('{showHeaders && copy.id && <MessageHeaderModal');
   assert.ok(card > 0 && expanded > card, 'expanded content follows the card opening');
   // The card closes after the expanded content, right before the header modal.
-  assert.match(message.slice(expanded, headerModal), /embedded\s+hideQuotedHistory=\{inMultiMessageThread\}\s*\/>\}\s*<\/div>\}\s*<\/div>\s*$/);
+  assert.match(message.slice(expanded, headerModal), /embedded\s*\/>\}\s*<\/div>\}\s*<\/div>\s*$/);
 });
 
 test('embedded detail content shares one inset and a uniform gap', () => {

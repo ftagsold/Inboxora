@@ -1,5 +1,12 @@
 const FORWARD_MARKER_RE = /^(?:[-–—]{2,}\s*)?(?:forwarded message|forwarded mail|begin forwarded message|przekazana wiadomość|wiadomość przekazana)(?:\s*[-–—]{2,})?:?/i;
-const REPLY_MARKER_RE = /^(?:on\s+.+\s+wrote:|dnia\s+.+\s+napisa(?:ł|ła|li|ły)?\(?(?:a)?\)?:|am\s+.+\s+schrieb\s+.+:|le\s+.+\s+a écrit\s*:|el\s+.+\s+escribió:|il\s+.+\s+ha scritto:|-----\s*(?:original message|wiadomość oryginalna)\s*-----)/i;
+const REPLY_MARKER_RE = /^(?:on\s+.+\s+wrote:|dnia\s+.+\s+napisa(?:ł|ła|li|ły)?\(?(?:a)?\)?:|am\s+.+\s+schrieb(?:\s+.+)?:|le\s+.+\s+a écrit\s*:|el\s+.+\s+escribió:|il\s+.+\s+ha scritto:|-{2,}\s*(?:original message|ursprüngliche nachricht|wiadomość oryginalna|message d'origine|mensaje original|messaggio originale|исходное сообщение)\s*-{2,})/i;
+// The header block Outlook, Exchange and many other clients put above quoted history:
+// "From: …" followed within a few lines by "Sent:/Date: …" (in the common languages).
+const HEADER_FROM_RE = /^(?:from|von|de|od|da|от|发件人)\s*[:：]/i;
+const HEADER_SENT_LABELS = '(?:sent|date|gesendet|datum|envoyé|enviado|fecha|wysłano|data|inviato|отправлено|发送时间)';
+const HEADER_SENT_RE = new RegExp(`^${HEADER_SENT_LABELS}\\s*[:：]`, 'i');
+// HTML header blocks separate their lines with <br>, which textContent flattens into one line.
+const HEADER_SENT_INLINE_RE = new RegExp(`(?<![\\p{L}\\p{N}])${HEADER_SENT_LABELS}\\s*[:：]`, 'iu');
 
 function normalizedLines(value: unknown = ''): string[] {
   return String(value)
@@ -14,8 +21,18 @@ export function startsWithForwardMarker(value: unknown = ''): boolean {
   return FORWARD_MARKER_RE.test(normalizedLines(value)[0] || '');
 }
 
+/** Whether quoted history starts at `lines[index]` (normalized, non-empty lines). */
+function replyStartsAt(lines: string[], index: number): boolean {
+  const line = lines[index] || '';
+  // A marker may be wrapped onto two lines ("On Tue, … at 10:00,\nName <x> wrote:").
+  if (REPLY_MARKER_RE.test(line) || REPLY_MARKER_RE.test(`${line} ${lines[index + 1] || ''}`)) return true;
+  if (!HEADER_FROM_RE.test(line)) return false;
+  return lines.slice(index + 1, index + 5).some(next => HEADER_SENT_RE.test(next)) || HEADER_SENT_INLINE_RE.test(line.slice(0, 400));
+}
+
 export function startsWithReplyMarker(value: unknown = ''): boolean {
-  return normalizedLines(value).slice(0, 4).some(line => REPLY_MARKER_RE.test(line));
+  const lines = normalizedLines(value).slice(0, 8);
+  return [0, 1, 2, 3].some(index => index < lines.length && replyStartsAt(lines, index));
 }
 
 /** Labels and callback for one quote expander. */
@@ -23,8 +40,6 @@ interface QuoteToggleOptions {
   showLabel: string;
   hideLabel: string;
   onChange: (() => void) | null;
-  /** Remove the quoted region outright (no toggle): the conversation already shows it. */
-  remove?: boolean;
 }
 
 function uniqueTopLevel<T extends Element>(elements: T[]): T[] {
@@ -140,7 +155,6 @@ function createToggle(doc: Document, id: string, showLabel: string, hideLabel: s
 
 function installGroup(doc: Document, elements: HTMLElement[], index: number, options: QuoteToggleOptions): void {
   if (!elements.length) return;
-  if (options.remove) { elements.forEach(element => element.remove()); return; }
   const id = `mailflow-quote-${index}`;
   // One toggle before the first element; all elements share the same group ID so
   // they collapse/expand together. This produces a single "Show quoted text" button
@@ -157,7 +171,8 @@ export function plainTextBoundary(text: unknown): number {
   let offset = 0;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].replace(/\u00a0/g, ' ').trim();
-    if (REPLY_MARKER_RE.test(line)) return offset;
+    const following = lines.slice(index, index + 6).map(candidate => candidate.replace(/\u00a0/g, ' ').replace(/[\t ]+/g, ' ').trim()).filter(Boolean);
+    if (line && replyStartsAt(following, 0)) return offset;
     if (/^>/.test(line)) {
       const quotedTail = lines.slice(index).filter(candidate => candidate.trim()).every(candidate => /^\s*>/.test(candidate));
       const quotedCount = lines.slice(index).filter(candidate => /^\s*>/.test(candidate)).length;
@@ -177,7 +192,6 @@ function installPlainTextGroup(doc: Document, pre: Element, options: QuoteToggle
   const id = 'mailflow-quote-plain';
   pre.textContent = '';
   pre.append(doc.createTextNode(visible));
-  if (options.remove) return true;
   const quote = doc.createElement('span');
   quote.dataset.mailflowQuoteGroup = id;
   quote.className = 'mailflow-quote-collapsed';
@@ -190,17 +204,16 @@ export function installMessageQuoteFolding(doc: Document, {
   showLabel = 'Show quoted text',
   hideLabel = 'Hide quoted text',
   onChange = null,
-  remove = false,
-}: { showLabel?: string; hideLabel?: string; onChange?: (() => void) | null; remove?: boolean } = {}) {
+}: { showLabel?: string; hideLabel?: string; onChange?: (() => void) | null } = {}) {
   const plainText = doc.querySelector('[data-mailflow-plain-text="true"]');
   if (plainText) {
-    const installed = installPlainTextGroup(doc, plainText, { showLabel, hideLabel, onChange, remove });
+    const installed = installPlainTextGroup(doc, plainText, { showLabel, hideLabel, onChange });
     return { count: installed ? 1 : 0, protectedForwardCount: startsWithForwardMarker(plainText.textContent) ? 1 : 0 };
   }
 
   const protectedForwards = protectedForwardRoots(doc);
   protectedForwards.forEach(root => { root.dataset.mailflowForwardRoot = 'true'; });
   const groups = candidateGroups(doc, protectedForwards);
-  groups.forEach((elements, index) => installGroup(doc, elements, index, { showLabel, hideLabel, onChange, remove }));
+  groups.forEach((elements, index) => installGroup(doc, elements, index, { showLabel, hideLabel, onChange }));
   return { count: groups.length, protectedForwardCount: protectedForwards.length };
 }

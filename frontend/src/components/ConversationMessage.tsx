@@ -168,14 +168,12 @@ interface ConversationMessageProps {
   onRemoteImages: (id: string) => void;
   /** After a sender/domain joins the image allow list: reload blocked bodies it now permits. */
   onImagesAllowed: (type: 'address' | 'domain', value: string) => void;
-  /** The conversation holds other messages, so quoted history in this body is redundant. */
-  inMultiMessageThread?: boolean;
   onReply: (message: ConversationReplyPayload, all?: boolean) => void;
   onActionComplete: (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => Promise<void>;
   onSetRead: (copyId: string, read: boolean) => void;
   onInitialBodyLayout?: (copyId: string) => void;
 }
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onImagesAllowed, inMultiMessageThread = false, onReply, onActionComplete, onSetRead, onInitialBodyLayout }: ConversationMessageProps) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onImagesAllowed, onReply, onActionComplete, onSetRead, onInitialBodyLayout }: ConversationMessageProps) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist, addToImageWhitelist, addNotification } = useStore();
@@ -533,7 +531,6 @@ export default function ConversationMessage({ conversationId, message, selectedC
         canAccessCopy={hasAccountCopy}
         mobile={isMobile}
         embedded
-        hideQuotedHistory={inMultiMessageThread}
       />}
     </div>}
     </div>

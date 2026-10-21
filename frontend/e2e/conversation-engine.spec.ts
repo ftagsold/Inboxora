@@ -344,15 +344,23 @@ test.describe('native conversation engine matrix', () => {
     expect(await iframe.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(0);
   });
 
-  test('a reply inside a multi-message conversation omits its quoted history instead of folding it', async ({ page, fixtureApi }) => {
+  test('plain HTML reply marker folds one historical region and iframe shrinks after collapse', async ({ page, fixtureApi }) => {
     page.__plainQuoteFoldingCopy = 'conversation-gmail-copy-2';
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
     const frame = page.locator('#logical-message-conversation-gmail-logical-2 iframe').contentFrame();
+    const iframe = page.locator('#logical-message-conversation-gmail-logical-2 iframe');
     await expect(frame.locator('[data-testid="current-content"]')).toBeVisible();
-    // The earlier messages are cards of this same conversation: no quote, no toggle.
-    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toHaveCount(0);
-    await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(0);
+    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeHidden();
+    await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(1);
+    const h1 = await iframe.evaluate(element => element.getBoundingClientRect().height);
+    await frame.locator('.mailflow-quote-toggle').click();
+    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeVisible();
+    const h2 = await iframe.evaluate(element => element.getBoundingClientRect().height);
+    expect(h2).toBeGreaterThan(h1);
+    await frame.locator('.mailflow-quote-toggle').click();
+    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeHidden();
+    await expect.poll(() => iframe.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(h2);
   });
 
   test('remote images share blocked/allowed behavior and preserve CID/data sources', async ({ page, fixtureApi }) => {
@@ -392,7 +400,7 @@ test.describe('native conversation engine matrix', () => {
     await expect(second.locator('iframe').contentFrame().locator('body')).toContainText('conversation-gmail-copy-2');
   });
 
-  test('inside a conversation, a forward envelope and its body stay visible while nested reply history is omitted', async ({ page, fixtureApi }) => {
+  test('hierarchical quote folding keeps forward envelope and immediate body visible but collapses nested reply history', async ({ page, fixtureApi }) => {
     page.__quoteFoldingCopy = 'conversation-gmail-copy-2';
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
@@ -401,14 +409,17 @@ test.describe('native conversation engine matrix', () => {
     const frame = card.locator('iframe').contentFrame();
     // Current authored content is visible.
     await expect(frame.locator('[data-testid="current-content"]')).toBeVisible();
-    // A forward is new content, not history: its envelope and body stay visible.
+    // Forward envelope/header is visible (not collapsed).
     await expect(frame.locator('[data-testid="forward-envelope"]')).toBeVisible();
     await expect(frame.locator('text=---------- Forwarded message ---------')).toBeVisible();
+    // Immediate forwarded body content is visible.
     await expect(frame.locator('[data-testid="forwarded-content"]')).toBeVisible();
-    // Nested reply history is dropped rather than folded behind a toggle.
-    await expect(frame.locator('[data-testid="nested-reply"]')).toHaveCount(0);
-    await expect(frame.locator('[data-testid="old-reply"]')).toHaveCount(0);
-    await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(0);
+    // Nested reply history inside the forwarded body is collapsed behind a toggle.
+    await expect(frame.locator('[data-testid="nested-reply"]')).toBeHidden();
+    await expect(frame.locator('[data-testid="old-reply"]')).toBeHidden();
+    // Expanding the nested quote reveals the old reply.
+    await frame.locator('.mailflow-quote-toggle').first().click();
+    await expect(frame.locator('[data-testid="old-reply"]')).toBeVisible();
   });
 
   test('dark theme body surface uses the native dark content surface, not white', async ({ page, fixtureApi }, testInfo) => {
