@@ -40,7 +40,8 @@ export function resolveCaldavUrl(rawUrl: unknown, username: unknown): { url: str
   return { url: `https://${match[1].toLowerCase()}/` };
 }
 
-export function clampIntervalSeconds(value: unknown, fallback = 3600): number {
+/** A source's sync interval in seconds (15–86400); defaults to the smallest, 15 s. */
+export function clampIntervalSeconds(value: unknown, fallback = 15): number {
   return Math.max(15, Math.min(86400, Number.parseInt(String(value), 10) || fallback));
 }
 

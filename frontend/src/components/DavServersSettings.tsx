@@ -3,7 +3,7 @@ import type { CSSProperties, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { Button, Dialog, inputStyle } from './ui.tsx';
-import CalendarSourceIntervalSelect from './CalendarSourceIntervalSelect.tsx';
+import CalendarSourceIntervalSelect, { DEFAULT_SOURCE_SYNC_INTERVAL } from './CalendarSourceIntervalSelect.tsx';
 import { toAppError } from '../utils/errors.ts';
 
 /** One remote calendar/address book as discovery returns it (never persisted yet). */
@@ -50,7 +50,7 @@ export default function DavServersSettings() {
   const [error, setError] = useState<string | null>(null);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
 
-  const [form, setForm] = useState({ displayName: '', url: '', username: '', password: '', intervalSeconds: 3600, writable: false });
+  const [form, setForm] = useState({ displayName: '', url: '', username: '', password: '', intervalSeconds: DEFAULT_SOURCE_SYNC_INTERVAL, writable: false });
   const [discovering, setDiscovering] = useState(false);
   const [discovered, setDiscovered] = useState<DiscoverResult | null>(null);
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(new Set());
@@ -58,7 +58,7 @@ export default function DavServersSettings() {
   const [creating, setCreating] = useState(false);
 
   const [editingServer, setEditingServer] = useState<DavServer | null>(null);
-  const [editForm, setEditForm] = useState({ displayName: '', enabled: true, username: '', password: '', writable: false, intervalSeconds: 3600 });
+  const [editForm, setEditForm] = useState({ displayName: '', enabled: true, username: '', password: '', writable: false, intervalSeconds: DEFAULT_SOURCE_SYNC_INTERVAL });
   const [editCalendars, setEditCalendars] = useState<EditCollection[] | null>(null);
   const [editAddressBooks, setEditAddressBooks] = useState<EditCollection[] | null>(null);
   const [editDiscovering, setEditDiscovering] = useState(false);
@@ -79,7 +79,7 @@ export default function DavServersSettings() {
   useEffect(() => { load(); }, [load]);
 
   const resetAddForm = () => {
-    setForm({ displayName: '', url: '', username: '', password: '', intervalSeconds: 3600, writable: false });
+    setForm({ displayName: '', url: '', username: '', password: '', intervalSeconds: DEFAULT_SOURCE_SYNC_INTERVAL, writable: false });
     setDiscovered(null); setSelectedCalendars(new Set()); setSelectedAddressBooks(new Set());
   };
 
@@ -147,7 +147,7 @@ export default function DavServersSettings() {
 
   const openEdit = (server: DavServer) => {
     setEditingServer(server); setEditError(null);
-    setEditForm({ displayName: server.displayName || '', enabled: server.enabled !== false, username: '', password: '', writable: Boolean(server.writable), intervalSeconds: server.intervalSeconds || 3600 });
+    setEditForm({ displayName: server.displayName || '', enabled: server.enabled !== false, username: '', password: '', writable: Boolean(server.writable), intervalSeconds: server.intervalSeconds || DEFAULT_SOURCE_SYNC_INTERVAL });
     setEditCalendars(server.calendars ? server.calendars.map(entry => ({ ...entry })) : null);
     setEditAddressBooks(server.addressBooks ? server.addressBooks.map(entry => ({ ...entry })) : null);
   };

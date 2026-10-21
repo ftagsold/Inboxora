@@ -7,6 +7,8 @@ import type { CSSProperties } from 'react';
 // field that invites typos the server would reject. Shared by the calendar panel's
 // Manage Sources dialog and Settings → Calendar → Calendar subscriptions.
 const SYNC_INTERVALS = [15, 30, 60, 300, 900, 1800, 3600, 10800, 21600, 43200, 86400];
+/** New calendar subscriptions and DAV servers sync at the smallest offered interval. */
+export const DEFAULT_SOURCE_SYNC_INTERVAL = SYNC_INTERVALS[0];
 
 export default function CalendarSourceIntervalSelect({ label, value, onChange, t }: { label: string; value?: number; onChange: (value: number) => void; t: TFunction }) {
   const known = value != null && SYNC_INTERVALS.includes(value);
@@ -24,7 +26,7 @@ export default function CalendarSourceIntervalSelect({ label, value, onChange, t
     >
       {/* A value set outside this list (an older custom value) stays selectable so
           opening the dialog never silently rewrites it. */}
-      {!known && <option value="">{format(value || 3600)}</option>}
+      {!known && <option value="">{format(value || DEFAULT_SOURCE_SYNC_INTERVAL)}</option>}
       {SYNC_INTERVALS.map(seconds => <option key={seconds} value={seconds}>{format(seconds)}</option>)}
     </select>
   </label>;

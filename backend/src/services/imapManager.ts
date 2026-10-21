@@ -383,11 +383,15 @@ const QUIET_WINDOW_MS = 8000;
 // (which is what these ticks refresh) change far less than INBOX. GTD declares 120000.
 const DEFAULT_PLUGIN_SYNC_INTERVAL_MS = 120000;
 
+// Default mail sync cadence when the user has not chosen one: the smallest the
+// syncInterval preference allows (15 s; see restoreUserSyncInterval's 15–120 s range).
+const DEFAULT_SYNC_INTERVAL_MS = 15 * 1000;
+
 // Default folder-structure sync cadence (LIST + folders-table upsert). Folders
 // created/renamed in other clients otherwise only appear when a connection is
 // re-established. User-configurable via the folderSyncInterval preference
-// (seconds; 0 = never).
-const DEFAULT_FOLDER_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+// (seconds; 0 = never). Defaults to the smallest offered cadence (15 min).
+const DEFAULT_FOLDER_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 
 // Whether a periodic folder-structure sync is due. Time-based rather than
 // tick-based because the sync-tick cadence is itself user-configurable.
@@ -2230,7 +2234,7 @@ export class ImapManager {
         logger.debug(`Backfill deferred on connect for ${logAccount(account)} — account already has cached mail`);
       }
 
-      const intervalMs = this.userSyncIntervalMs.get(account.user_id) || 60000;
+      const intervalMs = this.userSyncIntervalMs.get(account.user_id) || DEFAULT_SYNC_INTERVAL_MS;
       this._startSyncInterval(account, intervalMs);
       // Arm any plugin-declared background sync ticks whose isActive gate accepts this account
       // (e.g. GTD's label-folder tick when gtd_enabled). A plugin with no active tick for this
@@ -2317,7 +2321,7 @@ export class ImapManager {
     // Initial poll now, then on the interval. Stagger the first tick so many demoted accounts on one
     // host don't all open at the same instant (mirrors _startSyncInterval's jitter).
     this._pollOnlyTick(account).catch(err => console.warn(`Poll-only initial sync failed for ${logAccount(account)}: ${err.message}`));
-    const ms = effectiveSyncIntervalMs(account, this.userSyncIntervalMs.get(account.user_id) || 60000);
+    const ms = effectiveSyncIntervalMs(account, this.userSyncIntervalMs.get(account.user_id) || DEFAULT_SYNC_INTERVAL_MS);
     const jitter = Math.floor(Math.random() * Math.min(ms, 30000));
     const t = setTimeout(() => {
       if (!this._pollOnlyAccounts.has(account.id)) return; // disconnected/promoted during the jitter window
@@ -5997,7 +6001,7 @@ export class ImapManager {
 
   async connectAllForUser(userId: string) {
     // Load the user's preferred sync interval before starting any account intervals.
-    // Without this, a user who set e.g. 30 s would silently revert to 60 s after
+    // Without this, a user who set e.g. 30 s would silently revert to the default after
     // a container restart until they next change the setting.
     try {
       const prefResult = await query<{ preferences?: { syncInterval?: string | number | null; folderSyncInterval?: string | number | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [userId]);

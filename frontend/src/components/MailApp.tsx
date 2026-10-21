@@ -615,7 +615,7 @@ export default function MailApp() {
   // read state and new mail still converge if the WebSocket is down, without redundant refetching
   // while it's healthy (the socket delivers updates instantly in that case).
   useEffect(() => {
-    const ms = Math.max(15, syncInterval || 60) * 1000;
+    const ms = Math.max(15, syncInterval || 15) * 1000;
     const id = setInterval(() => {
       if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
         window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));

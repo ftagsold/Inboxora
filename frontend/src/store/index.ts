@@ -849,7 +849,8 @@ export const useStore = create<StoreState>()((set, get) => ({
     schedulePrefSave({ swipeActions: next });
     return { swipeActions: next };
   }),
-  syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval') ?? '') || 60,
+  // Defaults to the smallest offered cadence (15 s) until the user picks one.
+  syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval') ?? '') || 15,
   setSyncInterval: (seconds: number) =>{
     localStorage.setItem('mailflow_sync_interval', String(seconds));
     set({ syncInterval: seconds });
@@ -859,7 +860,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // check because 0 is a valid stored value that `|| default` would clobber.
   folderSyncInterval: (() => {
     const v = parseInt(localStorage.getItem('mailflow_folder_sync_interval') ?? '');
-    return Number.isFinite(v) ? v : 1800;
+    return Number.isFinite(v) ? v : 900; // smallest offered cadence (15 min)
   })(),
   setFolderSyncInterval: (seconds: number) =>{
     localStorage.setItem('mailflow_folder_sync_interval', String(seconds));

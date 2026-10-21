@@ -3,7 +3,7 @@ import type { CSSProperties, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { Button, Dialog, inputStyle } from './ui.tsx';
-import CalendarSourceIntervalSelect from './CalendarSourceIntervalSelect.tsx';
+import CalendarSourceIntervalSelect, { DEFAULT_SOURCE_SYNC_INTERVAL } from './CalendarSourceIntervalSelect.tsx';
 import { calendarSyncWarning } from '../utils/calendarSyncWarning.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
 import { toAppError } from '../utils/errors.ts';
@@ -69,7 +69,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
   const [form, setForm] = useState({ displayName: '', url: '' });
   const [country, setCountry] = useState(() => defaultHolidayCountry(language));
   const [editingSource, setEditingSource] = useState<CalendarSource | null>(null);
-  const [editForm, setEditForm] = useState({ displayName: '', intervalSeconds: 3600, writable: false, enabled: true, username: '', password: '' });
+  const [editForm, setEditForm] = useState({ displayName: '', intervalSeconds: DEFAULT_SOURCE_SYNC_INTERVAL, writable: false, enabled: true, username: '', password: '' });
   const [editCollections, setEditCollections] = useState<SourceCollection[] | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -116,7 +116,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     event.preventDefault();
     const url = normalizeSubscriptionUrl(form.url);
     if (!url) return;
-    const added = await addSubscription({ displayName: form.displayName.trim(), url, intervalSeconds: 3600 });
+    const added = await addSubscription({ displayName: form.displayName.trim(), url, intervalSeconds: DEFAULT_SOURCE_SYNC_INTERVAL });
     if (added) setForm({ displayName: '', url: '' });
   };
 
@@ -158,7 +158,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
 
   const openEditSource = (source: CalendarSource) => {
     setEditingSource(source); setEditError(null);
-    setEditForm({ displayName: source.displayName || '', intervalSeconds: source.intervalSeconds || 3600, writable: Boolean(source.writable), enabled: source.enabled !== false, username: '', password: '' });
+    setEditForm({ displayName: source.displayName || '', intervalSeconds: source.intervalSeconds || DEFAULT_SOURCE_SYNC_INTERVAL, writable: Boolean(source.writable), enabled: source.enabled !== false, username: '', password: '' });
     setEditCollections(source.collections ? source.collections.map(entry => ({ ...entry })) : null);
   };
   const toggleEditCollection = (id: string | undefined) => {
