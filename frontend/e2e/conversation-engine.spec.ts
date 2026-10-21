@@ -210,7 +210,13 @@ test.describe('native conversation engine matrix', () => {
       method: 'POST',
       body: { scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-2', logicalMessageId: 'conversation-gmail-logical-2' },
     });
-    await expect(second).toHaveCount(0);
+    // The archived message left the folder: nothing stays selected, so the reader closes.
+    await expect(reader).toHaveCount(0);
+    await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
+    await expect(reader).toBeVisible();
+    if (await latest.getAttribute('data-conversation-message-state') !== 'expanded') {
+      await latest.locator('[data-conversation-message-toggle="true"]').click();
+    }
     await latest.locator('[data-message-action="delete"]').click();
     await expect.poll(() => page.__conversationActions.at(-1)?.url).toContain('/delete');
     await expect.poll(() => page.__conversationActions.at(-1)?.body).toMatchObject({

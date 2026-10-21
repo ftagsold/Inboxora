@@ -22,7 +22,7 @@ import {
   gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
 } from '../utils/gtd.ts';
 import { formatDate } from '../utils/formatDate.ts';
-import { advanceSelectionAfterRemoval } from '../utils/listSelection.ts';
+import { clearSelectionAfterRemoval } from '../utils/listSelection.ts';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.ts';
 import SenderAvatarImage from './SenderAvatarImage.tsx';
 import { accountOwnAddresses, directionFromAddress, MessageDirection } from './MessagePresentation.tsx';
@@ -36,7 +36,7 @@ import { mergeThreadCacheField } from '../utils/threadCacheState.ts';
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
 import { toAppError } from '../utils/errors.ts';
-import { hasMorePages } from '../utils/listPaging.ts';
+import { anchorRefreshedRows, hasMorePages } from '../utils/listPaging.ts';
 import { createSessionOperationGuard } from '../utils/sessionOperationGuard.ts';
 import { legacySignatureHtmlToText } from '../utils/legacySignatureText.ts';
 import type { ArchiveMessage } from '../utils/threadedArchive.ts';
@@ -555,14 +555,17 @@ export default function MessageList() {
         const state = useStore.getState();
         const ps = state.pageSize;
         const sm = state.scrollMode;
+        // The rows on screen now: the refresh keeps their bottom edge, so new mail is added on
+        // top instead of pushing the oldest row out (and back in when the new one is deleted).
+        const previousRows = state.messages;
         let params: QueryParams;
         if (sm === 'paginated') {
           const pg = currentPageRef.current;
           params = { limit: ps, offset: (pg - 1) * ps };
         } else {
           const currentOffset = state.messagesOffset;
-          // Backend caps limit at 500 — don't request more or the list silently shrinks
-          params = { limit: Math.min(currentOffset || ps, 500), offset: 0 };
+          // One page of headroom for mail that arrived since; the backend caps limit at 500.
+          params = { limit: Math.min((currentOffset || ps) + ps, 500), offset: 0 };
         }
         if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
         if (unreadOnly) params.unreadOnly = 'true';
@@ -574,7 +577,9 @@ export default function MessageList() {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
             // read, the server won't return it — preserve it so the user can keep reading.
-            let msgs = applyDeleteGuard(applyReadGuard(data.messages));
+            const anchored = sm === 'paginated' ? data.messages
+              : previousRows.length ? anchorRefreshedRows(previousRows, data.messages) : data.messages.slice(0, ps);
+            let msgs = applyDeleteGuard(applyReadGuard(anchored));
             const activeId = useStore.getState().selectedMessageId;
             if (unreadOnly && activeId && !msgs.some((m: StoreMessageRow) => m.id === activeId)) {
               const kept = useStore.getState().messages.find((m: StoreMessageRow) => m.id === activeId);
@@ -584,8 +589,9 @@ export default function MessageList() {
             if (sm === 'paginated') {
               setHasMoreMessages(false);
             } else {
-              setMessagesOffset(data.messages.length);
-              setHasMoreMessages(hasMorePages(data.messages.length, Number(params.limit), data.messages.length, data.total));
+              setMessagesOffset(anchored.length);
+              setHasMoreMessages(anchored.length < data.messages.length
+                || hasMorePages(data.messages.length, Number(params.limit), data.messages.length, data.total));
             }
           },
         );
@@ -1137,14 +1143,8 @@ export default function MessageList() {
     let deleteMessages = [message];
     let ids = [message.id].filter(Boolean);
 
-    // Advance selection to the next visible message before removing this one
-    const { selectedMessageId, setSelectedMessage } = useStore.getState();
-    if (selectedMessageId === visibleMessage.id) {
-      const displayMsgs = scRef.current.displayMessages || [];
-      const idx = displayMsgs.findIndex(m => m.id === visibleMessage.id);
-      const next = displayMsgs[idx + 1] || displayMsgs[idx - 1] || null;
-      setSelectedMessage(next?.id ?? null);
-    }
+    // The deleted message leaves the list: nothing stays selected.
+    clearSelectionAfterRemoval(visibleMessage.id);
 
     removeMessage(visibleMessage.id);
     if (expandedThreadId === tid) setExpandedThreadId(null);
@@ -1433,7 +1433,7 @@ export default function MessageList() {
 
     refreshRequest.invalidate();
     guards.forEach(setPendingDelete);
-    advanceSelectionAfterRemoval(message.id);
+    clearSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
     const aggregateUnread = Number(message.unread_count);
@@ -1977,7 +1977,7 @@ export default function MessageList() {
     refreshRequest.invalidate();
     initialGuards.forEach(setPendingDelete);
     if (!alreadyRemoved) {
-      advanceSelectionAfterRemoval(message.id, true);
+      clearSelectionAfterRemoval(message.id, true);
       removeMessage(message.id);
       if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
     }
@@ -2327,7 +2327,7 @@ export default function MessageList() {
 
         refreshRequest.invalidate();
         guards.forEach(setPendingDelete);
-        advanceSelectionAfterRemoval(archived.id);
+        clearSelectionAfterRemoval(archived.id);
         removeMessage(archived.id);
         if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
         const aggregateUnread = Number.parseInt(String(archived.unread_count), 10);
@@ -2390,7 +2390,7 @@ export default function MessageList() {
           : null;
         const guards = [moved.id, threadGuard].filter(Boolean);
         guards.forEach(setPendingDelete);
-        advanceSelectionAfterRemoval(moved.id);
+        clearSelectionAfterRemoval(moved.id);
         removeMessage(moved.id);
         if (expandedThreadId === (moved.thread_id || moved.id)) setExpandedThreadId(null);
         const unreadCount = Number.parseInt(String(moved.unread_count), 10);

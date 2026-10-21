@@ -28,6 +28,7 @@ import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conv
 import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { persistInboundCalendarInvitation } from './inboundCalendarInvitationPersistence.js';
+import { applyInvitationReply, parseInboundCalendarReply } from './calendarReplies.js';
 import { toAppError } from '../utils/errors.js';
 
 
@@ -483,6 +484,7 @@ export async function persistInboundCalendarInvitationFromMessage({ client, mess
   const results: { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts: BodyPartRef[] } = { textParts: [], attachments: [], calendarParts: [] };
   walkStructure(message.bodyStructure, results);
   let invitation = null;
+  let reply = null;
   for (const part of results.calendarParts) {
     let payload = message.bodyParts?.get(part.part);
     if (!payload) {
@@ -494,10 +496,21 @@ export async function persistInboundCalendarInvitationFromMessage({ client, mess
         continue;
       }
     }
-    const parsed = payload && parseInboundCalendarInvitation(decodeBody(payload, part.encoding, part.charset));
-    if (!parsed) continue;
+    const decoded = payload ? decodeBody(payload, part.encoding, part.charset) : null;
+    const parsed = decoded && parseInboundCalendarInvitation(decoded);
+    if (!parsed) {
+      reply = reply || (decoded ? parseInboundCalendarReply(decoded) : null);
+      continue;
+    }
     if (invitation) return false;
     invitation = parsed;
+  }
+  if (!invitation && reply) {
+    // An attendee answered an invitation this user sent: record it in the user's own event
+    // right away, so the calendar shows the answer without the mail being opened.
+    const owner = await query<{ user_id: string }>('SELECT a.user_id FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1', [messageId]);
+    if (owner.rows[0]) await applyInvitationReply(owner.rows[0].user_id, reply);
+    return true;
   }
   if (!invitation) return false;
   await persistInboundCalendarInvitation({ query, messageId, invitation });

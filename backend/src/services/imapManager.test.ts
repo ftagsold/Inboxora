@@ -1610,7 +1610,8 @@ describe('walkStructure attachment classification', () => {
 describe('persistInboundCalendarInvitationFromMessage', () => {
   const rawInvitation = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:REQUEST', 'BEGIN:VEVENT', 'UID:meeting-123', 'SEQUENCE:0', 'DTSTAMP:20260901T070000Z', 'DTSTART:20260908T090000Z', 'DTEND:20260908T100000Z', 'ORGANIZER:mailto:taylor@example.test', 'ATTENDEE:mailto:sam@example.test', 'END:VEVENT', 'END:VCALENDAR', ''].join(String.fromCharCode(10));
 
-  beforeEach(() => query.mockReset());
+  // Block body: a function returned from beforeEach is run as a teardown, which would call the mock.
+  beforeEach(() => { query.mockReset(); });
 
   it('fetches a discovered calendar MIME part and persists its validated projection for the physical message', async () => {
     const client = { fetch: vi.fn(async function* () { yield { bodyParts: new Map([['2', Buffer.from(rawInvitation)]]) }; }) };
@@ -1627,6 +1628,26 @@ describe('persistInboundCalendarInvitationFromMessage', () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inbound_calendar_invitations'), expect.arrayContaining([
       '4b7b090d-ec0f-4ef3-a94f-2fb6017dfbcd', 'REQUEST', 'meeting-123', rawInvitation,
     ]));
+  });
+
+  it('applies an attendee reply to the organizer event on arrival, without storing it as an invitation', async () => {
+    const reply = rawInvitation.replace('METHOD:REQUEST', 'METHOD:REPLY').replace('ATTENDEE:mailto:sam@example.test', 'ATTENDEE;PARTSTAT=TENTATIVE:mailto:sam@example.test');
+    const ownEvent = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:meeting-123', 'DTSTAMP:20260901T070000Z', 'DTSTART:20260908T090000Z', 'DTEND:20260908T100000Z', 'ATTENDEE:mailto:sam@example.test', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+    const client = { fetch: vi.fn(async function* () { yield { bodyParts: new Map([['2', Buffer.from(reply)]]) }; }) };
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT a.user_id FROM messages')) return { rows: [{ user_id: 'user-1' }] };
+      if (sql.includes('FROM calendar_events e JOIN calendars')) return { rows: [{ id: 'event-1', uid: 'meeting-123', raw_ical: ownEvent, calendar_id: 'cal-1', source: 'local', read_only: false, external_url: null, user_id: 'user-1' }] };
+      return { rows: [{ id: 'event-1' }] };
+    });
+
+    await expect(persistInboundCalendarInvitationFromMessage({
+      client,
+      message: { uid: 42, bodyStructure: { type: 'multipart/mixed', childNodes: [{ part: '2', type: 'text/calendar', encoding: '7bit' }] } },
+      messageId: '4b7b090d-ec0f-4ef3-a94f-2fb6017dfbcd',
+    })).resolves.toBe(true);
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO inbound_calendar_invitations'))).toBe(false);
+    const update = query.mock.calls.find(([sql]) => sql.startsWith('UPDATE calendar_events'));
+    expect(String(update?.[1]?.[0])).toContain('PARTSTAT=TENTATIVE:mailto:sam@example.test');
   });
 
   it('fails closed when multiple MIME parts contain valid but competing invitations', async () => {

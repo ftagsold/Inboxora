@@ -52,7 +52,8 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
       setResponse(loaded?.response || null);
       setCalendars(writable);
       setCalendarId(loaded?.localEvent?.calendarId || writable[0]?.id || '');
-      // Collisions with the user's own calendar; a failed lookup simply shows none.
+      // Collisions with the user's own calendar; a failed lookup simply shows none. (Only for a
+      // request: a reply or a cancellation asks nothing of the user.)
       if (loaded?.method === 'REQUEST' && loaded.startsAt && loaded.endsAt) {
         api.calendar.listEvents(String(loaded.startsAt), String(loaded.endsAt))
           .then((events: { events?: ConflictCandidate[] }) => { if (!cancelled) setConflicts(invitationConflicts(loaded, events.events || [], messageId)); })
@@ -63,6 +64,7 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
   }, [messageId, retry]);
 
   const cancelledEvent = invitation?.method === 'CANCEL';
+  const replyMessage = invitation?.method === 'REPLY';
   const added = Boolean(localEvent) && !removed;
   const when = invitation ? formatInvitationRange(invitation, i18n.language) : '';
   const busy = saving !== null;
@@ -97,6 +99,26 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
     </div>;
   }
   if (!invitation) return null;
+
+  if (replyMessage) {
+    // An attendee answered an invitation this user sent; the answer is already recorded in the
+    // user's own event (on sync, and again on opening), so this only reports it.
+    const answers = Array.isArray(invitation.attendees) ? invitation.attendees as Array<{ email?: string; name?: string | null; partstat?: string }> : [];
+    const replyLabel = (partstat?: string) => partstat === 'ACCEPTED' ? t('calendar.invitationReplyAccepted')
+      : partstat === 'TENTATIVE' ? t('calendar.invitationReplyTentative')
+        : partstat === 'DECLINED' ? t('calendar.invitationReplyDeclined')
+          : t('calendar.invitationReplyPending');
+    return <div className="msg-notice" data-testid="calendar-invitation-card" data-invitation-method="REPLY" style={{ ...noticeStyle, borderLeftColor: 'var(--accent)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{t('calendar.invitationReplyTitle')}</span>
+        {when && <span data-testid="calendar-invitation-when">{when}</span>}
+      </div>
+      {answers.map(answer => <span key={answer.email} data-testid="calendar-invitation-reply" style={{ color: 'var(--text-primary)' }}>
+        {answer.name || answer.email} · {replyLabel(answer.partstat)}
+      </span>)}
+      {invitation.recordedInCalendar === true && <span role="status">{t('calendar.invitationReplyRecorded')}</span>}
+    </div>;
+  }
 
   const responseLabel: Record<InvitationResponse, string> = {
     ACCEPTED: t('calendar.invitationRespondedAccepted'),

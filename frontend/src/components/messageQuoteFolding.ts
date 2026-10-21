@@ -1,5 +1,8 @@
 const FORWARD_MARKER_RE = /^(?:[-–—]{2,}\s*)?(?:forwarded message|forwarded mail|begin forwarded message|przekazana wiadomość|wiadomość przekazana)(?:\s*[-–—]{2,})?:?/i;
 const REPLY_MARKER_RE = /^(?:on\s+.+\s+wrote:|dnia\s+.+\s+napisa(?:ł|ła|li|ły)?\(?(?:a)?\)?:|am\s+.+\s+schrieb(?:\s+.+)?:|le\s+.+\s+a écrit\s*:|el\s+.+\s+escribió:|il\s+.+\s+ha scritto:|-{2,}\s*(?:original message|ursprüngliche nachricht|wiadomość oryginalna|message d'origine|mensaje original|messaggio originale|исходное сообщение)\s*-{2,})/i;
+// "16.10.2026 19:57:53 Maria Tagsold <maria@example.test>:" — a date and time, the sender
+// and their address, then a colon (no "wrote"), as some clients and webmailers emit.
+const DATED_SENDER_MARKER_RE = /^\d{1,4}[./-]\d{1,2}[./-]\d{1,4},?\s+(?:um\s+|at\s+)?\d{1,2}:\d{2}(?::\d{2})?\b.*<[^<>\s@]+@[^<>\s]+>\s*:$/i;
 // The header block Outlook, Exchange and many other clients put above quoted history:
 // "From: …" followed within a few lines by "Sent:/Date: …" (in the common languages).
 const HEADER_FROM_RE = /^(?:from|von|de|od|da|от|发件人)\s*[:：]/i;
@@ -26,6 +29,7 @@ function replyStartsAt(lines: string[], index: number): boolean {
   const line = lines[index] || '';
   // A marker may be wrapped onto two lines ("On Tue, … at 10:00,\nName <x> wrote:").
   if (REPLY_MARKER_RE.test(line) || REPLY_MARKER_RE.test(`${line} ${lines[index + 1] || ''}`)) return true;
+  if (DATED_SENDER_MARKER_RE.test(line)) return true;
   if (!HEADER_FROM_RE.test(line)) return false;
   return lines.slice(index + 1, index + 5).some(next => HEADER_SENT_RE.test(next)) || HEADER_SENT_INLINE_RE.test(line.slice(0, 400));
 }

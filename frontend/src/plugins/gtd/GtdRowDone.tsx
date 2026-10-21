@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/index.ts';
 import { api } from '../../utils/api.ts';
-import { advanceSelectionAfterRemoval } from '../../utils/listSelection.ts';
+import { clearSelectionAfterRemoval } from '../../utils/listSelection.ts';
 import { ActionBtn } from '../../components/RowHoverActions.tsx';
 import type { StoreMessageRow, StoreState } from '../../store/index.ts';
 
@@ -26,7 +26,7 @@ export default function GtdRowDone({ message, done }: GtdRowDoneProps) {
 
   const inboxDone = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    advanceSelectionAfterRemoval(message.id);
+    clearSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     // gtdDone marks the WHOLE thread read server-side and unreadCounts is message-based, so drop the
     // row's full thread-unread (unread_count) like scheduleDelete does — a fixed -1 under-counts a

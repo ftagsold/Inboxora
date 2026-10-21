@@ -66,3 +66,16 @@ describe('inline header label boundaries', () => {
     assert.equal(startsWithReplyMarker('From: the release notes Update: new version is out'), false);
   });
 });
+
+describe('dated sender reply markers', () => {
+  it('recognises "date time Name <address>:" headers', () => {
+    assert.equal(startsWithReplyMarker('16.10.2026 19:57:53 Maria Tagsold <maria@tagsold.io>:'), true);
+    assert.equal(startsWithReplyMarker('16.10.2026 16:35:45 Reservierung | Castlewood Hotels GmbH <Reservierung@castlewood-hotels.com>:\nSehr geehrte Frau Tagsold,'), true);
+    assert.equal(startsWithReplyMarker('2026-10-16, 19:57 Maria <maria@example.test>:'), true);
+  });
+
+  it('leaves ordinary dated lines alone', () => {
+    assert.equal(startsWithReplyMarker('16.10.2026 19:57 Termin bestätigt'), false);
+    assert.equal(startsWithReplyMarker('Wäre es denn vom 13. auf den 14.11. möglich?'), false);
+  });
+});

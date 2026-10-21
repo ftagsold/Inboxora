@@ -184,16 +184,18 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [conversationId, nativeThreadId, nativeFolder, selectedAccountId, data]);
   const handleActionComplete = useCallback(async (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => {
     const { action, copyId, logicalMessageId, isRead, isStarred } = mutation || {};
-    if (typeof action === 'string' && ['delete', 'archive', 'move'].includes(action) && copyId) {
+    if (typeof action === 'string' && ['delete', 'archive', 'move', 'spam', 'ham'].includes(action) && copyId) {
       setData(previous => !previous ? previous : {
         ...previous,
         logicalMessages: removePhysicalCopy(previous.logicalMessages, logicalMessageId, copyId),
       });
       // A refresh may arrive before IMAP has reflected the mutation. Keep the
       // just-removed physical copy out of that stale response during reconciliation.
-      // MessageList consumes this guard during its refresh; deliberately do not clear
-      // the global selection here because the reader can still contain another copy.
+      // MessageList consumes this guard during its refresh.
       setCompletedDelete(copyId);
+      // The message left this folder (moved, archived, deleted, spam, or archived after an
+      // invitation answer): close the reader rather than leave or move a selection.
+      useStore.getState().setSelectedMessage(null);
     } else if (action === 'read' && copyId) {
       updateMessage(copyId, { is_read: isRead, isRead });
     } else if (action === 'star' && copyId) {

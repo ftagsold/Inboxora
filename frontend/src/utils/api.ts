@@ -411,6 +411,8 @@ export const api = {
     getInvitation: (id: string) => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
     addInvitation: (id: string, calendarId: string) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
     removeInvitation: (id: string) => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
+    // Who was invited to an event and how each answered.
+    attendeeStatuses: (eventId: string) => request('GET', `/calendar/events/${encodeURIComponent(eventId)}/attendees`),
     // Accept / maybe / decline: replies to the organizer and updates the local copy.
     respondInvitation: (id: string, response: 'ACCEPTED' | 'TENTATIVE' | 'DECLINED', calendarId?: string) =>
       request('POST', `/calendar/invitations/${encodeURIComponent(id)}/respond`, { response, calendarId }),

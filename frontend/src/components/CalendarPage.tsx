@@ -30,6 +30,8 @@ import './calendar.css';
 import type { StoreMessageRow, StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 import { useDelayedFlag } from '../hooks/useDelayedFlag.ts';
+import ChipInput, { chipAddress } from './ChipInput.tsx';
+import type { ContactSuggestion } from './ChipInput.tsx';
 
 /** The add/edit dialog's form state: the payload fields plus the dialog mode and event identity. */
 type CalendarEventFormState = CalendarEventForm & {
@@ -541,6 +543,20 @@ export default function CalendarPage({ isActive = true }) {
     await performDelete(target, 'all');
   };
   const [deleteTarget, setDeleteTarget] = useState<CalendarDeleteTarget | null>(null);
+  // Attendees' answers for the event open in the dialog (from its iCalendar ATTENDEE lines).
+  const [attendeeStatuses, setAttendeeStatuses] = useState<Map<string, string> | undefined>(undefined);
+  const statusEventId = form?.mode === 'edit' && Array.isArray(form.attendees) && form.attendees.length ? String(form.id || '') : '';
+  useEffect(() => {
+    setAttendeeStatuses(undefined);
+    if (!statusEventId) return undefined;
+    let current = true;
+    api.calendar.attendeeStatuses(statusEventId)
+      .then((result: { attendees?: Array<{ email: string; partstat: string }> }) => {
+        if (current) setAttendeeStatuses(new Map((result.attendees || []).map(attendee => [attendee.email.toLowerCase(), attendee.partstat])));
+      })
+      .catch(() => {});
+    return () => { current = false; };
+  }, [statusEventId]);
   // Read by the background refresh above: never reload under an open dialog or a save.
   interactionOpen.current = Boolean(form || editScopeOpen || deleteTarget || saving);
   const [contextMenu, setContextMenu] = useState<{ event: CalendarViewEvent; x: number; y: number; triggerRef: { current: unknown } } | null>(null);
@@ -653,7 +669,7 @@ export default function CalendarPage({ isActive = true }) {
     {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-sheet">
       <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} />
     </Dialog>}
-    {form && <EventDialog form={form} error={error} calendars={formReadOnly ? calendars : writable} accounts={senderAccounts} saving={saving} readOnly={formReadOnly} onOpenSourceMessage={openSourceMessage} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={requestSave} onDelete={remove} onClose={() => { invitation.reset(); setEditScope(null); setEditScopeOpen(false); setForm(null); setError(null); }} t={t} />}
+    {form && <EventDialog attendeeStatuses={attendeeStatuses} form={form} error={error} calendars={formReadOnly ? calendars : writable} accounts={senderAccounts} saving={saving} readOnly={formReadOnly} onOpenSourceMessage={openSourceMessage} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={requestSave} onDelete={remove} onClose={() => { invitation.reset(); setEditScope(null); setEditScopeOpen(false); setForm(null); setError(null); }} t={t} />}
     {editScopeOpen && <CalendarEditScopeDialog busy={saving} onSelect={chooseEditScope} onClose={() => setEditScopeOpen(false)} t={t} />}
     {pendingMove && <CalendarEditScopeDialog onSelect={choosePendingMoveScope} onClose={() => { setPendingMove(null); resolvePendingMove(); }} t={t} />}
     {contextMenu && <CalendarContextMenu {...contextMenu} isMobile={isMobile} onEdit={() => openEdit(contextMenu.event)} onDelete={() => deleteEvent(contextMenu.event)} onClose={() => setContextMenu(null)} t={t} />}
@@ -701,6 +717,30 @@ interface EventDialogProps {
   onClose: () => void;
   t: TFunction;
   fullScreen?: boolean;
+  /** Each invited address's answer (ACCEPTED / TENTATIVE / DECLINED / NEEDS-ACTION). */
+  attendeeStatuses?: Map<string, string>;
+}
+
+// Address suggestions for attendees: contacts and people mailed with (same source as the composer).
+async function suggestAttendees(query: string): Promise<ContactSuggestion[]> {
+  try { return (await api.suggestContacts(query)).contacts || []; } catch { return []; }
+}
+
+const ATTENDEE_STATUS_STYLE: Record<string, { color: string; symbol: string }> = {
+  ACCEPTED: { color: 'var(--green)', symbol: '✓' },
+  TENTATIVE: { color: 'var(--amber)', symbol: '?' },
+  DECLINED: { color: 'var(--red)', symbol: '✕' },
+  'NEEDS-ACTION': { color: 'var(--text-tertiary)', symbol: '…' },
+};
+
+function AttendeeStatus({ status, t }: { status?: string; t: TFunction }) {
+  if (!status) return null;
+  const style = ATTENDEE_STATUS_STYLE[status] || ATTENDEE_STATUS_STYLE['NEEDS-ACTION'];
+  const label = status === 'ACCEPTED' ? t('calendar.attendeeAccepted')
+    : status === 'TENTATIVE' ? t('calendar.attendeeTentative')
+      : status === 'DECLINED' ? t('calendar.attendeeDeclined')
+        : t('calendar.attendeePending');
+  return <span data-testid="calendar-attendee-status" data-status={status} title={label} aria-label={label} style={{ color: style.color, fontWeight: 600, marginLeft: 2 }}>{style.symbol}</span>;
 }
 // Click-drag over several day cells (month grid) or several day columns in the
 // all-day row (week grid) to create an event spanning exactly the days dragged
@@ -1866,8 +1906,10 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   </div>;
 }
 
-function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpenSourceMessage, onChange, onAllDayChange, onSave, onDelete, onClose, t, fullScreen = false }: EventDialogProps) {
-  const attendeeValue = form.attendees.join(', ');
+function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpenSourceMessage, onChange, onAllDayChange, onSave, onDelete, onClose, t, fullScreen = false, attendeeStatuses }: EventDialogProps) {
+  const [attendeeDraft, setAttendeeDraft] = useState('');
+  const statusOf = (chip: string) => <AttendeeStatus status={attendeeStatuses?.get(chipAddress(chip).toLowerCase())} t={t} />;
+  const setAttendees = (chips: string[]) => onChange('attendees', [...new Set(chips.map(chipAddress).filter(Boolean))]);
   const locked = saving || readOnly;
   // Read-only events came from a source Inboxora never writes to (or a calendar
   // the user hasn't opted into writing to), so the description is rendered exactly
@@ -1897,12 +1939,16 @@ function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpe
       {readOnly ? <>
         {(descriptionBody?.html || descriptionBody?.text) && <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><div className="calendar-event-description" data-testid="calendar-event-description-body"><MessageBodyRenderer {...descriptionBody} title={t('calendar.description')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} /></div></div>}
         {sourceUrl && <p><a href={sourceUrl} target="_blank" rel="noopener noreferrer">{form.url}</a></p>}
-        {form.attendees.length > 0 && <p>{t('calendar.attendees')}: {form.attendees.join(', ')}</p>}
+        {form.attendees.length > 0 && <div className="calendar-attendees"><span className="calendar-description-label">{t('calendar.attendees')}</span>
+          <ChipInput chips={form.attendees} onChipsChange={() => {}} value="" onChange={() => {}} disabled chipAdornment={statusOf} testId="calendar-attendees" />
+        </div>}
         {organizer && <p>{t('calendar.organizer')}: {organizer}</p>}
       </> : <>
         <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><RichTextEditor value={form.description} onChange={(html: string) => onChange('description', html)} placeholder={t('calendar.descriptionPlaceholder')} label={t('calendar.description')} testId="calendar-event-description" /></div>
         <div className="calendar-invites ui-form"><label className="ui-check"><input type="checkbox" disabled={locked} checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>
-          {form.sendInvites && <><label>{t('calendar.attendees')}<input disabled={locked} value={attendeeValue} onChange={e => onChange('attendees', e.target.value.split(',').map(email => email.trim()).filter(Boolean))} placeholder={t('calendar.attendeesPlaceholder')} /></label>
+          {form.sendInvites && <><div className="calendar-attendees"><span className="calendar-description-label">{t('calendar.attendees')}</span>
+            <ChipInput chips={form.attendees} onChipsChange={setAttendees} value={attendeeDraft} onChange={setAttendeeDraft} placeholder={t('calendar.attendeesPlaceholder')} getSuggestions={suggestAttendees} chipAdornment={statusOf} disabled={locked} testId="calendar-attendees" containerStyle={{ border: '1px solid var(--border)', borderRadius: 8, padding: '4px 8px', background: 'var(--bg-primary)' }} />
+          </div>
             <label>{t('calendar.senderAccount')}<select disabled={locked} value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>
             {!accounts.length && <p>{t('calendar.noSenderAccounts')}</p>}</>}
         </div>

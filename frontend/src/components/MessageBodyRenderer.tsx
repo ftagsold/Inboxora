@@ -68,6 +68,11 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe || !srcDoc) return;
+    // Keep the new body invisible (it still lays out and measures) until quote folding has
+    // run, so quoted history is never painted expanded and then collapsed — no flicker.
+    // A fallback reveals it should the frame never report a load.
+    iframe.style.visibility = 'hidden';
+    const revealFallback = setTimeout(() => { iframe.style.visibility = ''; }, 2000);
 
     let initialLayoutReported = false;
     let cancelInitialLayout: (() => void) | null = null;
@@ -199,6 +204,11 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         observer.observe(doc.body);
       }
       measureExpanded();
+      // Only the message document itself may reveal the frame — not the initial about:blank.
+      if (doc.URL === 'about:srcdoc') {
+        clearTimeout(revealFallback);
+        iframe.style.visibility = '';
+      }
       onLoad?.();
       return () => {
         doc.removeEventListener('click', onDocumentClick);
@@ -212,12 +222,32 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       };
     };
     let cleanup: (() => void) | null = null;
-    const onLoaded = () => { cleanup?.(); cleanup = install() || null; };
+    let installedDoc: Document | null = null;
+    const onLoaded = () => {
+      const doc = iframe.contentDocument;
+      // Folding and listeners are installed once per document; image loads re-measure on
+      // their own, so the later `load` event must not fold a second time.
+      if (doc && doc === installedDoc) return;
+      installedDoc = doc;
+      cleanup?.(); cleanup = install() || null;
+    };
+    // Install as soon as the message document is parsed — before its images finish loading
+    // and before that content is first painted — instead of waiting for `load`, which a slow
+    // image can delay for seconds while the quote shows expanded.
+    let parsePoll = 0;
+    const pollParsed = () => {
+      const doc = iframe.contentDocument;
+      if (doc && doc.URL === 'about:srcdoc' && doc.readyState !== 'loading' && doc.body) { onLoaded(); return; }
+      parsePoll = requestAnimationFrame(pollParsed);
+    };
+    parsePoll = requestAnimationFrame(pollParsed);
     iframe.addEventListener('load', onLoaded);
     if (iframe.contentDocument?.readyState === 'complete') onLoaded();
     return () => {
+      cancelAnimationFrame(parsePoll);
       cleanup?.();
       cancelInitialLayout?.();
+      clearTimeout(revealFallback);
       iframe.removeEventListener('load', onLoaded);
     };
   }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, onOpenLink, iframeRef]);

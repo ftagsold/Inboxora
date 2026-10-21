@@ -48,6 +48,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   calendar), or say there is no conflict. All-day events and contact birthdays are not counted
   against a timed invitation.
 
+- Attendees' answers are tracked: incoming replies (accept / maybe / decline, RFC 5546
+  METHOD:REPLY) to invitations you sent are recorded in your event as soon as they arrive, the
+  reply mail's calendar panel says who answered what (it previously failed to load), and the event
+  dialog shows each attendee's answer next to their address. Invitations now ask for a reply
+  (`RSVP=TRUE`), and editing an event keeps the recorded answers unless its time changes.
+- The attendee field suggests addresses from your contacts and from people you have mailed with,
+  as the composer does, and shows attendees as removable chips.
+
 ### Changed
 
 - Let a single-day all-day event be resized from either edge in month view, the same way a
@@ -82,7 +90,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 - Conversations show the newest message on top by default; Settings → "Newest message first"
   switches back to oldest first. Expanded thread rows in the message list follow the same order.
 - Quoted history in messages is folded behind "Show quoted text", collapsed by default, and is
-  now recognised in more reply formats: German "Am … schrieb …:", Outlook/Exchange header blocks
+  now recognised in more reply formats — including "16.10.2026 19:57:53 Name <address>:" headers —
+  and is folded as soon as the message is parsed (before slow images load), so it is never shown
+  expanded first and then collapsed. Recognised formats: German "Am … schrieb …:", Outlook/Exchange header blocks
   ("From/Von: … Sent/Gesendet: …", including ones separated by line breaks in HTML),
   "-----Ursprüngliche Nachricht-----" and other localised separators, and reply markers wrapped
   over two lines. Forwarded content stays visible.
@@ -97,6 +107,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   unread counts soft-refresh every interval while the tab is visible (previously only when the
   WebSocket was down); and the calendar view reloads its events every interval while visible,
   silently and never during a drag or an open dialog.
+
+- When a message leaves the open folder (moved, archived, deleted, marked spam, or archived after
+  answering an invitation), nothing is selected afterwards; previously the next message opened.
 
 ### Removed
 
@@ -122,6 +135,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   deletes it when it is already in Trash, or is a draft), and read/star are written to the
   server, with a durable retry if that write fails. Archive, move and spam already used the
   server and are unchanged.
+- New mail no longer pushes the oldest loaded message out of the list (showing "Load more"), nor
+  brings it back once that new mail is deleted: live refreshes keep the bottom of the loaded list
+  in place and only add or remove what changed.
 - With "Group messages into conversations" disabled, "Load more" stayed visible with nothing
   left to load: the folder's server-side message count could exceed the locally cached messages.
   A short page now ends the list.

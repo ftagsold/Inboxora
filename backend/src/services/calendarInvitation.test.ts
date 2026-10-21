@@ -58,7 +58,8 @@ describe('sendCalendarInvitation', () => {
       attachments: [expect.objectContaining({ contentType: 'text/calendar; charset=utf-8; method=REQUEST' })],
     }));
     expect(sendMail.mock.calls[0][0].attachments[0].content).toContain('METHOD:REQUEST');
-    expect(sendMail.mock.calls[0][0].attachments[0].content).toContain('ATTENDEE;ROLE=REQ-PARTICIPANT:mailto:guest@example.test');
+    // Long content lines are folded (RFC 5545 §3.1); unfold before matching.
+    expect(sendMail.mock.calls[0][0].attachments[0].content.replace(/\r\n[ \t]/g, '')).toContain('ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:guest@example.test');
   });
 
   it('escapes lone carriage returns in invitation text to prevent iCalendar property injection', async () => {

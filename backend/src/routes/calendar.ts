@@ -18,6 +18,7 @@ import type { IncomingCollection } from '../services/davSourceUrl.js';
 import { pushEventToRemote } from '../services/externalCalendarWriteback.js';
 import { sendCalendarInvitation, sendCalendarReply } from '../services/calendarInvitation.js';
 import type { InvitationResponse } from '../services/calendarInvitation.js';
+import { applyInvitationReply, attendeeStatuses, parseInboundCalendarReply } from '../services/calendarReplies.js';
 import { deliverInvitationOutbox, deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError, resolveInvitationActions } from '../services/calendarInvitationOutbox.js';
 import { projectCalendarResources } from '../services/calendarProjectionPool.js';
 import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
@@ -152,6 +153,8 @@ type LocalEventIcalInput = {
   url?: string | null;
   organizer?: string | null;
   attendees?: string[];
+  /** Each attendee's recorded answer (PARTSTAT), kept on the ATTENDEE line. */
+  partstats?: Map<string, string>;
   startsAt: Date;
   endsAt: Date;
   allDay: boolean;
@@ -184,7 +187,7 @@ type InvitationMessageRow = {
   raw_ical?: string | null;
 };
 
-function localEventIcal({ uid, summary, description, location, url, organizer, attendees = [], startsAt, endsAt, allDay }: LocalEventIcalInput) {
+function localEventIcal({ uid, summary, description, location, url, organizer, attendees = [], partstats, startsAt, endsAt, allDay }: LocalEventIcalInput) {
   const dateParameter = allDay ? ';VALUE=DATE' : '';
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inboxora//DAV Hub//EN', 'BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${formatICalendarDate(new Date(), false)}`, `DTSTART${dateParameter}:${formatICalendarDate(startsAt, allDay)}`, `DTEND${dateParameter}:${formatICalendarDate(endsAt, allDay)}`];
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
@@ -192,9 +195,22 @@ function localEventIcal({ uid, summary, description, location, url, organizer, a
   if (location) lines.push(`LOCATION:${escapeICalendarText(location)}`);
   if (url) lines.push(`URL:${String(url).replace(/[\r\n]/g, '')}`);
   if (organizer) lines.push(`ORGANIZER:mailto:${escapeICalendarText(organizer.replace(/^mailto:/i, ''))}`);
-  for (const email of attendees) lines.push(`ATTENDEE:mailto:${email}`);
+  for (const email of attendees) {
+    const partstat = partstats?.get(email.toLowerCase());
+    lines.push(`ATTENDEE${partstat ? `;PARTSTAT=${partstat}` : ''}:mailto:${email}`);
+  }
   lines.push('END:VEVENT', 'END:VCALENDAR', '');
   return lines.map(foldICalendarLine).join('\r\n');
+}
+
+/**
+ * The answers attendees already gave, carried into an edited event — unless its time changed,
+ * which is a new question (the re-sent invitation asks everyone again).
+ */
+function preservedPartstats(existing: { raw_ical?: string | null; starts_at?: Date | string | null; ends_at?: Date | string | null }, times: { startsAt: Date; endsAt: Date }) {
+  const same = (left: Date | string | null | undefined, right: Date) => left != null && new Date(left).getTime() === right.getTime();
+  if (!same(existing.starts_at, times.startsAt) || !same(existing.ends_at, times.endsAt)) return new Map<string, string>();
+  return new Map(attendeeStatuses(existing.raw_ical).filter(attendee => attendee.partstat !== 'NEEDS-ACTION').map(attendee => [attendee.email, attendee.partstat]));
 }
 
 function normalizeAttendees(value: unknown): string[] | null {
@@ -272,7 +288,7 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
         : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
     }
-    const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, partstats: preservedPartstats(existing, times), allDay: Boolean(allDay), ...times }));
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
     const event = result.rows[0];
     const actions = [];
@@ -342,6 +358,24 @@ async function fetchInvitationAttachment(row: InvitationMessageRow, userId: stri
   return raw.trim() ? raw : null;
 }
 
+// An attendee's answer (METHOD:REPLY) to an invitation this user sent, read from the message.
+async function readMessageReply(messageId: string, userId: string) {
+  const result = await query<InvitationMessageRow>(`SELECT i.raw_ical, m.account_id, m.uid, m.folder, m.attachments
+    FROM messages m JOIN email_accounts a ON a.id = m.account_id
+    LEFT JOIN inbound_calendar_invitations i ON i.message_id = m.id
+    WHERE m.id = $1 AND a.user_id = $2`, [messageId, userId]);
+  const row = result?.rows?.[0];
+  if (!row) return null;
+  const raw = await fetchInvitationAttachment(row, userId);
+  return raw ? parseInboundCalendarReply(raw) : null;
+}
+
+/** Whether the user holds the event (one they sent invitations from) a reply belongs to. */
+async function replyIsRecorded(userId: string, uid: string) {
+  const result = await query('SELECT 1 FROM calendar_events WHERE user_id = $1 AND uid = $2 AND invite_account_id IS NOT NULL LIMIT 1', [userId, uid]);
+  return result.rows.length > 0;
+}
+
 async function readMessageInvitation(messageId: string, userId: string) {
   const result = await query<InvitationMessageRow>(`SELECT i.raw_ical, m.account_id, m.uid, m.folder, m.attachments
     FROM messages m JOIN email_accounts a ON a.id = m.account_id
@@ -383,7 +417,14 @@ async function importedEventForMessage(messageId: string, userId: string) {
 
 router.get('/invitations/:messageId', async (req, res) => {
   const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
-  if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
+  if (!invitation) {
+    // An answer to an invitation this user sent: record it (idempotently — sync normally did
+    // already) and describe it, so the mail shows who answered what.
+    const reply = await readMessageReply(req.params.messageId, sessionUserId(req));
+    if (!reply) return res.status(404).json({ error: 'Calendar invitation not found' });
+    const updated = await applyInvitationReply(sessionUserId(req), reply);
+    return res.json({ invitation: { ...reply, recordedInCalendar: updated > 0 || await replyIsRecorded(sessionUserId(req), reply.uid) } });
+  }
   const { raw, event, accountId, ...metadata } = invitation;
   void raw; void accountId;
   const localEvent = await importedEventForMessage(req.params.messageId, sessionUserId(req));
@@ -560,6 +601,19 @@ router.post('/invitations/:messageId/respond', async (req, res) => {
     );
   }
   res.json({ response, localEvent });
+});
+
+// Who was invited to an event and how each answered (from its iCalendar ATTENDEE lines).
+// An occurrence id ("series@recurrence") reads its series.
+router.get('/events/:id/attendees', async (req, res) => {
+  const id = String(req.params.id).split('@')[0];
+  const result = await query<{ raw_ical: string }>(
+    `SELECT e.raw_ical FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id
+      WHERE e.id::text = $1 AND e.user_id = $2 AND c.owner_user_id = $2`,
+    [id, sessionUserId(req)],
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Event not found' });
+  res.json({ attendees: attendeeStatuses(result.rows[0].raw_ical) });
 });
 
 router.get('/calendars', async (req, res) => {
@@ -1063,7 +1117,7 @@ router.patch('/events/:eventId', async (req, res) => {
       }
     }
 
-    const rawIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    const rawIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, partstats: preservedPartstats(existingEvent, times), allDay: Boolean(allDay), ...times }));
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
     if (!result.rows[0]) return { notFound: true };
 

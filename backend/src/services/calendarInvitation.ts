@@ -71,7 +71,8 @@ function invitationIcal({ uid, summary, description, location, organizerEmail, a
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
   lines.push(...descriptionContentLines(description, escapeICalendarText));
   if (location) lines.push(`LOCATION:${escapeICalendarText(location)}`);
-  for (const attendee of attendees) lines.push(`ATTENDEE;ROLE=REQ-PARTICIPANT:mailto:${attendee}`);
+  // PARTSTAT/RSVP ask the attendee's calendar to answer, which comes back as a METHOD:REPLY.
+  for (const attendee of attendees) lines.push(`ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${attendee}`);
   lines.push('END:VEVENT', 'END:VCALENDAR', '');
   return lines.map(foldICalendarLine).join('\r\n');
 }
