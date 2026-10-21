@@ -77,6 +77,8 @@ interface MessageDetailContentProps {
   onDownload?(physicalCopyId: string, part: string | undefined, filename: string | undefined): void;
   onContextAction?(action: string, data?: unknown, physicalCopyId?: string): void;
   onInitialBodyLayout?: () => void;
+  /** Archive the message once its calendar invitation has been answered. */
+  onInvitationResponded?: () => void;
   canAccessCopy?: boolean;
   mobile?: boolean;
   /** Rendered inside a message card: details get the card's inset, the body spans its full width. */
@@ -103,6 +105,7 @@ export default function MessageDetailContent({
   onDownload,
   onContextAction,
   onInitialBodyLayout,
+  onInvitationResponded,
   canAccessCopy = true,
   mobile = false,
   embedded = false,
@@ -176,7 +179,7 @@ export default function MessageDetailContent({
           </button>)}
         </div>
       </div>}
-      {showInvitation && physicalCopyId && <CalendarInvitationCard key={physicalCopyId} messageId={physicalCopyId} />}
+      {showInvitation && physicalCopyId && <CalendarInvitationCard key={physicalCopyId} messageId={physicalCopyId} onResponded={onInvitationResponded} />}
       {showUnsubscribe && <div className="msg-notice" data-message-detail-unsubscribe="true" style={notice('var(--text-tertiary)')}>
         <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span><button type="button" onClick={unsubscribe} disabled={unsubscribeStatus === 'loading'}>{unsubscribeStatus === 'loading' ? t('common.loading') : unsubscribeStatus === 'error' ? t('message.unsubscribe.error') : t('message.unsubscribe.button')}</button>
       </div>}

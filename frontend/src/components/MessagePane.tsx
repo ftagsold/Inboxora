@@ -2217,6 +2217,7 @@ ${bodyContent}
             onAllowSender={handleAllowSender}
             onAllowDomain={handleAllowDomain}
             onUnsubscribe={handleUnsubscribe}
+            onInvitationResponded={handleArchive}
             onDownload={handleDownload}
             onContextAction={handlePaneContextAction}
             mobile={isMobile}

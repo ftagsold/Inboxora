@@ -16,7 +16,8 @@ import type { SourceCollection } from '../services/externalCalendarSync.js';
 import { validateSourceUrl, resolveCaldavUrl, clampIntervalSeconds, validatedCollectionHref } from '../services/davSourceUrl.js';
 import type { IncomingCollection } from '../services/davSourceUrl.js';
 import { pushEventToRemote } from '../services/externalCalendarWriteback.js';
-import { sendCalendarInvitation } from '../services/calendarInvitation.js';
+import { sendCalendarInvitation, sendCalendarReply } from '../services/calendarInvitation.js';
+import type { InvitationResponse } from '../services/calendarInvitation.js';
 import { deliverInvitationOutbox, deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError, resolveInvitationActions } from '../services/calendarInvitationOutbox.js';
 import { projectCalendarResources } from '../services/calendarProjectionPool.js';
 import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
@@ -356,7 +357,7 @@ async function readMessageInvitation(messageId: string, userId: string) {
     const raw = typeof source === 'function' ? await source() : source;
     if (!raw) continue;
     const invitation = parseInboundCalendarInvitation(raw);
-    if (invitation) return { ...invitation, event: parseCalendarEvent(raw) };
+    if (invitation) return { ...invitation, event: parseCalendarEvent(raw), accountId: row.account_id };
   }
   return null;
 }
@@ -383,11 +384,85 @@ async function importedEventForMessage(messageId: string, userId: string) {
 router.get('/invitations/:messageId', async (req, res) => {
   const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
-  const { raw, event, ...metadata } = invitation;
-  void raw;
+  const { raw, event, accountId, ...metadata } = invitation;
+  void raw; void accountId;
   const localEvent = await importedEventForMessage(req.params.messageId, sessionUserId(req));
-  res.json({ invitation: { ...metadata, localEvent, description: event?.description, location: event?.location, url: event?.url, attendees: event?.attendees || [] } });
+  const response = await storedInvitationResponse(sessionUserId(req), invitation);
+  res.json({ invitation: { ...metadata, localEvent, response, description: event?.description, location: event?.location, url: event?.url, attendees: event?.attendees || [] } });
 });
+
+const INVITATION_RESPONSES = new Set<InvitationResponse>(['ACCEPTED', 'TENTATIVE', 'DECLINED']);
+
+type MessageInvitation = NonNullable<Awaited<ReturnType<typeof readMessageInvitation>>>;
+
+const organizerAddress = (value: unknown) => String(value || '').replace(/^mailto:/i, '').trim();
+
+/** The reply this user sent for this invitation, unless the organizer has revised it since. */
+async function storedInvitationResponse(userId: string, invitation: MessageInvitation): Promise<InvitationResponse | null> {
+  const result = await query<{ response: InvitationResponse }>(
+    `SELECT response FROM calendar_invitation_responses
+     WHERE user_id = $1 AND uid = $2 AND recurrence_id = $3 AND organizer = $4 AND sequence >= $5`,
+    [userId, invitation.uid, invitation.recurrenceId || '', organizerAddress(invitation.organizer).toLowerCase(), Number(invitation.sequence || 0)],
+  );
+  return result.rows[0]?.response ?? null;
+}
+
+/**
+ * The address this user was invited as: the receiving account's address or one of its aliases
+ * that appears among the attendees, falling back to the account address.
+ */
+async function invitedAddress(userId: string, accountId: string, attendees: readonly string[]) {
+  const result = await query<{ email: string | null; kind: string }>(
+    `SELECT email_address AS email, 'account' AS kind FROM email_accounts WHERE id = $1 AND user_id = $2
+     UNION ALL
+     SELECT al.email, 'alias' AS kind FROM account_aliases al JOIN email_accounts a ON a.id = al.account_id
+      WHERE al.account_id = $1 AND a.user_id = $2`,
+    [accountId, userId],
+  );
+  const own = result.rows.map(row => String(row.email || '').trim()).filter(Boolean);
+  const invited = new Set(attendees.map(address => address.trim().toLowerCase()));
+  return own.find(address => invited.has(address.toLowerCase())) || own[0] || null;
+}
+
+/**
+ * Add (or refresh) the local copy of a received invitation. With `partstat`, the user's own
+ * ATTENDEE line records their answer so CalDAV clients show it too.
+ */
+async function importInvitationEvent(userId: string, messageId: string, calendar: WritableCalendarRow, invitation: MessageInvitation, partstat?: { email: string; response: InvitationResponse }) {
+  const event = invitation.event;
+  if (!event) throw Object.assign(new Error('This invitation cannot be added'), { status: 409 });
+  // Scope copies by organizer as well as UID; never overwrite an unrelated local event.
+  const uid = `mail-${crypto.createHash('sha256').update(JSON.stringify([invitation.uid, invitation.organizer, invitation.recurrenceId])).digest('hex')}`;
+  const component = new ICAL.Component(ICAL.parse(event.raw));
+  component.removeAllProperties('method');
+  const vevent = component.getAllSubcomponents('vevent')[0];
+  vevent.updatePropertyWithValue('uid', uid);
+  if (partstat) {
+    for (const attendee of vevent.getAllProperties('attendee')) {
+      if (String(attendee.getFirstValue()).replace(/^mailto:/i, '').toLowerCase() === partstat.email.toLowerCase()) {
+        attendee.setParameter('partstat', partstat.response);
+      }
+    }
+  }
+  const raw = component.toString();
+  // A re-answer of the same revision must refresh the stored PARTSTAT, so `<=` here; an
+  // older revision never overwrites a newer one, and an event the user owns is never touched.
+  const result = await query(`INSERT INTO calendar_events
+    (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees, invitation_sequence, source_message_id)
+    VALUES ($1,$2,$3,$4,gen_random_uuid()::text,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16)
+    ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
+      raw_ical = EXCLUDED.raw_ical, etag = gen_random_uuid()::text, summary = EXCLUDED.summary,
+      starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone,
+      description = EXCLUDED.description, location = EXCLUDED.location, url = EXCLUDED.url,
+      organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, invitation_sequence = EXCLUDED.invitation_sequence,
+      source_message_id = COALESCE(EXCLUDED.source_message_id, calendar_events.source_message_id), updated_at = NOW()
+    WHERE calendar_events.invitation_sequence ${partstat ? '<=' : '<'} EXCLUDED.invitation_sequence AND calendar_events.invite_account_id IS NULL
+    RETURNING id`, [calendar.id, userId, uid, raw, event.summary, event.startsAt, event.endsAt,
+      event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees), invitation.sequence,
+      messageId]);
+  if (result.rows[0]) await pushIfExternal(calendar, uid, 'put', raw);
+  return { changed: Boolean(result.rows[0]) };
+}
 
 // Remove the copy this message's invitation was added as. This is what makes a
 // cancellation actionable: an organizer retracting an invitation should leave the
@@ -422,28 +497,69 @@ router.post('/invitations/:messageId', async (req, res) => {
   const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
   if (invitation.method !== 'REQUEST' || !invitation.event) return res.status(409).json({ error: 'This invitation cannot be added' });
-  const event = invitation.event;
-  // Scope copies by organizer as well as UID; never overwrite an unrelated local event.
-  const uid = `mail-${crypto.createHash('sha256').update(JSON.stringify([invitation.uid, invitation.organizer, invitation.recurrenceId])).digest('hex')}`;
-  const component = new ICAL.Component(ICAL.parse(event.raw));
-  component.removeAllProperties('method');
-  component.getAllSubcomponents('vevent')[0].updatePropertyWithValue('uid', uid);
-  const raw = component.toString();
-  const result = await query(`INSERT INTO calendar_events
-    (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees, invitation_sequence, source_message_id)
-    VALUES ($1,$2,$3,$4,gen_random_uuid()::text,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16)
-    ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
-      raw_ical = EXCLUDED.raw_ical, etag = gen_random_uuid()::text, summary = EXCLUDED.summary,
-      starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone,
-      description = EXCLUDED.description, location = EXCLUDED.location, url = EXCLUDED.url,
-      organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, invitation_sequence = EXCLUDED.invitation_sequence,
-      source_message_id = COALESCE(EXCLUDED.source_message_id, calendar_events.source_message_id), updated_at = NOW()
-    WHERE calendar_events.invitation_sequence < EXCLUDED.invitation_sequence AND calendar_events.invite_account_id IS NULL
-    RETURNING id`, [req.body.calendarId, req.session.userId, uid, raw, event.summary, event.startsAt, event.endsAt,
-      event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees), invitation.sequence,
-      req.params.messageId]);
-  if (result.rows[0]) await pushIfExternal(access.calendar as WritableCalendarRow, uid, 'put', raw);
-  res.json({ added: true, changed: Boolean(result.rows[0]), calendarId: req.body.calendarId });
+  const { changed } = await importInvitationEvent(sessionUserId(req), req.params.messageId, access.calendar as WritableCalendarRow, invitation);
+  res.json({ added: true, changed, calendarId: req.body.calendarId });
+});
+
+// Answer a received invitation: send the RFC 5546 REPLY to the organizer, then keep the
+// local calendar in step — accepted/tentative is added (or refreshed) with the user's PARTSTAT,
+// declined removes the copy this message had added. The reply is sent first: if it fails,
+// nothing is recorded and the calendar is unchanged, so the user can simply try again.
+router.post('/invitations/:messageId/respond', async (req, res) => {
+  const userId = sessionUserId(req);
+  const response = String(req.body?.response || '').toUpperCase() as InvitationResponse;
+  if (!INVITATION_RESPONSES.has(response)) return res.status(400).json({ error: 'response must be ACCEPTED, TENTATIVE or DECLINED' });
+  const invitation = await readMessageInvitation(req.params.messageId, userId);
+  if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
+  if (invitation.method !== 'REQUEST' || !invitation.event) return res.status(409).json({ error: 'This invitation cannot be answered' });
+  const organizer = organizerAddress(invitation.organizer);
+  if (!organizer.includes('@')) return res.status(409).json({ error: 'The invitation has no organizer address to reply to' });
+
+  let calendar: WritableCalendarRow | null = null;
+  if (response !== 'DECLINED') {
+    const existing = await importedEventForMessage(req.params.messageId, userId);
+    const calendarId = req.body?.calendarId || existing?.calendarId;
+    if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
+    const access = await writableCalendar(userId, calendarId);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+    calendar = access.calendar as WritableCalendarRow;
+  }
+
+  const attendee = await invitedAddress(userId, invitation.accountId, invitation.event.attendees || []);
+  const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [invitation.accountId, userId]);
+  if (!attendee || !accountResult.rows[0]) return res.status(404).json({ error: 'The receiving account was not found' });
+  try {
+    await sendCalendarReply({
+      account: accountResult.rows[0], attendeeEmail: attendee, organizerEmail: organizer, response,
+      uid: invitation.uid, recurrenceId: invitation.recurrenceId || null, sequence: Number(invitation.sequence || 0),
+      summary: invitation.summary, startsAt: invitation.event.startsAt, endsAt: invitation.event.endsAt, allDay: Boolean(invitation.event.allDay),
+    });
+  } catch (caught) {
+    const err = toAppError(caught);
+    console.error('Calendar invitation reply failed:', err.message);
+    return res.status(502).json({ error: 'Could not send your reply to the organizer' });
+  }
+
+  await query(
+    `INSERT INTO calendar_invitation_responses (user_id, uid, recurrence_id, organizer, sequence, response)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (user_id, uid, recurrence_id, organizer) DO UPDATE SET
+       sequence = EXCLUDED.sequence, response = EXCLUDED.response, responded_at = NOW()`,
+    [userId, invitation.uid, invitation.recurrenceId || '', organizer.toLowerCase(), Number(invitation.sequence || 0), response],
+  );
+
+  let localEvent: { calendarId: string } | null = null;
+  if (calendar) {
+    await importInvitationEvent(userId, req.params.messageId, calendar, invitation, { email: attendee, response });
+    localEvent = { calendarId: calendar.id };
+  } else {
+    // Declining removes only the mirror this message added, never an event the user owns.
+    await query(
+      `DELETE FROM calendar_events WHERE user_id = $1 AND source_message_id = $2 AND invite_account_id IS NULL`,
+      [userId, req.params.messageId],
+    );
+  }
+  res.json({ response, localEvent });
 });
 
 router.get('/calendars', async (req, res) => {

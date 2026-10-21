@@ -95,3 +95,65 @@ export async function sendCalendarInvitation({ account, attendees, summary, desc
     attachments: [{ filename: 'invitation.ics', content, contentType: `text/calendar; charset=utf-8; method=${method}` }],
   });
 }
+
+export type InvitationResponse = 'ACCEPTED' | 'TENTATIVE' | 'DECLINED';
+
+/** One reply to a received invitation (RFC 5546 METHOD:REPLY). */
+interface ReplyInput {
+  account: InvitationAccount;
+  /** The address this user was invited as; it must be the ATTENDEE the organizer knows. */
+  attendeeEmail: string;
+  organizerEmail: string;
+  response: InvitationResponse;
+  uid: string;
+  recurrenceId?: string | null;
+  sequence?: number;
+  summary?: string | null;
+  startsAt: Date | string | number;
+  endsAt: Date | string | number;
+  allDay?: boolean;
+}
+
+const REPLY_SUBJECT: Record<InvitationResponse, string> = { ACCEPTED: 'Accepted', TENTATIVE: 'Tentative', DECLINED: 'Declined' };
+
+export function invitationReplyIcal({ attendeeEmail, organizerEmail, response, uid, recurrenceId, sequence = 0, summary, startsAt, endsAt, allDay = false }: Omit<ReplyInput, 'account'>) {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Inboxora//Calendar//EN',
+    'METHOD:REPLY',
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `SEQUENCE:${sequence}`,
+    `DTSTAMP:${formatICalendarDate(new Date())}`,
+  ];
+  // The parser normalises RECURRENCE-ID to a UTC basic-format timestamp.
+  if (recurrenceId) lines.push(`RECURRENCE-ID:${recurrenceId}`);
+  lines.push(
+    `DTSTART${allDay ? ';VALUE=DATE' : ''}:${formatInvitationDate(startsAt, allDay)}`,
+    `DTEND${allDay ? ';VALUE=DATE' : ''}:${formatInvitationDate(endsAt, allDay)}`,
+    `ORGANIZER:mailto:${organizerEmail}`,
+    `ATTENDEE;PARTSTAT=${response}:mailto:${attendeeEmail}`,
+  );
+  if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
+  lines.push('END:VEVENT', 'END:VCALENDAR', '');
+  return lines.map(foldICalendarLine).join('\r\n');
+}
+
+/** Send the user's accept / tentative / decline answer to the organizer. */
+export async function sendCalendarReply(input: ReplyInput) {
+  const { createAccountSmtpTransport } = await import('./smtpTransport.js');
+  const smtp = await createAccountSmtpTransport(input.account);
+  if (smtp.error) throw Object.assign(new Error(smtp.error), { status: smtp.status });
+  if (!smtp.account || !smtp.transport) throw Object.assign(new Error(smtp.error || 'SMTP transport unavailable'), { status: smtp.status });
+  const fromName = smtp.account.sender_name || smtp.account.name || input.attendeeEmail;
+  const subject = `${REPLY_SUBJECT[input.response]}: ${input.summary || 'Meeting'}`;
+  await smtp.transport.sendMail({
+    from: `${fromName} <${input.attendeeEmail}>`,
+    to: input.organizerEmail,
+    subject,
+    text: `${fromName} ${REPLY_SUBJECT[input.response].toLowerCase()} the invitation "${input.summary || 'Meeting'}".`,
+    // icalEvent adds the text/calendar; method=REPLY alternative that calendar servers process.
+    icalEvent: { method: 'REPLY', content: invitationReplyIcal(input) },
+  });
+}

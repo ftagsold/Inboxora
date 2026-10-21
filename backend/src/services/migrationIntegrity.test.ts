@@ -40,6 +40,16 @@ describe('migration integrity', () => {
     expect(sql).toContain('calendar_events_sync_change');
   });
 
+  it('stores invitation replies per user and invitation identity, removed with the user (0094)', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0094_calendar_invitation_responses.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS calendar_invitation_responses');
+    expect(sql).toContain('user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE');
+    expect(sql).toContain("CHECK (response IN ('ACCEPTED', 'TENTATIVE', 'DECLINED'))");
+    expect(sql).toContain('PRIMARY KEY (user_id, uid, recurrence_id, organizer)');
+    // The runner splits on ';' — the file must hold exactly one statement.
+    expect(sql.replace(/^--[^\n]*$/gm, '').split(';').map(part => part.trim()).filter(Boolean)).toHaveLength(1);
+  });
+
   it('keeps invitation senders referentially intact until their events are cancelled', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0067_calendar_event_invitations.sql'), 'utf8');
     expect(sql).toContain('invite_account_id UUID REFERENCES email_accounts(id) ON DELETE RESTRICT');

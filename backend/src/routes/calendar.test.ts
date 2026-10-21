@@ -1264,19 +1264,22 @@ describe('adding mail invitations to a local calendar', () => {
  it('scopes invitation reads to the owner and exposes metadata without raw ICS', async () => {
    query.mockResolvedValueOnce({ rows: [{ raw_ical: raw }] })
      // The read also looks up the local copy this message was imported into, so the
-     // reader can show the invitation as already added.
+     // reader can show the invitation as already added…
+     .mockResolvedValueOnce({ rows: [] })
+     // …and the answer the user already sent, if any.
      .mockResolvedValueOnce({ rows: [] });
    const response = await fetch(`${base}/api/calendar/invitations/message-1`);
    expect(response.status).toBe(200);
    const body = responseRecord(await response.json());
-   expect(responseObject(body, 'invitation')).toMatchObject({ description: 'Agenda', method: 'REQUEST', localEvent: null });
+   expect(responseObject(body, 'invitation')).toMatchObject({ description: 'Agenda', method: 'REQUEST', localEvent: null, response: null });
    expect(responseObject(body, 'invitation').raw).toBeUndefined();
    expect(queryCall(0)[1]).toEqual(['message-1', 'user-1']);
    expect(queryCall(0)[0]).toContain('a.user_id = $2');
  });
  it('reports the local copy a message was imported into', async () => {
    query.mockResolvedValueOnce({ rows: [{ raw_ical: raw }] })
-     .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', invitation_sequence: 2, starts_at: null, ends_at: null, all_day: false }] });
+     .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', invitation_sequence: 2, starts_at: null, ends_at: null, all_day: false }] })
+     .mockResolvedValueOnce({ rows: [] });
    const response = await fetch(`${base}/api/calendar/invitations/message-1`);
    expect(response.status).toBe(200);
    expect(responseObject(await response.json(), 'invitation').localEvent).toEqual({

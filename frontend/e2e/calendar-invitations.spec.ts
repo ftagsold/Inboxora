@@ -1,14 +1,21 @@
 import { test, expect } from './fixtures.ts';
 import { setupV3, navigateModule } from './v3-fixtures.ts';
 
-for (const reader of [false, true]) test(`mail invitation can be added from ${reader ? 'conversation' : 'single'} reader`, async ({ page, fixtureApi }, testInfo) => {
+for (const reader of [false, true]) test(`mail invitation can be accepted from ${reader ? 'conversation' : 'single'} reader`, async ({ page, fixtureApi }, testInfo) => {
   test.skip(!['chromium-mobile-390', 'chromium-desktop'].includes(testInfo.project.name), 'reader coverage');
   await fixtureApi; await setupV3(page); page.__conversationMatrix = `0${Number(reader)}`;
-  const additions = [];
+  const replies = [];
+  const archives = [];
   await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Invitation message</p>', text: 'Invitation message', calendarInvitation: true, attachments: [] } }));
-  await page.route('**/api/calendar/invitations/*', route => {
-    if (route.request().method() === 'POST') { additions.push(route.request().postDataJSON()); return route.fulfill({ json: { added: true } }); }
-    return route.fulfill({ json: { invitation: { method: 'REQUEST', summary: 'Planowanie z maila', description: 'Pierwsza linia\nDruga linia', location: 'Biuro', startsAt: '2026-09-10T09:00:00Z', endsAt: '2026-09-10T10:00:00Z' } } });
+  await page.route('**/api/calendar/invitations/*', route => route.fulfill({ json: { invitation: { method: 'REQUEST', summary: 'Planowanie z maila', description: 'Pierwsza linia\nDruga linia', location: 'Biuro', startsAt: '2026-09-10T09:00:00Z', endsAt: '2026-09-10T10:00:00Z' } } }));
+  await page.route('**/api/calendar/invitations/*/respond', route => {
+    replies.push(route.request().postDataJSON());
+    return route.fulfill({ json: { response: 'ACCEPTED', localEvent: { calendarId: 'calendar-personal' } } });
+  });
+  // Answering archives the message, through whichever reader shows it.
+  await page.route(/\/api\/mail\/(conversations\/[^/]+\/archive|messages\/bulk-archive)/, route => {
+    archives.push(route.request().url());
+    return route.fulfill({ json: { ok: true, affectedIds: [], affectedCount: 1, archived: 1 } });
   });
   await page.goto('/');
   await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
@@ -17,42 +24,55 @@ for (const reader of [false, true]) test(`mail invitation can be added from ${re
     if (!await card.count()) await page.locator('[data-conversation-message-toggle]').first().click();
   }
   const invitation = page.getByTestId('calendar-invitation-card').filter({ visible: true }).first();
-  // The panel is a single compact action row: the message itself already shows the title
-  // above and the body below, so only the date, the calendar and the action belong here.
-  // The title and description must NOT be repeated inside the panel.
+  // The message itself already shows the title above and the body below, so only the date,
+  // the conflicts, the calendar and the answers belong in the panel — never the title or body.
   await expect(invitation).toContainText('Zaproszenie do kalendarza');
   await expect(invitation.getByTestId('calendar-invitation-when')).toContainText('10 wrz 2026');
   await expect(invitation).not.toContainText('Planowanie z maila');
   await expect(invitation).not.toContainText('Pierwsza linia');
   await expect(invitation.locator('iframe')).toHaveCount(0);
-  await invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true }).click();
-  await expect(invitation.getByRole('status')).toHaveText('Dodano do kalendarza');
-  expect(additions).toEqual([{ calendarId: 'calendar-personal' }]);
-  await page.screenshot({ path: testInfo.outputPath('invitation-added.png') });
+  // The V3 fixture calendar holds two events overlapping 09:00–10:00 on that day.
+  await expect(invitation.getByTestId('calendar-invitation-conflict')).toHaveCount(2);
+  await expect(invitation.getByTestId('calendar-invitation-conflicts')).toContainText('Planowanie projektu');
+  await expect(invitation.getByTestId('calendar-invitation-conflicts')).toContainText('Przegląd makiet');
+  await expect(invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true })).toHaveCount(0);
+  await invitation.getByRole('button', { name: 'Akceptuj', exact: true }).click();
+  await expect.poll(() => replies).toEqual([{ response: 'ACCEPTED', calendarId: 'calendar-personal' }]);
+  await expect.poll(() => archives.length).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath('invitation-accepted.png') });
 });
 
-test('an added invitation reports the copy and can withdraw it again', async ({ page, fixtureApi }, testInfo) => {
+test('an invitation already in the calendar says so and is still answerable', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'reader coverage');
   await fixtureApi; await setupV3(page); page.__conversationMatrix = '00';
-  const removals = [];
   await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Invitation message</p>', text: '', calendarInvitation: true, attachments: [] } }));
-  await page.route('**/api/calendar/invitations/*', route => {
-    if (route.request().method() === 'DELETE') { removals.push(route.request().url()); return route.fulfill({ json: { removed: true } }); }
-    // The server reports that this message already created a local event.
-    return route.fulfill({ json: { invitation: {
-      method: 'REQUEST', summary: 'Planowanie z maila', startsAt: '2026-09-10T09:00:00Z', endsAt: '2026-09-10T10:00:00Z',
-      localEvent: { id: 'event-1', calendarId: 'calendar-personal', sequence: 0 },
-    } } });
-  });
+  await page.route('**/api/calendar/invitations/*', route => route.fulfill({ json: { invitation: {
+    method: 'REQUEST', summary: 'Planowanie z maila', startsAt: '2026-09-10T09:00:00Z', endsAt: '2026-09-10T10:00:00Z',
+    localEvent: { id: 'event-1', calendarId: 'calendar-personal', sequence: 0 }, response: null,
+  } } }));
   await page.goto('/');
   await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
   const invitation = page.getByTestId('calendar-invitation-card').filter({ visible: true }).first();
-  // A reload must show the invitation as already added, not offer to add it twice.
+  // A reload shows the invitation as already added, never offers to add it twice, and the
+  // answer buttons stay available.
   await expect(invitation.getByRole('status')).toHaveText('Już w kalendarzu');
   await expect(invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true })).toHaveCount(0);
-  await invitation.getByRole('button', { name: 'Usuń z kalendarza', exact: true }).click();
-  await expect(invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true })).toBeVisible();
-  expect(removals).toHaveLength(1);
+  for (const name of ['Akceptuj', 'Może', 'Odrzuć']) await expect(invitation.getByRole('button', { name, exact: true })).toBeEnabled();
+});
+
+test('a stored answer is shown on the invitation', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'reader coverage');
+  await fixtureApi; await setupV3(page); page.__conversationMatrix = '00';
+  await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Invitation message</p>', text: '', calendarInvitation: true, attachments: [] } }));
+  await page.route('**/api/calendar/invitations/*', route => route.fulfill({ json: { invitation: {
+    method: 'REQUEST', summary: 'Planowanie z maila', startsAt: '2026-09-10T09:00:00Z', endsAt: '2026-09-10T10:00:00Z',
+    localEvent: null, response: 'DECLINED',
+  } } }));
+  await page.goto('/');
+  await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+  const invitation = page.getByTestId('calendar-invitation-card').filter({ visible: true }).first();
+  await expect(invitation.getByTestId('calendar-invitation-response')).toHaveText('Odrzucono');
+  await expect(invitation.getByRole('button', { name: 'Odrzuć', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('a cancelled invitation is actionable and withdraws the added copy', async ({ page, fixtureApi }, testInfo) => {

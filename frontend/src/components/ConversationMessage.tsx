@@ -510,6 +510,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onLoadBody={(_: unknown, force?: boolean) => onLoadBody(message.id, force)}
         onRemoteImages={() => onRemoteImages(message.id)}
         onAllowSender={() => { void allowImages('address', senderEmail); }}
+        onInvitationResponded={hasAccountCopy ? () => { void runAction(() => conversationApi.archive(conversationId, actionOptions), 'archive'); } : undefined}
         onAllowDomain={() => { void allowImages('domain', senderDomain); }}
         onUnsubscribe={handleUnsubscribe}
         onDownload={async (physicalCopyId: string, part: string, filename: string) => {

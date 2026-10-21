@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { Button } from './ui.tsx';
 import { formatInvitationRange } from '../utils/invitationTime.ts';
+import { invitationConflicts } from '../utils/invitationConflicts.ts';
+import type { ConflictCandidate } from '../utils/invitationConflicts.ts';
 import { isWritableCalendarSource } from './calendarView.ts';
 import type { CSSProperties } from 'react';
 
@@ -13,121 +15,164 @@ interface WritableCalendar {
   source: string;
 }
 
-// A mail invitation renders as one compact action row, in the same register as the
-// unsubscribe notice: the message already shows the title above and the body below, so
-// the panel only carries what the message cannot — when the event is, which calendar it
-// goes into, and the one action available. Duplicating the title, location and body here
-// pushed the actual message content off screen.
+type InvitationResponse = 'ACCEPTED' | 'TENTATIVE' | 'DECLINED';
+
+// A mail invitation renders as one compact panel in the same register as the unsubscribe
+// notice: the message already shows the title above and the body below, so the panel only
+// carries what the message cannot — when the event is, what it collides with in the user's
+// calendar, and the answer. Accept / Maybe reply to the organizer and put the event into the
+// chosen calendar; Decline replies and removes the copy this message had added. Once the
+// answer is sent the message has served its purpose and is archived (`onResponded`).
 //
 // Cancellation is actionable rather than informational: when the organizer retracts an
 // invitation that was added, the copy this message created can be removed again.
-export default function CalendarInvitationCard({ messageId }: { messageId: string }) {
+export default function CalendarInvitationCard({ messageId, onResponded }: { messageId: string; onResponded?: () => void }) {
   const { t, i18n } = useTranslation();
   const [invitation, setInvitation] = useState<Record<string, unknown> | null>(null);
   const [calendars, setCalendars] = useState<WritableCalendar[]>([]);
   const [calendarId, setCalendarId] = useState('');
-  const [error, setError] = useState(false);
-  const [saving, setSaving] = useState(false);
-  // 'added' after this session added it, 'removed' after this session removed it; both
-  // are also derived from the server's `localEvent` so a reload shows the same state.
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<InvitationResponse | 'remove' | null>(null);
+  // Derived from the server's `localEvent` / `response` so a reload shows the same state.
   const [localEvent, setLocalEvent] = useState<Record<string, unknown> | null>(null);
-  const [outcome, setOutcome] = useState<string | null>(null);
+  const [response, setResponse] = useState<InvitationResponse | null>(null);
+  const [removed, setRemoved] = useState(false);
+  const [conflicts, setConflicts] = useState<ConflictCandidate[] | null>(null);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setInvitation(null); setError(false); setOutcome(null); setLocalEvent(null);
+    setInvitation(null); setError(null); setRemoved(false); setLocalEvent(null); setResponse(null); setConflicts(null);
     Promise.all([api.calendar.getInvitation(messageId), api.calendar.listCalendars()]).then(([result, list]) => {
       if (cancelled) return;
       const writable = (list.calendars || []).filter((calendar: WritableCalendar) => !calendar.read_only && isWritableCalendarSource(calendar.source));
-      setInvitation(result.invitation);
-      setLocalEvent(result.invitation?.localEvent || null);
+      const loaded = result.invitation;
+      setInvitation(loaded);
+      setLocalEvent(loaded?.localEvent || null);
+      setResponse(loaded?.response || null);
       setCalendars(writable);
-      setCalendarId(result.invitation?.localEvent?.calendarId || writable[0]?.id || '');
-    }).catch(() => { if (!cancelled) setError(true); });
+      setCalendarId(loaded?.localEvent?.calendarId || writable[0]?.id || '');
+      // Collisions with the user's own calendar; a failed lookup simply shows none.
+      if (loaded?.method === 'REQUEST' && loaded.startsAt && loaded.endsAt) {
+        api.calendar.listEvents(String(loaded.startsAt), String(loaded.endsAt))
+          .then((events: { events?: ConflictCandidate[] }) => { if (!cancelled) setConflicts(invitationConflicts(loaded, events.events || [], messageId)); })
+          .catch(() => { if (!cancelled) setConflicts([]); });
+      }
+    }).catch(() => { if (!cancelled) setError('load'); });
     return () => { cancelled = true; };
   }, [messageId, retry]);
 
-  const added = Boolean(localEvent) && outcome !== 'removed';
   const cancelledEvent = invitation?.method === 'CANCEL';
+  const added = Boolean(localEvent) && !removed;
   const when = invitation ? formatInvitationRange(invitation, i18n.language) : '';
+  const busy = saving !== null;
 
   const notifyCalendarChanged = () => window.dispatchEvent(new Event('inboxora:calendar-changed'));
 
-  const add = async () => {
-    if (saving || !calendarId) return;
-    setSaving(true); setError(false);
+  const respond = async (answer: InvitationResponse) => {
+    if (busy || (answer !== 'DECLINED' && !calendarId)) return;
+    setSaving(answer); setError(null);
     try {
-      await api.calendar.addInvitation(messageId, calendarId);
-      setLocalEvent({ calendarId }); setOutcome('added'); notifyCalendarChanged();
-    } catch { setError(true); }
-    finally { setSaving(false); }
+      const result = await api.calendar.respondInvitation(messageId, answer, answer === 'DECLINED' ? undefined : calendarId);
+      setResponse(answer); setLocalEvent(result.localEvent || null); notifyCalendarChanged();
+      onResponded?.();
+    } catch { setError('reply'); }
+    finally { setSaving(null); }
   };
 
   const remove = async () => {
-    if (saving) return;
-    setSaving(true); setError(false);
+    if (busy) return;
+    setSaving('remove'); setError(null);
     try {
       await api.calendar.removeInvitation(messageId);
-      setLocalEvent(null); setOutcome('removed'); notifyCalendarChanged();
-    } catch { setError(true); }
-    finally { setSaving(false); }
+      setLocalEvent(null); setRemoved(true); notifyCalendarChanged();
+    } catch { setError('save'); }
+    finally { setSaving(null); }
   };
 
-  if (error && !invitation) {
+  if (error === 'load' && !invitation) {
     return <div className="msg-notice" data-testid="calendar-invitation-card" role="alert" style={noticeStyle}>
       <span style={{ flex: 1 }}>{t('calendar.invitationLoadFailed')}</span>
-      <Button onClick={() => setRetry(value => value + 1)} disabled={saving}>{t('common.retry')}</Button>
+      <Button onClick={() => setRetry(value => value + 1)}>{t('common.retry')}</Button>
     </div>;
   }
   if (!invitation) return null;
 
+  const responseLabel: Record<InvitationResponse, string> = {
+    ACCEPTED: t('calendar.invitationRespondedAccepted'),
+    TENTATIVE: t('calendar.invitationRespondedTentative'),
+    DECLINED: t('calendar.invitationRespondedDeclined'),
+  };
+  const answerButton = (answer: InvitationResponse, label: string) => <Button
+    data-testid={`calendar-invitation-${answer.toLowerCase()}`}
+    variant={response === answer ? 'primary' : 'default'}
+    aria-pressed={response === answer}
+    onClick={() => { void respond(answer); }}
+    disabled={busy || (answer !== 'DECLINED' && !calendarId)}
+  >{saving === answer ? t('calendar.saving') : label}</Button>;
+
   return <div className="msg-notice" data-testid="calendar-invitation-card" style={{ ...noticeStyle, borderLeftColor: 'var(--accent)' }}>
-    <span style={{ minWidth: 0, flex: '1 1 200px' }}>
-      <span style={{ display: 'block', fontWeight: 500, color: 'var(--text-primary)' }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+      <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
         {cancelledEvent ? t('calendar.invitationCancelledTitle') : t('calendar.mailInvitation')}
       </span>
-      {when && <span data-testid="calendar-invitation-when" style={{ display: 'block', fontSize: 11 }}>{when}</span>}
-    </span>
+      {when && <span data-testid="calendar-invitation-when">{when}</span>}
+      {response && !cancelledEvent && <span role="status" data-testid="calendar-invitation-response" style={{ marginLeft: 'auto', color: 'var(--text-primary)' }}>{responseLabel[response]}</span>}
+    </div>
+
+    {!cancelledEvent && conflicts && <div data-testid="calendar-invitation-conflicts" style={{ color: conflicts.length ? 'var(--amber)' : 'var(--text-tertiary)' }}>
+      {conflicts.length
+        ? <>
+          <span>{t('calendar.invitationConflicts')}</span>
+          <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+            {conflicts.map(conflict => <li key={String(conflict.id)} data-testid="calendar-invitation-conflict" style={{ color: 'var(--text-secondary)' }}>
+              <span style={{ color: 'var(--text-primary)' }}>{conflict.summary || t('calendar.untitled')}</span>
+              {' · '}{formatInvitationRange({ startsAt: conflict.starts_at, endsAt: conflict.ends_at, allDay: conflict.all_day ?? conflict.allDay }, i18n.language)}
+              {conflict.calendar_name ? ` · ${conflict.calendar_name}` : ''}
+            </li>)}
+          </ul>
+        </>
+        : t('calendar.invitationNoConflicts')}
+    </div>}
 
     {cancelledEvent
       // A retracted invitation offers removal only for the copy it created; there is
       // nothing to add and nothing to reply to.
       ? (added
-        ? <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span role="status">{t('calendar.invitationCancelled')}</span>
-          <Button onClick={remove} disabled={saving}>{t(saving ? 'calendar.saving' : 'calendar.removeFromCalendar')}</Button>
-        </span>
+        ? <div style={actionRow}>
+          <span role="status" style={{ flex: 1 }}>{t('calendar.invitationCancelled')}</span>
+          <Button onClick={remove} disabled={busy}>{t(saving === 'remove' ? 'calendar.saving' : 'calendar.removeFromCalendar')}</Button>
+        </div>
         : <span role="status">{t('calendar.invitationCancelledNotAdded')}</span>)
-      : added
-        ? <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span role="status">{t(outcome === 'added' ? 'calendar.invitationAdded' : 'calendar.invitationAlreadyAdded')}</span>
-          <Button onClick={remove} disabled={saving}>{t('calendar.removeFromCalendar')}</Button>
-        </span>
-        : <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <select
-            className="ui-select"
-            aria-label={t('calendar.calendar')}
-            value={calendarId}
-            onChange={event => setCalendarId(event.target.value)}
-            disabled={saving || !calendars.length}
-          >
-            {calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}
-          </select>
-          <Button variant="primary" onClick={add} disabled={!calendarId || saving}>
-            {t(saving ? 'calendar.saving' : 'calendar.addInvitation')}
-          </Button>
-        </span>}
+      : <div style={actionRow}>
+        {added && !response && <span role="status">{t('calendar.invitationAlreadyAdded')}</span>}
+        <select
+          className="ui-select"
+          aria-label={t('calendar.calendar')}
+          value={calendarId}
+          onChange={event => setCalendarId(event.target.value)}
+          disabled={busy || !calendars.length}
+          style={{ marginRight: 'auto' }}
+        >
+          {calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}
+        </select>
+        {answerButton('ACCEPTED', t('calendar.invitationAccept'))}
+        {answerButton('TENTATIVE', t('calendar.invitationTentative'))}
+        {answerButton('DECLINED', t('calendar.invitationDecline'))}
+      </div>}
 
-    {error && <span role="alert" style={{ color: 'var(--red)' }}>{t('calendar.invitationSaveFailed')}</span>}
+    {error === 'reply' && <span role="alert" style={{ color: 'var(--red)' }}>{t('calendar.invitationReplyFailed')}</span>}
+    {error === 'save' && <span role="alert" style={{ color: 'var(--red)' }}>{t('calendar.invitationSaveFailed')}</span>}
   </div>;
 }
 
 // Matches the unsubscribe / blocked-images notice so the mail reader keeps one visual
 // register for "this message needs one decision from you".
 const noticeStyle: CSSProperties = {
-  marginBottom: 10, padding: '9px 14px', background: 'var(--bg-secondary)',
+  padding: '10px 14px', background: 'var(--bg-secondary)',
   border: '1px solid var(--border)', borderLeft: '3px solid var(--text-tertiary)',
-  borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+  borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8,
   fontSize: 12, color: 'var(--text-secondary)',
 };
+
+const actionRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };

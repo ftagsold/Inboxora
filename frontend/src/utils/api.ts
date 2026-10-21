@@ -411,6 +411,9 @@ export const api = {
     getInvitation: (id: string) => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
     addInvitation: (id: string, calendarId: string) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
     removeInvitation: (id: string) => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
+    // Accept / maybe / decline: replies to the organizer and updates the local copy.
+    respondInvitation: (id: string, response: 'ACCEPTED' | 'TENTATIVE' | 'DECLINED', calendarId?: string) =>
+      request('POST', `/calendar/invitations/${encodeURIComponent(id)}/respond`, { response, calendarId }),
     listCalendars: ({ signal }: { signal?: AbortSignal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
     updateCalendar: (id: string, data: unknown) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
     deleteCalendar: (id: string, confirmName: string) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
