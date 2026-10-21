@@ -26,6 +26,9 @@ function createMailTransportMock() {
     rejected: [],
     pending: [],
     response: '250 OK',
+    envelopeTime: 0,
+    messageTime: 0,
+    messageSize: 0,
   });
   const verify = vi.fn<VerifyTransport>().mockResolvedValue({});
   return { sendMail, transport: { sendMail, verify } };
