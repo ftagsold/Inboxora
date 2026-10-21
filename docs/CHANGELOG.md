@@ -12,6 +12,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 
 ### Added
 
+- Accept a PostgreSQL Unix socket path in `DB_HOST` — either the socket directory or the
+  `.s.PGSQL.<port>` file itself. Over a socket `DB_PASSWORD` is no longer required at startup,
+  so the database can authenticate the backend by peer/ident (e.g. a `pg_ident.conf` map). TCP
+  connections still require `DB_PASSWORD`.
 - Add a full-text calendar search box (left of the month/week/day selector) that searches every
   event in every calendar you own, with no date horizon: a match can be arbitrarily far in the
   past or future, and a matched recurring series expands to every one of its own occurrences, not

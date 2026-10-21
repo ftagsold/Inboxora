@@ -12,12 +12,39 @@ function databasePort(value: string | undefined): number {
   return port || 5432;
 }
 
+const SOCKET_FILE = /^(.*)\/\.s\.PGSQL\.(\d+)$/;
+
+/** True when DB_HOST names a Unix socket (its directory or the socket file) instead of a TCP host. */
+export function isDatabaseSocket(host: string | undefined): boolean {
+  return typeof host === 'string' && host.startsWith('/');
+}
+
+/**
+ * Connection settings from DB_* variables. DB_HOST may be a TCP host, a socket directory
+ * (`/run/postgresql`), or the socket file itself (`/run/postgresql/.s.PGSQL.5432`). pg only
+ * accepts the directory and derives the file name from the port, so a socket file is split
+ * back into both. Over a socket the server may authenticate by peer/ident, so the password
+ * is optional there.
+ */
+export function databaseConnectionConfig(env: NodeJS.ProcessEnv) {
+  let host = env.DB_HOST || 'postgres';
+  let port = databasePort(env.DB_PORT);
+  const socketFile = isDatabaseSocket(host) ? SOCKET_FILE.exec(host) : null;
+  if (socketFile) {
+    host = socketFile[1] || '/';
+    port = databasePort(socketFile[2]);
+  }
+  return {
+    host,
+    port,
+    database: env.DB_NAME || 'mailflow',
+    user: env.DB_USER || 'mailflow',
+    password: env.DB_PASSWORD || undefined,
+  };
+}
+
 export const pool = new Pool({
-  host: process.env.DB_HOST || 'postgres',
-  port: databasePort(process.env.DB_PORT),
-  database: process.env.DB_NAME || 'mailflow',
-  user: process.env.DB_USER || 'mailflow',
-  password: process.env.DB_PASSWORD,
+  ...databaseConnectionConfig(process.env),
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,

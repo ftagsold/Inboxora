@@ -42,7 +42,7 @@ import calendarRouter from './routes/calendar.js';
 import calendarFeedRouter from './routes/calendarFeed.js';
 import { startCarddavSchedulers } from './services/carddavCollectionSync.js';
 import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
-import { encryptExistingCredentials, query } from './services/db.js';
+import { encryptExistingCredentials, isDatabaseSocket, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { seedOidcProvidersFromEnv } from './services/oidcEnvSeed.js';
 import { parseVCard } from './utils/vcard.js';
@@ -85,8 +85,9 @@ if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
   console.error('FATAL: SESSION_SECRET must be set and at least 32 characters. Exiting.');
   process.exit(1);
 }
-if (!process.env.DB_PASSWORD) {
-  console.error('FATAL: DB_PASSWORD must be set. Exiting.');
+// A Unix socket connection may authenticate by peer/ident instead of a password.
+if (!process.env.DB_PASSWORD && !isDatabaseSocket(process.env.DB_HOST)) {
+  console.error('FATAL: DB_PASSWORD must be set (unless DB_HOST is a Unix socket path). Exiting.');
   process.exit(1);
 }
 if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length !== 64) {

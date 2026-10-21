@@ -104,6 +104,7 @@ migrations as a release, and rolling back to an older image is not supported.
 | `APP_URL` | Yes in production | Public URL used in invitation links, OAuth callbacks and cookies. |
 | `SESSION_SECRET` | Yes | Signs session cookies. |
 | `DB_PASSWORD` | Yes | Password for the bundled PostgreSQL. |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` | No | External PostgreSQL. `DB_HOST` may be a Unix socket directory (`/run/postgresql`) or socket file (`/run/postgresql/.s.PGSQL.5432`); over a socket `DB_PASSWORD` becomes optional so peer/ident authentication works. |
 | `ENCRYPTION_KEY` | Yes | Encrypts stored mail and DAV credentials at rest. |
 | `INBOXORA_VERSION` | Recommended | Pins the image tag. |
 | `APP_PORT` / `APP_HTTP_PORT` | No | Published ports for the frontend container (default 443/80). |
