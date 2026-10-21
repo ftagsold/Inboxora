@@ -4,6 +4,7 @@ import { isWritableCalendarSource } from './calendarView';
 import type { TFunction } from 'i18next';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { EditIcon, TrashIcon } from './menuIcons.tsx';
 
 export default function CalendarContextMenu({ x, y, event, isMobile = false, onEdit, onDelete, onClose, triggerRef, t }: {
   x: number;
@@ -81,19 +82,18 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
   };
   return <>
     <button type="button" aria-label={t('calendar.closeMenu', 'Close calendar menu')} onClick={closeFromOutside} style={scrim} />
-    <div ref={menuRef} role="menu" aria-label={t('calendar.eventActions', 'Event actions')} data-testid="calendar-context-menu" style={{ ...menu, ...(isMobile ? mobileMenu : { left: position.x, top: position.y }) }}>
-      <strong style={menuTitle}>{event.summary || t('calendar.untitled')}</strong>
+    <div ref={menuRef} role="menu" aria-label={t('calendar.eventActions', 'Event actions')} data-testid="calendar-context-menu" className="app-menu" style={{ ...menu, ...(isMobile ? mobileMenu : { left: position.x, top: position.y }) }}>
+      <div className="app-menu-title">{event.summary || t('calendar.untitled')}</div>
       {writable && <>
-        <button type="button" role="menuitem" onClick={() => run(onEdit, false)}>{t('calendar.edit')}</button>
-        <button type="button" role="menuitem" data-testid="calendar-context-delete" onClick={() => run(onDelete)}>{t('calendar.delete')}</button>
+        <button type="button" role="menuitem" className="app-menu-item" onClick={() => run(onEdit, false)}><EditIcon />{t('calendar.edit')}</button>
+        <button type="button" role="menuitem" className="app-menu-item danger" data-testid="calendar-context-delete" onClick={() => run(onDelete)}><TrashIcon />{t('calendar.delete')}</button>
       </>}
-      {!writable && <span role="status" data-testid="calendar-context-read-only" style={readOnly}>{t('calendar.readOnly')}</span>}
+      {!writable && <span role="status" data-testid="calendar-context-read-only" className="app-menu-note">{t('calendar.readOnly')}</span>}
     </div>
   </>;
 }
 
 const scrim: CSSProperties = { position: 'fixed', inset: 0, zIndex: 3999, border: 0, background: 'transparent', padding: 0, cursor: 'default' };
-const menu: CSSProperties = { position: 'fixed', zIndex: 4000, display: 'grid', gap: 2, width: 220, maxWidth: 'calc(100vw - 16px)', padding: 6, boxSizing: 'border-box', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-modal)' };
+// Look comes from the shared .app-menu classes (ui.css); only placement lives here.
+const menu: CSSProperties = { position: 'fixed', zIndex: 4000, width: 220, maxWidth: 'calc(100vw - 16px)', boxSizing: 'border-box' };
 const mobileMenu: CSSProperties = { position: 'fixed', left: 12, right: 12, bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 12px)', width: 'auto' };
-const menuTitle = { padding: '7px 9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', fontSize: 13 };
-const readOnly = { padding: '7px 9px', color: 'var(--text-tertiary)', fontSize: 12 };

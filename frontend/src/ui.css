@@ -139,3 +139,52 @@ button, input, textarea, select { font-family: inherit; }
 
 .mobile-header-action[aria-pressed="true"] { background: var(--bg-hover); box-shadow: inset 0 0 0 1px var(--accent); }
 .mobile-header-action[aria-busy="true"] svg { animation: spin .8s linear infinite; }
+
+/* Compact action menus (calendar event menu, calendar "⋮" menu) in the same register as the
+   mail context menu: elevated surface, 13px rows, muted icons, hover row, red danger hover. */
+.app-menu {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-modal);
+  padding: 4px 0;
+  overflow: hidden;
+  animation: app-menu-in 0.12s ease;
+}
+.app-menu-title {
+  padding: 8px 14px 7px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.08s, color 0.08s;
+}
+.app-menu-item svg { flex-shrink: 0; color: var(--text-tertiary); }
+.app-menu-item:hover, .app-menu-item:focus-visible { background: var(--bg-hover); outline: none; }
+.app-menu-item.danger { color: var(--text-secondary); }
+.app-menu-item.danger:hover, .app-menu-item.danger:focus-visible { background: rgba(248, 113, 113, 0.08); color: var(--red); }
+.app-menu-item.danger:hover svg, .app-menu-item.danger:focus-visible svg { color: var(--red); }
+.app-menu-item:disabled { opacity: 0.55; cursor: default; }
+.app-menu-note { padding: 7px 14px; font-size: 12px; color: var(--text-tertiary); }
+@keyframes app-menu-in {
+  from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .app-menu { animation: none; } }

@@ -53,8 +53,8 @@ describe('light/dark theme defaults', () => {
     assert.equal(themeTone('dark_ink'), 'dark');
     assert.equal(THEMES.dark_ink.label, 'Dark ink');
     // Same palette contract as Ink — the canonical-vars test covers the vars, this
-    // pins the shared fountain-pen indigo accent family and its dark surface.
-    assert.equal(THEMES.dark_ink.vars['--accent'], '#8aa5dd');
+    // pins Dark ink's blue accent (#2980B9) and its dark surface.
+    assert.equal(THEMES.dark_ink.vars['--accent'], '#2980b9');
     assert.notEqual(THEMES.dark_ink.vars['--bg-primary'], THEMES.ink.vars['--bg-primary']);
   });
 

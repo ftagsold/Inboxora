@@ -29,6 +29,7 @@ import { applyAgendaWidth, applyCalendarRailWidth, beginAgendaResize, beginCalen
 import './calendar.css';
 import type { StoreMessageRow, StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
+import { useDelayedFlag } from '../hooks/useDelayedFlag.ts';
 
 /** The add/edit dialog's form state: the payload fields plus the dialog mode and event identity. */
 type CalendarEventFormState = CalendarEventForm & {
@@ -236,6 +237,7 @@ export default function CalendarPage({ isActive = true }) {
   const hiddenCalendarIds = useMemo(() => new Set(rawCalendars.filter(calendar => calendar.display_visible === false).map(calendar => calendar.id)), [rawCalendars]);
   const events = useMemo(() => rawEvents.filter(event => typeof event.calendar_id !== 'string' || !hiddenCalendarIds.has(event.calendar_id)).map(event => localizeContactEvent(event, t)), [rawEvents, hiddenCalendarIds, t]);
   const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState<CalendarEventFormState | null>(null); const [saving, setSaving] = useState(false);
+  const loadingNoticeVisible = useDelayedFlag(loading, 500);
   // Set when the server could not expand every series within its budget. The
   // events that are shown stay valid, but the view must say it is incomplete
   // rather than silently presenting a partial month as the whole truth.
@@ -610,7 +612,8 @@ export default function CalendarPage({ isActive = true }) {
       {error && !form && <div role="alert" className="ui-alert">{error}<Button variant="ghost" onClick={load}>{t('calendar.retry')}</Button></div>}
       {incompleteSeries > 0 && <div role="status" data-testid="calendar-incomplete" className="calendar-notice">{t('calendar.incompleteSeries', { n: incompleteSeries })}</div>}
       {!writable.length && !loading && <div className="calendar-notice">{t('calendar.noWritable')}</div>}
-      {loading && <div role="status" className="calendar-notice">{t('calendar.loading')}</div>}
+      {/* Only for requests slower than 500 ms; a quick fetch or post-save reload never flashes it. */}
+      {loadingNoticeVisible && <div role="status" className="calendar-notice">{t('calendar.loading')}</div>}
       <div className="calendar-body" aria-busy={loading}>
         {view === 'agenda' ? <CalendarAgenda {...agendaProps} monthly /> : <CalendarGrid days={days} dayEventsFor={dayEventsFor} view={view} anchor={anchor} isMobile={isMobile} locale={locale} onSelectDay={selectDay} onOpenDayAgenda={openDayAgenda} openCreate={openCreate} openTimedRangeCreate={openTimedRangeCreate} moveEvent={moveEvent} openEdit={openEdit} openContextMenu={(event, x, y, trigger) => setContextMenu({ event, x, y, triggerRef: { current: trigger } })} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />}
       </div>
