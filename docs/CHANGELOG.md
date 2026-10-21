@@ -24,6 +24,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 - `VITE_APP_NAME` now also names the login screen wordmark, the browser tab title (already in the
   served `index.html`, before the app loads), the mobile header and the logo's accessible label —
   not only the sidebar. It remains a frontend build argument.
+- Give each view its own URL: `/mail/<account>/<folder>` (`/mail/all/<folder>` for the unified
+  inbox), `/calendar` and `/contacts`. A view can be bookmarked, reloaded or opened directly; on
+  desktop the browser's Back/Forward move between them. On mobile the URL is kept current in place
+  while system Back keeps closing the open view or overlay as before. An unknown account in the
+  URL falls back to the unified inbox.
 
 ### Changed
 
@@ -33,6 +38,18 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 - Raise the text contrast of account names, folder names, and message sender/subject text in the
   sidebar and message list to each theme's maximum (pure black on a light theme, pure white on a
   dark one), rather than the theme's own dimmer secondary tone.
+- Group messages into conversations and the conversation reader are now on by default. Users who
+  explicitly turned either off keep their setting.
+- An expanded message in the conversation reader is now one card: header, attachments, calendar
+  invitation, unsubscribe and blocked-images notices, and the body share one inset and a uniform
+  12px rhythm. The single-message pane uses the same uniform spacing between these blocks.
+
+### Removed
+
+- The update check and its "Update available" entries in the sidebar and user menu, together
+  with the backend `/api/update` endpoint, so the server no longer queries GitHub for releases.
+  `UPDATE_CHECK_DISABLED` / `UPDATE_CHECK_REPO` no longer have any effect. The desktop app's own
+  updater is unchanged.
 
 ### Fixed
 
@@ -43,6 +60,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   later cross-device moves into an already-populated folder were never picked up.
 - Add matching top padding to the "remote images blocked" banner in the message reader, so the
   space above it matches the space below it to the message body.
+- Keep the calendar search's clear (✕) button inside the search field; the search-icon rule also
+  matched the clear button's icon and pushed it past the field's right edge.
 
 ### Security
 
