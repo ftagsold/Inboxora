@@ -1623,6 +1623,7 @@ export class ImapManager {
   declare syncingAccounts: Set<string>;
   declare onDemandSyncing: Set<string>;
   declare _otherFoldersSyncing: Set<string>;
+  declare _reconcilingAccounts: Set<string>;
   declare snippetIndexerRunning: Set<string>;
   declare snippetBackoff: Map<string, { failures: number; until: number }>;
   declare lastSyncOkAt: Map<string, number>;
@@ -1650,6 +1651,7 @@ export class ImapManager {
     this._syncErrorState = new Map();
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
     this._otherFoldersSyncing = new Set(); // accountId — prevent overlapping _syncOtherFolders passes
+    this._reconcilingAccounts = new Set(); // accountId — prevent overlapping reconcileDeletes passes
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
     // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
     this.pluginFacade = createPluginMailFacade(this);
@@ -2642,31 +2644,26 @@ export class ImapManager {
       // user-triggered on-demand sync of the same folder.
       setImmediate(() => this._syncOtherFolders(syncAccount).catch(() => {}));
 
-      // Some providers (e.g. Google) don't push flag changes via IDLE — poll on the
-      // provider's configured cadence. Others (Dovecot, iCloud) push via `flags`,
-      // but if a flag event fired while this sync was running it was deferred into
-      // _pendingFlagSync rather than dropped — drain it now.
-      const hasPending = this._pendingFlagSync.has(account.id);
-      const syncProfile = providerProfile(syncAccount);
-      const flagPollEvery = Math.max(1, Number(syncProfile.flagPollEveryTicks) || 1);
-      if ((!syncProfile.pushesFlags && ticks % flagPollEvery === 0) || hasPending) {
-        this._pendingFlagSync.delete(account.id);
-        setImmediate(() => {
-          this._syncFlagsForRange(syncAccount).catch(err =>
-            console.warn(`Post-sync flags error for ${logAccount(syncAccount)}:`, err.message)
-          );
-        });
-      }
+      // Poll INBOX flags (its latest 200 messages) on every tick, not only for providers that
+      // don't push flag changes over IDLE: IDLE can miss a change made on another device, and
+      // read/unread from elsewhere must show within one sync interval. This also drains a flag
+      // event deferred into _pendingFlagSync while the sync was running. Other folders' flags
+      // arrive through _syncOtherFolders above.
+      this._pendingFlagSync.delete(account.id);
+      setImmediate(() => {
+        this._syncFlagsForRange(syncAccount).catch(err =>
+          console.warn(`Post-sync flags error for ${logAccount(syncAccount)}:`, err.message)
+        );
+      });
 
-      // Reconcile remote deletes every 10 successful ticks (~10 min at 60 s interval).
-      // Uses a pooled connection so it never blocks the sync client.
-      if (ticks % 10 === 0) {
-        setImmediate(() => {
-          this.reconcileDeletes(syncAccount).catch(err =>
-            console.error(`Reconcile error for ${logAccount(syncAccount)}:`, err.message)
-          );
-        });
-      }
+      // Reconcile remote deletes and moves on every tick, so a message deleted, archived or
+      // moved on another device disappears here within one sync interval. Uses a pooled
+      // connection so it never blocks the sync client; overlapping runs are skipped.
+      setImmediate(() => {
+        this.reconcileDeletes(syncAccount).catch(err =>
+          console.error(`Reconcile error for ${logAccount(syncAccount)}:`, err.message)
+        );
+      });
     } catch (caught) {
       const err = toAppError(caught);
       const detail = extractImapError(err);
@@ -5910,6 +5907,17 @@ export class ImapManager {
   // DB writes). Phase 2: diff and delete outside the IMAP connection so a DB error never
   // evicts a healthy pool client.
   async reconcileDeletes(account: EmailAccountRow) {
+    // Runs every sync tick; a slow pass for this account must not overlap the next one.
+    if (this._reconcilingAccounts.has(account.id)) return;
+    this._reconcilingAccounts.add(account.id);
+    try {
+      await this._reconcileDeletesOnce(account);
+    } finally {
+      this._reconcilingAccounts.delete(account.id);
+    }
+  }
+
+  async _reconcileDeletesOnce(account: EmailAccountRow) {
     // Captured before the Phase 1 snapshot. Any row inserted or re-synced after this
     // instant (new IDLE mail, a bulk-move reinsert) is NOT in the snapshot yet, so it
     // would look like an orphan. Excluding rows synced at/after the cutoff closes that

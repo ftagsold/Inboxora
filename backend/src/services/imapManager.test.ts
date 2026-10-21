@@ -1786,11 +1786,27 @@ describe('reconcileDeletes folder source', () => {
     // resurrect a deleted mailbox as something to open.
     query.mockReset();
     query.mockResolvedValue({ rows: [] });
-    await ImapManager.prototype.reconcileDeletes.call({}, { id: 'acct-1', user_id: 'user-1', email_address: 'a@example.com' });
+    await ImapManager.prototype._reconcileDeletesOnce.call({}, { id: 'acct-1', user_id: 'user-1', email_address: 'a@example.com' });
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('FROM folders f');
     expect(sql).toContain('f.path = m.folder');
     expect(params).toEqual(['acct-1']);
+  });
+
+  it('runs every sync tick but never overlaps a slower pass for the same account', async () => {
+    let release: () => void = () => {};
+    const once = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+    const manager = { _reconcilingAccounts: new Set<string>(), _reconcileDeletesOnce: once };
+    const account = { id: 'acct-1', user_id: 'user-1', email_address: 'a@example.com' };
+    const first = ImapManager.prototype.reconcileDeletes.call(manager, account);
+    await ImapManager.prototype.reconcileDeletes.call(manager, account); // skipped while the first runs
+    expect(once).toHaveBeenCalledTimes(1);
+    release();
+    await first;
+    const third = ImapManager.prototype.reconcileDeletes.call(manager, account); // runs again once the first finished
+    expect(once).toHaveBeenCalledTimes(2);
+    release();
+    await third;
   });
 });
 

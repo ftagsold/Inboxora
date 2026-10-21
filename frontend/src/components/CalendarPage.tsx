@@ -255,12 +255,14 @@ export default function CalendarPage({ isActive = true }) {
   // The selection is sent to the server so unselected series are not expanded at
   // all. `null` keeps the historical "every calendar" semantics.
   const selectionKey = visibleCalendarIds == null ? null : [...visibleCalendarIds].sort().join(',');
-  const load = useCallback(async () => {
+  // `silent`: a background refresh — no loading notice and no error banner for a transient
+  // failure, so the visible calendar simply stays as it was.
+  const load = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const generation = ++loadGeneration.current;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-    setLoading(true); setError(null);
+    if (!silent) { setLoading(true); setError(null); }
     try {
       const calendarIds = selectionKey == null ? null : (selectionKey ? selectionKey.split(',') : []);
       const [calendarResult, eventResult] = await Promise.all([
@@ -275,7 +277,7 @@ export default function CalendarPage({ isActive = true }) {
     } catch (err) {
       // A cancelled load is not a failure: a newer load (or an unmount) replaced
       // it, so it must not overwrite state or raise an error banner.
-      if (!isAbortError(err) && generation === loadGeneration.current) { setError(toAppError(err).message || t('calendar.loadFailed')); setIncompleteSeries(0); }
+      if (!silent && !isAbortError(err) && generation === loadGeneration.current) { setError(toAppError(err).message || t('calendar.loadFailed')); setIncompleteSeries(0); }
     } finally { if (generation === loadGeneration.current) setLoading(false); }
   }, [rangeStart, rangeEnd, selectionKey, t]);
   useEffect(() => {
@@ -290,6 +292,29 @@ export default function CalendarPage({ isActive = true }) {
     window.addEventListener('inboxora:calendar-changed', refresh);
     return () => window.removeEventListener('inboxora:calendar-changed', refresh);
   }, [load]);
+  // Pick up changes made elsewhere (other devices, CalDAV clients, synced subscriptions) on
+  // the user's sync interval while the calendar is visible. Skipped while a pointer button is
+  // held (a drag or resize in progress) or a dialog is open, so it never disturbs an edit.
+  const syncInterval = useStore((state: StoreState) => state.syncInterval);
+  const pointerHeld = useRef(false);
+  const interactionOpen = useRef(false);
+  useEffect(() => {
+    const down = () => { pointerHeld.current = true; };
+    const up = () => { pointerHeld.current = false; };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible' || pointerHeld.current || interactionOpen.current) return;
+      void load({ silent: true });
+    }, Math.max(15, syncInterval || 15) * 1000);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+    };
+  }, [load, syncInterval]);
   // Debounced so every keystroke doesn't fire its own request — only the latest query still
   // being typed 300ms later actually goes out. `searchGeneration` (not just the abort) guards
   // the response too: an abort landing as a resolved-not-rejected promise (rare, but not ruled
@@ -516,6 +541,8 @@ export default function CalendarPage({ isActive = true }) {
     await performDelete(target, 'all');
   };
   const [deleteTarget, setDeleteTarget] = useState<CalendarDeleteTarget | null>(null);
+  // Read by the background refresh above: never reload under an open dialog or a save.
+  interactionOpen.current = Boolean(form || editScopeOpen || deleteTarget || saving);
   const [contextMenu, setContextMenu] = useState<{ event: CalendarViewEvent; x: number; y: number; triggerRef: { current: unknown } } | null>(null);
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn, calendarWorkDays);
   const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => typeof event.calendar_id === 'string' && visibleCalendarIds.includes(event.calendar_id));
@@ -609,7 +636,7 @@ export default function CalendarPage({ isActive = true }) {
           </div>
         </div>
       </header>
-      {error && !form && <div role="alert" className="ui-alert">{error}<Button variant="ghost" onClick={load}>{t('calendar.retry')}</Button></div>}
+      {error && !form && <div role="alert" className="ui-alert">{error}<Button variant="ghost" onClick={() => { void load(); }}>{t('calendar.retry')}</Button></div>}
       {incompleteSeries > 0 && <div role="status" data-testid="calendar-incomplete" className="calendar-notice">{t('calendar.incompleteSeries', { n: incompleteSeries })}</div>}
       {!writable.length && !loading && <div className="calendar-notice">{t('calendar.noWritable')}</div>}
       {/* Only for requests slower than 500 ms; a quick fetch or post-save reload never flashes it. */}

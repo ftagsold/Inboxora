@@ -80,7 +80,7 @@ describe('calendar page cancellation and render contract', () => {
   });
 
   it('never reports an aborted load as a user-visible error', () => {
-    assert.match(source, /if \(!isAbortError\(err\) && generation === loadGeneration\.current\)/);
+    assert.match(source, /if \((?:!silent && )?!isAbortError\(err\) && generation === loadGeneration\.current\)/);
   });
 
   it('subscribes to individual store fields instead of the whole store', () => {
