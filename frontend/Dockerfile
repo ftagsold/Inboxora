@@ -16,8 +16,6 @@ ARG VITE_BUILD_SHA
 ENV VITE_BUILD_SHA=${VITE_BUILD_SHA:-dev}
 ARG VITE_EMAIL_DIV_RENDER
 ENV VITE_EMAIL_DIV_RENDER=${VITE_EMAIL_DIV_RENDER:-false}
-ARG VITE_APP_NAME
-ENV VITE_APP_NAME=${VITE_APP_NAME:-Inboxora}
 
 RUN npm run build
 
@@ -32,7 +30,10 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
 COPY frontend/generate-cert.sh /docker-entrypoint.d/10-generate-cert.sh
-RUN chmod +x /docker-entrypoint.d/10-generate-cert.sh
+# The app name is read from VITE_APP_NAME when the container starts, not at build time.
+ENV VITE_APP_NAME=Inboxora
+COPY frontend/app-name.sh /docker-entrypoint.d/30-app-name.sh
+RUN chmod +x /docker-entrypoint.d/10-generate-cert.sh /docker-entrypoint.d/30-app-name.sh
 
 EXPOSE 80 443
 

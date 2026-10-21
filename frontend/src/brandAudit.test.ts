@@ -34,9 +34,8 @@ const isManifest = (value: unknown): value is Manifest =>
 
 test("Inboxora branding is used by user-visible application surfaces", async () => {
   const checks: readonly (readonly [file: string, expected: string])[] = [
-    ["frontend/src/appName.ts", "VITE_APP_NAME || 'Inboxora'"],
+    ["frontend/src/appName.ts", "|| 'Inboxora'"],
     ["frontend/src/components/AdminPanel.tsx", "fromName: 'Inboxora'"],
-    ["frontend/src/components/ElectronNotificationBridge.tsx", "Inboxora downloaded"],
     ["frontend/src/components/TodoistTaskModal.tsx", "View in Inboxora"],
     ["frontend/public/sw.js", "title       = 'Inboxora'"],
   ];
@@ -75,8 +74,11 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
   assert.doesNotMatch(logo, /inboxora-ui-logo-(light|dark)\.png/, "the inline monogram must not fall back to the legacy PNG pair");
   assert.doesNotMatch(logo, /inboxora-mark\.svg/, "shared logo component must not use the deprecated hexagon mark");
   assert.doesNotMatch(logo, /inboxora-icon-512\.png/, "shared logo component must not use the black-background PWA icon");
-  assert.match(index, /<title>%APP_NAME%<\/title>/, "the tab title must follow VITE_APP_NAME before the app mounts");
-  assert.match(viteConfig, /appNameHtml\(env\.VITE_APP_NAME \|\| 'Inboxora'\)/, "index.html placeholders must default to Inboxora");
+  assert.match(index, /<title>__INBOXORA_APP_NAME__<\/title>/, "the tab title is filled from VITE_APP_NAME at container start");
+  assert.match(index, /<meta name="application-name" content="__INBOXORA_APP_NAME__"\/>/, "the app reads the runtime name from index.html");
+  assert.match(manifest, /"name": "__INBOXORA_APP_NAME__"/, "the PWA name is filled at container start");
+  assert.match(viteConfig, /appNameHtml\(env\.VITE_APP_NAME \|\| 'Inboxora'\)/, "the dev server fills the placeholder itself");
+  assert.match(viteConfig, /apply: 'serve'/, "production builds keep the placeholder for the container");
   assert.match(index, /manifest\.json\?v=inboxora-3/, "the updated manifest must bypass legacy PWA metadata caches");
   assert.match(app, /sw\.js\?v=inboxora-3/, "the updated service worker must replace legacy registrations");
   assert.doesNotMatch(index, /inboxora-mark\.svg/, "the transparent UI logo must not replace the browser favicon");

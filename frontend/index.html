@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>%APP_NAME%</title>
-  <meta name="description" content="%APP_NAME% — your private inbox for email, contacts and calendars"/>
+  <title>__INBOXORA_APP_NAME__</title>
+  <!-- __INBOXORA_APP_NAME__ is filled at container start from VITE_APP_NAME (app-name.sh); the app reads it here. -->
+  <meta name="application-name" content="__INBOXORA_APP_NAME__"/>
+  <meta name="description" content="__INBOXORA_APP_NAME__ — your private inbox for email, contacts and calendars"/>
   <meta name="theme-color" content="#35558a"/>
 
   <!-- PWA manifest -->
@@ -14,7 +16,7 @@
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-  <meta name="apple-mobile-web-app-title" content="%APP_NAME%"/>
+  <meta name="apple-mobile-web-app-title" content="__INBOXORA_APP_NAME__"/>
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="/inboxora-envelope-512.png"/>
   <link rel="apple-touch-icon" sizes="180x180" href="/inboxora-envelope-180.png"/>

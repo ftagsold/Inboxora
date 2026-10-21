@@ -3,10 +3,15 @@ import react from '@vitejs/plugin-react';
 
 const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
-// Fills %APP_NAME% in index.html, so the tab title matches VITE_APP_NAME before the app mounts.
+// Production builds keep the __INBOXORA_APP_NAME__ placeholder, which the container fills
+// from VITE_APP_NAME at start-up (app-name.sh). The dev server fills it the same way here.
 function appNameHtml(appName: string) {
   const escaped = appName.replace(/[&<>"']/g, char => HTML_ESCAPES[char]);
-  return { name: 'inboxora-app-name', transformIndexHtml: (html: string) => html.replaceAll('%APP_NAME%', escaped) };
+  return {
+    name: 'inboxora-app-name',
+    apply: 'serve' as const,
+    transformIndexHtml: (html: string) => html.replaceAll('__INBOXORA_APP_NAME__', escaped),
+  };
 }
 
 export default defineConfig(({ mode }) => {

@@ -1,6 +1,6 @@
 {
-  "name": "Inboxora",
-  "short_name": "Inboxora",
+  "name": "__INBOXORA_APP_NAME__",
+  "short_name": "__INBOXORA_APP_NAME__",
   "description": "Your private inbox for email, contacts and calendars",
   "start_url": "/",
   "display": "standalone",

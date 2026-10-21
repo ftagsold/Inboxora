@@ -23,6 +23,9 @@ services:
       - "${APP_HTTP_PORT:-80}:80"
     volumes:
       - ./certs:/etc/nginx/ssl
+    environment:
+      # App name in the browser tab, login screen and sidebar; applied at container start.
+      VITE_APP_NAME: ${VITE_APP_NAME:-Inboxora}
     depends_on:
       backend:
         condition: service_healthy
@@ -146,6 +149,7 @@ services:
       OIDC_3_MAIL_SKIP_TLS_VERIFY: ${OIDC_3_MAIL_SKIP_TLS_VERIFY:-}
       OIDC_3_MAIL_NAME: ${OIDC_3_MAIL_NAME:-}
       OIDC_AUTO_LOGIN: ${OIDC_AUTO_LOGIN:-}
+      PASSWORD_LOGIN_DISABLED: ${PASSWORD_LOGIN_DISABLED:-}
     depends_on:
       postgres:
         condition: service_healthy
