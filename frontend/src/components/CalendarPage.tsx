@@ -1324,6 +1324,20 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
       }
     }
     const placements = layoutWeekAllDayEvents([...spanningById.values()], week);
+    // The packer places longer events first and only tracks where each lane *ends*, so a
+    // multi-day event later in the week makes its lane look taken on earlier days too. Lift
+    // only the dragged event's lane to the lowest one that is actually free across its days;
+    // every other event keeps exactly the lane the packer gave it.
+    if (draggedEvent && previewEvent) {
+      const dragged = placements.find(placement => String(placement.event.id) === String(draggedEvent.id));
+      if (dragged) {
+        const laneFree = (lane: number) => placements.every(other => other === dragged || other.lane !== lane
+          || other.endIndex <= dragged.startIndex || other.startIndex >= dragged.endIndex);
+        for (let lane = 0; lane < dragged.lane; lane += 1) {
+          if (laneFree(lane)) { dragged.lane = lane; break; }
+        }
+      }
+    }
     const laneOf = new Map(placements.map(placement => [String(placement.event.id), placement.lane]));
     const laneCount = placements.reduce((max, placement) => Math.max(max, placement.lane + 1), 0);
     monthWeekLanes.set(weekIndex, { laneOf, laneCount });
