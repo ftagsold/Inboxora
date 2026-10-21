@@ -77,6 +77,8 @@ interface MessageDetailContentProps {
   onDownload?(physicalCopyId: string, part: string | undefined, filename: string | undefined): void;
   onContextAction?(action: string, data?: unknown, physicalCopyId?: string): void;
   onInitialBodyLayout?: () => void;
+  /** Omit quoted history from the body: the conversation shows those messages itself. */
+  hideQuotedHistory?: boolean;
   /** Archive the message once its calendar invitation has been answered. */
   onInvitationResponded?: () => void;
   canAccessCopy?: boolean;
@@ -106,6 +108,7 @@ export default function MessageDetailContent({
   onContextAction,
   onInitialBodyLayout,
   onInvitationResponded,
+  hideQuotedHistory = false,
   canAccessCopy = true,
   mobile = false,
   embedded = false,
@@ -192,7 +195,7 @@ export default function MessageDetailContent({
       {showNoContent && <div style={statusLine}>{t('message.noContent')}</div>}
     </div>}
     {hasBody && <div className="msg-card conversation-message-body-panel" data-message-detail-body="true" style={bodyPanel}>
-      <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={openContextMenu} onOpenLink={openExternalLink} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
+      <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} removeQuotes={hideQuotedHistory} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={openContextMenu} onOpenLink={openExternalLink} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
     </div>}
     {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} message={message} variant="messagePane" selectedText={contextMenu.selectedText} onClose={() => setContextMenu(null)} onAction={(action, data) => { setContextMenu(null); onContextAction?.(action, data, physicalCopyId); }} />}
   </div>;

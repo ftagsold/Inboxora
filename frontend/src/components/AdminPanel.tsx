@@ -1825,7 +1825,7 @@ function SettingsSwitchRow({ label, description, checked, onChange, testId = und
 function LayoutsTab() {
   const { t, i18n } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, fontSize, setFontSize } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, conversationNewestFirst, setConversationNewestFirst, fontSize, setFontSize } = useStore();
   const { mobileNavigationPosition, setMobileNavigationPosition } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
@@ -2315,6 +2315,18 @@ function LayoutsTab() {
           checked={conversationReaderViewEnabled}
           onChange={setConversationReaderViewEnabled}
           ariaLabel={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
+        />
+      </div>
+
+      {/* Conversation order — newest message on top by default */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+        <SettingsSwitchRow
+          label={t('conversation.newestFirst')}
+          description={t('conversation.newestFirstDesc')}
+          testId="conversation-newest-first-toggle"
+          checked={conversationNewestFirst}
+          onChange={setConversationNewestFirst}
+          ariaLabel={conversationNewestFirst ? t('conversation.readerOn') : t('conversation.readerOff')}
         />
       </div>
 

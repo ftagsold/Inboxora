@@ -168,12 +168,14 @@ interface ConversationMessageProps {
   onRemoteImages: (id: string) => void;
   /** After a sender/domain joins the image allow list: reload blocked bodies it now permits. */
   onImagesAllowed: (type: 'address' | 'domain', value: string) => void;
+  /** The conversation holds other messages, so quoted history in this body is redundant. */
+  inMultiMessageThread?: boolean;
   onReply: (message: ConversationReplyPayload, all?: boolean) => void;
   onActionComplete: (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => Promise<void>;
   onSetRead: (copyId: string, read: boolean) => void;
   onInitialBodyLayout?: (copyId: string) => void;
 }
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onImagesAllowed, onReply, onActionComplete, onSetRead, onInitialBodyLayout }: ConversationMessageProps) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onImagesAllowed, inMultiMessageThread = false, onReply, onActionComplete, onSetRead, onInitialBodyLayout }: ConversationMessageProps) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist, addToImageWhitelist, addNotification } = useStore();
@@ -354,7 +356,9 @@ export default function ConversationMessage({ conversationId, message, selectedC
       // Mobile: match native MessagePane single-message padding (12px 0 0) so the
       // reader fills the pane width without desktop-style 28px side margins.
       // Desktop: keep the approved card mock-up spacing.
-      padding: isMobile ? '12px 0 0' : '24px 28px 0',
+      // Desktop: 14px sides and a 12px gap between messages; with the reader's own 2px top
+      // padding the first card starts 14px down, level with the list column's toolbar.
+      padding: isMobile ? '12px 0 0' : '12px 14px 0',
       background: 'var(--bg-primary)',
     }}
   >
@@ -529,6 +533,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         canAccessCopy={hasAccountCopy}
         mobile={isMobile}
         embedded
+        hideQuotedHistory={inMultiMessageThread}
       />}
     </div>}
     </div>

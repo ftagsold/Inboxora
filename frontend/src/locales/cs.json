@@ -1221,7 +1221,9 @@
     "expandMessage": "Rozbalit zprávu od {{sender}}: {{subject}}",
     "collapseMessage": "Sbalit zprávu od {{sender}}: {{subject}}",
     "summary": "Náhled:",
-    "readerDesc": "Otevře celou konverzaci v panelu čtení místo jedné zprávy."
+    "readerDesc": "Otevře celou konverzaci v panelu čtení místo jedné zprávy.",
+    "newestFirst": "Nejnovější zpráva nahoře",
+    "newestFirstDesc": "Zobrazí nejnovější zprávu konverzace nahoře. Vypněte pro čtení konverzací od nejstarší zprávy."
   },
   "diagnostics": {
     "section": "Diagnostika",

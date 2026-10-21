@@ -1221,7 +1221,9 @@
     "expandMessage": "Espandi il messaggio di {{sender}}: {{subject}}",
     "collapseMessage": "Comprimi il messaggio di {{sender}}: {{subject}}",
     "summary": "Anteprima:",
-    "readerDesc": "Apre l'intera conversazione nel riquadro di lettura invece di un singolo messaggio."
+    "readerDesc": "Apre l'intera conversazione nel riquadro di lettura invece di un singolo messaggio.",
+    "newestFirst": "Messaggio più recente per primo",
+    "newestFirstDesc": "Mostra in alto il messaggio più recente di una conversazione. Disattiva per leggere le conversazioni dal messaggio più vecchio."
   },
   "diagnostics": {
     "section": "Diagnostica",

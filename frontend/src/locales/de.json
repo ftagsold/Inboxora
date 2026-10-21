@@ -1221,7 +1221,9 @@
     "expandMessage": "Nachricht von {{sender}} aufklappen: {{subject}}",
     "collapseMessage": "Nachricht von {{sender}} zuklappen: {{subject}}",
     "summary": "Vorschau:",
-    "readerDesc": "Öffnet die ganze Konversation im Lesebereich statt einzelner Nachrichten."
+    "readerDesc": "Öffnet die ganze Konversation im Lesebereich statt einzelner Nachrichten.",
+    "newestFirst": "Neueste Nachricht zuerst",
+    "newestFirstDesc": "Zeigt die neueste Nachricht einer Unterhaltung oben. Ausschalten, um Unterhaltungen ab der ältesten Nachricht zu lesen."
   },
   "diagnostics": {
     "section": "Diagnose",

@@ -36,6 +36,7 @@ import { mergeThreadCacheField } from '../utils/threadCacheState.ts';
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
 import { toAppError } from '../utils/errors.ts';
+import { hasMorePages } from '../utils/listPaging.ts';
 import { createSessionOperationGuard } from '../utils/sessionOperationGuard.ts';
 import { legacySignatureHtmlToText } from '../utils/legacySignatureText.ts';
 import type { ArchiveMessage } from '../utils/threadedArchive.ts';
@@ -488,7 +489,7 @@ export default function MessageList() {
             setMessagesTotal(data.total);
             setMessages(applyReadGuard(data.messages));
             setMessagesOffset(data.messages.length);
-            setHasMoreMessages(data.messages.length < data.total);
+            setHasMoreMessages(hasMorePages(data.messages.length, pageSize, data.messages.length, data.total));
 
             // If a specific non-INBOX folder opened empty, trigger an on-demand IMAP sync.
             // The backend will broadcast sync_complete → inboxora:refresh once done.
@@ -531,7 +532,7 @@ export default function MessageList() {
       const data = await api.getMessages(params);
       appendMessages(applyDeleteGuard(applyReadGuard(data.messages)));
       setMessagesOffset(currentOffset + data.messages.length);
-      setHasMoreMessages(currentOffset + data.messages.length < data.total);
+      setHasMoreMessages(hasMorePages(data.messages.length, pageSize, currentOffset + data.messages.length, data.total));
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
@@ -584,7 +585,7 @@ export default function MessageList() {
               setHasMoreMessages(false);
             } else {
               setMessagesOffset(data.messages.length);
-              setHasMoreMessages(data.messages.length < data.total);
+              setHasMoreMessages(hasMorePages(data.messages.length, Number(params.limit), data.messages.length, data.total));
             }
           },
         );
@@ -4405,6 +4406,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   // metadata only as a visual hint; never fetch or normalize from row render.
   const hasResolvedMembership = Array.isArray(threadMsgs);
   const normalizedChildren = hasResolvedMembership ? normalizedNativeThreadMembers(threadMsgs) : [];
+  // Expanded thread rows follow the same order setting as the conversation reader.
+  const newestFirst = useStore(state => state.conversationNewestFirst);
+  const orderedChildren = newestFirst ? [...(threadMsgs || [])].reverse() : (threadMsgs || []);
   const isExpandableThread = hasResolvedMembership
     ? normalizedChildren.length > 1
     : Number(message.message_count || 1) > 1;
@@ -4673,7 +4677,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 borderRadius: '50%', animation: 'spin 0.8s linear infinite',
               }} />
             </div>
-          ) : (threadMsgs || []).map((msg, idx) => (
+          ) : orderedChildren.map((msg, idx) => (
             <ThreadChildRow
               key={msg.id}
               msg={msg}

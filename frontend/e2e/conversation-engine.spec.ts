@@ -344,23 +344,15 @@ test.describe('native conversation engine matrix', () => {
     expect(await iframe.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(0);
   });
 
-  test('plain HTML reply marker folds one historical region and iframe shrinks after collapse', async ({ page, fixtureApi }) => {
+  test('a reply inside a multi-message conversation omits its quoted history instead of folding it', async ({ page, fixtureApi }) => {
     page.__plainQuoteFoldingCopy = 'conversation-gmail-copy-2';
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
     const frame = page.locator('#logical-message-conversation-gmail-logical-2 iframe').contentFrame();
-    const iframe = page.locator('#logical-message-conversation-gmail-logical-2 iframe');
     await expect(frame.locator('[data-testid="current-content"]')).toBeVisible();
-    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeHidden();
-    await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(1);
-    const h1 = await iframe.evaluate(element => element.getBoundingClientRect().height);
-    await frame.locator('.mailflow-quote-toggle').click();
-    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeVisible();
-    const h2 = await iframe.evaluate(element => element.getBoundingClientRect().height);
-    expect(h2).toBeGreaterThan(h1);
-    await frame.locator('.mailflow-quote-toggle').click();
-    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeHidden();
-    await expect.poll(() => iframe.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(h2);
+    // The earlier messages are cards of this same conversation: no quote, no toggle.
+    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toHaveCount(0);
+    await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(0);
   });
 
   test('remote images share blocked/allowed behavior and preserve CID/data sources', async ({ page, fixtureApi }) => {
@@ -400,7 +392,7 @@ test.describe('native conversation engine matrix', () => {
     await expect(second.locator('iframe').contentFrame().locator('body')).toContainText('conversation-gmail-copy-2');
   });
 
-  test('hierarchical quote folding keeps forward envelope and immediate body visible but collapses nested reply history', async ({ page, fixtureApi }) => {
+  test('inside a conversation, a forward envelope and its body stay visible while nested reply history is omitted', async ({ page, fixtureApi }) => {
     page.__quoteFoldingCopy = 'conversation-gmail-copy-2';
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
@@ -409,17 +401,14 @@ test.describe('native conversation engine matrix', () => {
     const frame = card.locator('iframe').contentFrame();
     // Current authored content is visible.
     await expect(frame.locator('[data-testid="current-content"]')).toBeVisible();
-    // Forward envelope/header is visible (not collapsed).
+    // A forward is new content, not history: its envelope and body stay visible.
     await expect(frame.locator('[data-testid="forward-envelope"]')).toBeVisible();
     await expect(frame.locator('text=---------- Forwarded message ---------')).toBeVisible();
-    // Immediate forwarded body content is visible.
     await expect(frame.locator('[data-testid="forwarded-content"]')).toBeVisible();
-    // Nested reply history inside the forwarded body is collapsed behind a toggle.
-    await expect(frame.locator('[data-testid="nested-reply"]')).toBeHidden();
-    await expect(frame.locator('[data-testid="old-reply"]')).toBeHidden();
-    // Expanding the nested quote reveals the old reply.
-    await frame.locator('.mailflow-quote-toggle').first().click();
-    await expect(frame.locator('[data-testid="old-reply"]')).toBeVisible();
+    // Nested reply history is dropped rather than folded behind a toggle.
+    await expect(frame.locator('[data-testid="nested-reply"]')).toHaveCount(0);
+    await expect(frame.locator('[data-testid="old-reply"]')).toHaveCount(0);
+    await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(0);
   });
 
   test('dark theme body surface uses the native dark content surface, not white', async ({ page, fixtureApi }, testInfo) => {
@@ -455,6 +444,9 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
   const physicalCardIds = async reader => reader.locator('article[data-physical-copy-id]').evaluateAll(cards => cards.map(card => card.dataset.physicalCopyId));
 
   test('keeps native reader membership identical for the same flat and grouped physical selection', async ({ page, fixtureApi }) => {
+    // The scroll-position check at the end describes the chronological layout (the target is
+    // second, so it can reach the top); the newest-first default is covered elsewhere.
+    page.__preferencesOverride = { ...(page.__preferencesOverride || {}), conversationNewestFirst: false };
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
     const flatReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
@@ -628,6 +620,9 @@ test.describe('reader target navigation follow-up', () => {
 
   test('uses final target body geometry: short last message bottoms out, long last and middle messages align their headers', async ({ page, fixtureApi }, testInfo) => {
     test.skip(testInfo.project.name === 'chromium-mobile-landscape', 'landscape viewport uses the desktop layout contract');
+    // This contract is about the chronological (oldest-first) layout, where the newest
+    // message is last; the newest-first default is covered by conversation-order.spec.
+    page.__preferencesOverride = { ...(page.__preferencesOverride || {}), conversationNewestFirst: false };
     const select = async (copy, mode, index) => {
       page.__conversationSize = 10;
       page.__targetBodyMode = mode;

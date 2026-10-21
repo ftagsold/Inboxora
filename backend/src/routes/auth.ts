@@ -811,7 +811,7 @@ export async function patchPreferences(req: Request, res: Response) {
           folderOrder, senderFavicons, showMessagePreviews,
           conversation_list_view_enabled, conversation_reader_view_enabled,
           calendarWeekStartsOn, mobileNavigationPosition, visibleCalendarIds,
-          calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, calendarInviteAccountId } = req.body;
+          calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, calendarInviteAccountId, conversationNewestFirst } = req.body;
   for (const [name, value] of [
     ['conversation_list_view_enabled', conversation_list_view_enabled],
     ['conversation_reader_view_enabled', conversation_reader_view_enabled],
@@ -915,6 +915,9 @@ export async function patchPreferences(req: Request, res: Response) {
       }
     }
   }
+  if (conversationNewestFirst !== undefined && typeof conversationNewestFirst !== 'boolean') {
+    return res.status(400).json({ error: 'conversationNewestFirst must be a boolean' });
+  }
   // Default sender for calendar invitations: '' (no default) or one of the user's own accounts.
   if (calendarInviteAccountId !== undefined) {
     if (typeof calendarInviteAccountId !== 'string' || calendarInviteAccountId.length > 128) {
@@ -981,6 +984,7 @@ export async function patchPreferences(req: Request, res: Response) {
       || CASE WHEN $50::text IS NOT NULL THEN jsonb_build_object('themeLight', $50::text) ELSE '{}'::jsonb END
       || CASE WHEN $51::text IS NOT NULL THEN jsonb_build_object('themeDark', $51::text) ELSE '{}'::jsonb END
       || CASE WHEN $52::text IS NOT NULL THEN jsonb_build_object('calendarInviteAccountId', $52::text) ELSE '{}'::jsonb END
+      || CASE WHEN $53::boolean IS NOT NULL THEN jsonb_build_object('conversationNewestFirst', $53::boolean) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -995,7 +999,7 @@ export async function patchPreferences(req: Request, res: Response) {
       calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson,
       calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
       persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null,
-      themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark, calendarInviteAccountId ?? null]);
+      themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark, calendarInviteAccountId ?? null, conversationNewestFirst ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

@@ -238,6 +238,9 @@ export interface StoreState {
   setLanguage: (lng: string) => void;
   conversationReaderViewEnabled: boolean;
   setConversationReaderViewEnabled: (val: boolean) => void;
+  /** Conversation reader order: newest message on top (default) or oldest first. */
+  conversationNewestFirst: boolean;
+  setConversationNewestFirst: (val: boolean) => void;
   threadedView: boolean;
   setThreadedView: (val: boolean) => void;
   plaintextEmail: boolean;
@@ -1066,6 +1069,13 @@ export const useStore = create<StoreState>()((set, get) => ({
     set({ conversationReaderViewEnabled: val });
     schedulePrefSave({ conversation_reader_view_enabled: val });
   },
+  // Newest message on top unless the user chose oldest first.
+  conversationNewestFirst: localStorage.getItem('mailflow_conversation_newest_first') !== 'false',
+  setConversationNewestFirst: (val: boolean) =>{
+    localStorage.setItem('mailflow_conversation_newest_first', String(val));
+    set({ conversationNewestFirst: val });
+    schedulePrefSave({ conversationNewestFirst: val });
+  },
 
   // Threaded view
   // Conversation grouping is on by default; only an explicit saved "false" turns it off.
@@ -1808,6 +1818,10 @@ export const useStore = create<StoreState>()((set, get) => ({
         set({ rightSidebarHidden: prefs.rightSidebarHidden });
       }
       if (typeof prefs.conversation_reader_view_enabled === 'boolean') set({ conversationReaderViewEnabled: prefs.conversation_reader_view_enabled });
+      if (typeof prefs.conversationNewestFirst === 'boolean') {
+        localStorage.setItem('mailflow_conversation_newest_first', String(prefs.conversationNewestFirst));
+        set({ conversationNewestFirst: prefs.conversationNewestFirst });
+      }
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);
       }

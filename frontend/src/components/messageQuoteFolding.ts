@@ -23,6 +23,8 @@ interface QuoteToggleOptions {
   showLabel: string;
   hideLabel: string;
   onChange: (() => void) | null;
+  /** Remove the quoted region outright (no toggle): the conversation already shows it. */
+  remove?: boolean;
 }
 
 function uniqueTopLevel<T extends Element>(elements: T[]): T[] {
@@ -138,6 +140,7 @@ function createToggle(doc: Document, id: string, showLabel: string, hideLabel: s
 
 function installGroup(doc: Document, elements: HTMLElement[], index: number, options: QuoteToggleOptions): void {
   if (!elements.length) return;
+  if (options.remove) { elements.forEach(element => element.remove()); return; }
   const id = `mailflow-quote-${index}`;
   // One toggle before the first element; all elements share the same group ID so
   // they collapse/expand together. This produces a single "Show quoted text" button
@@ -174,6 +177,7 @@ function installPlainTextGroup(doc: Document, pre: Element, options: QuoteToggle
   const id = 'mailflow-quote-plain';
   pre.textContent = '';
   pre.append(doc.createTextNode(visible));
+  if (options.remove) return true;
   const quote = doc.createElement('span');
   quote.dataset.mailflowQuoteGroup = id;
   quote.className = 'mailflow-quote-collapsed';
@@ -186,16 +190,17 @@ export function installMessageQuoteFolding(doc: Document, {
   showLabel = 'Show quoted text',
   hideLabel = 'Hide quoted text',
   onChange = null,
-}: { showLabel?: string; hideLabel?: string; onChange?: (() => void) | null } = {}) {
+  remove = false,
+}: { showLabel?: string; hideLabel?: string; onChange?: (() => void) | null; remove?: boolean } = {}) {
   const plainText = doc.querySelector('[data-mailflow-plain-text="true"]');
   if (plainText) {
-    const installed = installPlainTextGroup(doc, plainText, { showLabel, hideLabel, onChange });
+    const installed = installPlainTextGroup(doc, plainText, { showLabel, hideLabel, onChange, remove });
     return { count: installed ? 1 : 0, protectedForwardCount: startsWithForwardMarker(plainText.textContent) ? 1 : 0 };
   }
 
   const protectedForwards = protectedForwardRoots(doc);
   protectedForwards.forEach(root => { root.dataset.mailflowForwardRoot = 'true'; });
   const groups = candidateGroups(doc, protectedForwards);
-  groups.forEach((elements, index) => installGroup(doc, elements, index, { showLabel, hideLabel, onChange }));
+  groups.forEach((elements, index) => installGroup(doc, elements, index, { showLabel, hideLabel, onChange, remove }));
   return { count: groups.length, protectedForwardCount: protectedForwards.length };
 }

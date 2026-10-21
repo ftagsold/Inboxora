@@ -1221,7 +1221,9 @@
     "expandMessage": "Développer le message de {{sender}} : {{subject}}",
     "collapseMessage": "Réduire le message de {{sender}} : {{subject}}",
     "summary": "Aperçu :",
-    "readerDesc": "Ouvre toute la conversation dans le volet de lecture au lieu d'un seul message."
+    "readerDesc": "Ouvre toute la conversation dans le volet de lecture au lieu d'un seul message.",
+    "newestFirst": "Message le plus récent en premier",
+    "newestFirstDesc": "Affiche le message le plus récent d'une conversation en haut. Désactivez pour lire les conversations à partir du plus ancien."
   },
   "diagnostics": {
     "section": "Diagnostic",

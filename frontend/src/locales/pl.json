@@ -1221,7 +1221,9 @@
     "expandMessage": "Rozwiń wiadomość od {{sender}}: {{subject}}",
     "collapseMessage": "Zwiń wiadomość od {{sender}}: {{subject}}",
     "summary": "Skrót:",
-    "readerDesc": "Otwiera całą rozmowę w panelu czytania zamiast pojedynczej wiadomości."
+    "readerDesc": "Otwiera całą rozmowę w panelu czytania zamiast pojedynczej wiadomości.",
+    "newestFirst": "Najnowsza wiadomość na górze",
+    "newestFirstDesc": "Pokazuje najnowszą wiadomość rozmowy na górze. Wyłącz, aby czytać rozmowy od najstarszej wiadomości."
   },
   "diagnostics": {
     "section": "Diagnostyka",

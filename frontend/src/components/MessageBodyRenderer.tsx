@@ -30,6 +30,8 @@ interface MessageBodyRendererProps {
   text?: string;
   remoteImages?: boolean;
   quoteFolding?: boolean;
+  /** Drop quoted history instead of folding it (messages shown inside their conversation). */
+  removeQuotes?: boolean;
   onQuoteDetected?: ((detected: boolean) => void) | null;
   onHeightChange?: ((height: number) => void) | null;
   onInitialLayoutReady?: ((height: number) => void) | null;
@@ -44,7 +46,7 @@ interface MessageBodyRendererProps {
 }
 
 
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null, onOpenLink = null }: MessageBodyRendererProps) {
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, removeQuotes = false, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null, onOpenLink = null }: MessageBodyRendererProps) {
   const internalIframeRef = useRef<HTMLIFrameElement | null>(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
@@ -152,6 +154,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
           showLabel: showQuotedTextLabel,
           hideLabel: hideQuotedTextLabel,
           onChange: measureExpanded,
+          remove: removeQuotes,
         });
       }
       onQuoteDetected?.(quoteResult.count > 0);
@@ -220,7 +223,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       cancelInitialLayout?.();
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, onOpenLink, iframeRef]);
+  }, [srcDoc, remoteImages, quoteFolding, removeQuotes, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, onOpenLink, iframeRef]);
 
 
   return (

@@ -16,6 +16,10 @@ test('conversation grouping and the conversation reader are on by default', () =
   assert.equal(useStore.getState().conversationReaderViewEnabled, true);
 });
 
+test('conversations show the newest message first by default', () => {
+  assert.equal(useStore.getState().conversationNewestFirst, true);
+});
+
 test('a saved "off" preference for conversation grouping is still honoured', () => {
   const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
   assert.match(source, /threadedView: localStorage\.getItem\('mailflow_threaded_view'\) !== 'false'/);

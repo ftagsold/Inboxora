@@ -1221,7 +1221,9 @@
     "expandMessage": "Expand message from {{sender}}: {{subject}}",
     "collapseMessage": "Collapse message from {{sender}}: {{subject}}",
     "summary": "Summary:",
-    "readerDesc": "Open the whole conversation in the reading pane instead of one message at a time."
+    "readerDesc": "Open the whole conversation in the reading pane instead of one message at a time.",
+    "newestFirst": "Newest message first",
+    "newestFirstDesc": "Show the newest message of a conversation at the top. Turn off to read conversations from the oldest message down."
   },
   "diagnostics": {
     "section": "Diagnostics",

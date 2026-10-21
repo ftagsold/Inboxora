@@ -261,3 +261,22 @@ describe('PATCH /preferences calendarInviteAccountId', () => {
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE users'))).toBe(false);
   });
 });
+
+describe('PATCH /preferences conversationNewestFirst', () => {
+  it('persists the conversation order as a boolean', async () => {
+    const req = mockRequest({ session: { userId: 'u1' }, body: { conversationNewestFirst: false } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(req, res);
+    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE users'));
+    expect(update?.[0]).toContain("jsonb_build_object('conversationNewestFirst', $53::boolean)");
+    expect(update?.[1]?.[52]).toBe(false);
+  });
+
+  it('rejects a non-boolean order without saving', async () => {
+    const req = mockRequest({ session: { userId: 'u1' }, body: { conversationNewestFirst: 'yes' } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE users'))).toBe(false);
+  });
+});

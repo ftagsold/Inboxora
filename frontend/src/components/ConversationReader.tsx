@@ -155,7 +155,12 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     return () => { active = false; refreshEpoch.current += 1; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
   }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, t, onNativeThreadUnavailable]);
 
-  const messages = useMemo(() => data?.logicalMessages || [], [data]);
+  const newestFirst = useStore(state => state.conversationNewestFirst);
+  // The server returns the thread oldest first; the reader shows it newest first by default.
+  const messages = useMemo(() => {
+    const ordered = data?.logicalMessages || [];
+    return newestFirst ? [...ordered].reverse() : ordered;
+  }, [data, newestFirst]);
   const selectedAccountAvailable = accounts.some(account => String(account.id) === String(selectedAccountId));
   const refresh = useCallback(async () => {
     // Keep the reader, expansion and physical body cache mounted during live updates.
@@ -437,10 +442,10 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const handleReply = useCallback((message: ConversationReplyPayload, all?: boolean) => { onReply?.(message, all); }, [onReply]);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error instanceof Error ? toAppError(error).message : String(error)}</div>;
-  return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, paddingBottom: isMobile ? 12 : 24, minWidth: 0 }}>
+  return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, paddingTop: isMobile ? 0 : 2, paddingBottom: isMobile ? 12 : 14, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
-      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={selectedAccountAvailable && physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onImagesAllowed={reloadAllowedBodies} onReply={handleReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
+      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={selectedAccountAvailable && physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onImagesAllowed={reloadAllowedBodies} inMultiMessageThread={messages.length > 1} onReply={handleReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
     })}
   </section>;
 }

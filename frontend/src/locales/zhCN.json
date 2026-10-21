@@ -1221,7 +1221,9 @@
     "expandMessage": "展开来自 {{sender}} 的邮件：{{subject}}",
     "collapseMessage": "折叠来自 {{sender}} 的邮件：{{subject}}",
     "summary": "摘要：",
-    "readerDesc": "在阅读窗格中打开整个会话，而不是单封邮件。"
+    "readerDesc": "在阅读窗格中打开整个会话，而不是单封邮件。",
+    "newestFirst": "最新邮件在前",
+    "newestFirstDesc": "在会话顶部显示最新的邮件。关闭后将从最早的邮件开始阅读会话。"
   },
   "diagnostics": {
     "section": "诊断",
