@@ -811,7 +811,7 @@ export async function patchPreferences(req: Request, res: Response) {
           folderOrder, senderFavicons, showMessagePreviews,
           conversation_list_view_enabled, conversation_reader_view_enabled,
           calendarWeekStartsOn, mobileNavigationPosition, visibleCalendarIds,
-          calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd } = req.body;
+          calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, calendarInviteAccountId } = req.body;
   for (const [name, value] of [
     ['conversation_list_view_enabled', conversation_list_view_enabled],
     ['conversation_reader_view_enabled', conversation_reader_view_enabled],
@@ -915,6 +915,16 @@ export async function patchPreferences(req: Request, res: Response) {
       }
     }
   }
+  // Default sender for calendar invitations: '' (no default) or one of the user's own accounts.
+  if (calendarInviteAccountId !== undefined) {
+    if (typeof calendarInviteAccountId !== 'string' || calendarInviteAccountId.length > 128) {
+      return res.status(400).json({ error: 'calendarInviteAccountId must be an account identifier' });
+    }
+    if (calendarInviteAccountId) {
+      const owned = await query('SELECT 1 FROM email_accounts WHERE id::text = $1 AND user_id = $2', [calendarInviteAccountId, req.session.userId]);
+      if (!owned.rows.length) return res.status(400).json({ error: 'calendarInviteAccountId must be one of your accounts' });
+    }
+  }
   const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
   const visibleCalendarIdsJson = visibleCalendarIds !== undefined ? JSON.stringify([...new Set(visibleCalendarIds)]) : null;
   await query(`
@@ -970,6 +980,7 @@ export async function patchPreferences(req: Request, res: Response) {
       || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('themeMode', $49::text) ELSE '{}'::jsonb END
       || CASE WHEN $50::text IS NOT NULL THEN jsonb_build_object('themeLight', $50::text) ELSE '{}'::jsonb END
       || CASE WHEN $51::text IS NOT NULL THEN jsonb_build_object('themeDark', $51::text) ELSE '{}'::jsonb END
+      || CASE WHEN $52::text IS NOT NULL THEN jsonb_build_object('calendarInviteAccountId', $52::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -984,7 +995,7 @@ export async function patchPreferences(req: Request, res: Response) {
       calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson,
       calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
       persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null,
-      themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark]);
+      themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark, calendarInviteAccountId ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

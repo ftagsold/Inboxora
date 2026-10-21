@@ -226,3 +226,38 @@ describe('PATCH /auth/preferences calendar preferences', () => {
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 });
+
+describe('PATCH /preferences calendarInviteAccountId', () => {
+  it('persists an owned account as the default invitation sender', async () => {
+    query.mockImplementation(async (sql: string) => (sql.includes('FROM email_accounts') ? { rows: [{ '?column?': 1 }] } : { rows: [] }));
+    const req = mockRequest({ session: { userId: 'u1' }, body: { calendarInviteAccountId: 'account-1' } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+    await patchPreferences(req, res);
+
+    expect(res.status).not.toHaveBeenCalled();
+    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE users'));
+    expect(update?.[0]).toContain("jsonb_build_object('calendarInviteAccountId', $52::text)");
+    expect(update?.[1]?.[51]).toBe('account-1');
+  });
+
+  it('clears the default with an empty string', async () => {
+    const req = mockRequest({ session: { userId: 'u1' }, body: { calendarInviteAccountId: '' } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+    await patchPreferences(req, res);
+
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM email_accounts'))).toBe(false);
+    expect(query.mock.calls.find(([sql]) => sql.includes('UPDATE users'))?.[1]?.[51]).toBe('');
+  });
+
+  it("rejects another user's account without saving", async () => {
+    const req = mockRequest({ session: { userId: 'u1' }, body: { calendarInviteAccountId: 'someone-elses' } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+    await patchPreferences(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE users'))).toBe(false);
+  });
+});
