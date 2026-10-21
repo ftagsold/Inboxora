@@ -29,6 +29,7 @@ import CommandPalette from './CommandPalette.tsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
+import { APP_NAME } from '../appName.ts';
 
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
@@ -621,7 +622,7 @@ export default function MailApp() {
   // Update browser tab title and PWA home screen badge with unread count
   useEffect(() => {
     const total = unreadCounts.total;
-    document.title = 'Inboxora';
+    document.title = APP_NAME;
     // App-icon badge always reflects total unread across all accounts so that
     // selecting a zero-unread account never clears the home screen badge.
     if ('setAppBadge' in navigator) {
@@ -1038,7 +1039,7 @@ function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <div ref={actionsRef} className="mobile-header-content" style={{ display: moduleActive ? 'flex' : 'none' }} />
-      {!moduleActive && <><span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0 }}>Inboxora</span>
+      {!moduleActive && <><span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0 }}>{APP_NAME}</span>
       <button type="button" onClick={onCompose} aria-label={t('sidebar.compose')} style={{
         background: 'none', border: 'none', color: 'var(--accent)',
         cursor: 'pointer', padding: 0, borderRadius: 7,

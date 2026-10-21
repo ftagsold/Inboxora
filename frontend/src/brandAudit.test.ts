@@ -34,7 +34,7 @@ const isManifest = (value: unknown): value is Manifest =>
 
 test("Inboxora branding is used by user-visible application surfaces", async () => {
   const checks: readonly (readonly [file: string, expected: string])[] = [
-    ["frontend/src/components/MailApp.tsx", "document.title = 'Inboxora'"],
+    ["frontend/src/appName.ts", "VITE_APP_NAME || 'Inboxora'"],
     ["frontend/src/components/AdminPanel.tsx", "fromName: 'Inboxora'"],
     ["frontend/src/components/ElectronNotificationBridge.tsx", "Inboxora downloaded"],
     ["frontend/src/components/TodoistTaskModal.tsx", "View in Inboxora"],
@@ -48,7 +48,7 @@ test("Inboxora branding is used by user-visible application surfaces", async () 
 });
 
 test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow branding", async () => {
-  const [readme, sidebar, login, logo, app, index, manifest, worker, themes, admin, store, socket, mailApp] = await Promise.all([
+  const [readme, sidebar, login, logo, app, index, manifest, worker, themes, admin, store, socket, mailApp, viteConfig] = await Promise.all([
     source("README.md"),
     source("frontend/src/components/Sidebar.tsx"),
     source("frontend/src/components/LoginPage.tsx"),
@@ -62,10 +62,11 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
     source("frontend/src/store/index.ts"),
     source("frontend/src/hooks/useWebSocket.ts"),
     source("frontend/src/components/MailApp.tsx"),
+    source("frontend/vite.config.ts"),
   ]);
 
-  for (const content of [sidebar, login]) {
-    assert.match(content, /Inboxora/, "application chrome must show the Inboxora wordmark");
+  for (const content of [sidebar, login, mailApp, logo]) {
+    assert.match(content, /\{APP_NAME\}|document\.title = APP_NAME/, "application chrome must show the configured VITE_APP_NAME wordmark");
     assert.doesNotMatch(content, />\s*Mail\s*</, "application chrome must not retain the MailFlow wordmark");
   }
   assert.match(readme, /media\/inboxora-logo\.png/, "the GitHub README must present the current Inboxora app icon");
@@ -74,6 +75,8 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
   assert.doesNotMatch(logo, /inboxora-ui-logo-(light|dark)\.png/, "the inline monogram must not fall back to the legacy PNG pair");
   assert.doesNotMatch(logo, /inboxora-mark\.svg/, "shared logo component must not use the deprecated hexagon mark");
   assert.doesNotMatch(logo, /inboxora-icon-512\.png/, "shared logo component must not use the black-background PWA icon");
+  assert.match(index, /<title>%APP_NAME%<\/title>/, "the tab title must follow VITE_APP_NAME before the app mounts");
+  assert.match(viteConfig, /appNameHtml\(env\.VITE_APP_NAME \|\| 'Inboxora'\)/, "index.html placeholders must default to Inboxora");
   assert.match(index, /manifest\.json\?v=inboxora-3/, "the updated manifest must bypass legacy PWA metadata caches");
   assert.match(app, /sw\.js\?v=inboxora-3/, "the updated service worker must replace legacy registrations");
   assert.doesNotMatch(index, /inboxora-mark\.svg/, "the transparent UI logo must not replace the browser favicon");

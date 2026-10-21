@@ -4,6 +4,7 @@ import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import LogoMark from './LogoMark.tsx';
 import { toAppError } from '../utils/errors.ts';
+import { APP_NAME } from '../appName.ts';
 import type { TFunction } from 'i18next';
 
 // SSO/OIDC is the highlighted sign-in method: an accent-tinted card with the
@@ -325,7 +326,7 @@ export default function LoginPage() {
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <LogoMark size={44} />
             <span style={{ display: 'flex', alignItems: 'baseline' }}>
-              <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Inboxora</span>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>{APP_NAME}</span>
             </span>
           </div>
           <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>{t('login.tagline')}</p>

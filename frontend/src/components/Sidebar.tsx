@@ -21,6 +21,7 @@ import ProfileModal from './ProfileModal.tsx';
 import { useUiScale, descale } from '../hooks/useUiScale.ts';
 import type { ReactNode } from 'react';
 import { toAppError } from '../utils/errors.ts';
+import { APP_NAME } from '../appName.ts';
 
 const ICONS = {
   inbox: (
@@ -855,7 +856,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                 color: 'var(--text-primary)',
                 letterSpacing: '-0.02em', whiteSpace: 'nowrap',
               }}>
-                {import.meta.env.VITE_APP_NAME || 'Inboxora'}
+                {APP_NAME}
               </span>
             </span>
           </div>
