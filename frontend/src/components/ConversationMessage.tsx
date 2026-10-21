@@ -166,15 +166,17 @@ interface ConversationMessageProps {
   status: MessageBodyStatus | null | undefined;
   onLoadBody: (logicalId: string, force?: boolean, remoteImages?: boolean) => void;
   onRemoteImages: (id: string) => void;
+  /** After a sender/domain joins the image allow list: reload blocked bodies it now permits. */
+  onImagesAllowed: (type: 'address' | 'domain', value: string) => void;
   onReply: (message: ConversationReplyPayload, all?: boolean) => void;
   onActionComplete: (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => Promise<void>;
   onSetRead: (copyId: string, read: boolean) => void;
   onInitialBodyLayout?: (copyId: string) => void;
 }
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout }: ConversationMessageProps) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onImagesAllowed, onReply, onActionComplete, onSetRead, onInitialBodyLayout }: ConversationMessageProps) {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
+  const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist, addToImageWhitelist, addNotification } = useStore();
   const copy = copyView(preferredAccountCopy(message, selectedAccountId, selectedCopyId));
   const messageSubject = text(message.subject);
   const messageDate = timestamp(message.messageDate);
@@ -198,6 +200,16 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const senderAllowsImages = (imageWhitelist?.addresses || []).some(value => String(value).toLowerCase() === senderEmail)
     || (imageWhitelist?.domains || []).some(value => String(value).toLowerCase() === senderDomain);
   const remoteImages = Boolean(body?.remoteImages ?? body?.remote_images) || !blockRemoteImages || senderAllowsImages;
+  // "Always allow" for this sender's address or domain, as in the single-message pane.
+  const allowImages = async (type: 'address' | 'domain', value: string | undefined) => {
+    if (!value) return;
+    try {
+      await addToImageWhitelist({ type, value });
+      onImagesAllowed(type, value.toLowerCase());
+    } catch {
+      addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
+    }
+  };
   const sender = outgoing ? t('conversation.you') : (copy.fromName || copy.fromEmail || t('conversation.unknownSender'));
   const directionLabel = direction === 'outgoing' ? t('conversation.outgoingMessage') : direction === 'incoming' ? t('conversation.incomingMessage') : undefined;
   const subject = messageSubject || copy.subject || t('message.noSubject');
@@ -497,6 +509,8 @@ export default function ConversationMessage({ conversationId, message, selectedC
         remoteImages={remoteImages}
         onLoadBody={(_: unknown, force?: boolean) => onLoadBody(message.id, force)}
         onRemoteImages={() => onRemoteImages(message.id)}
+        onAllowSender={() => { void allowImages('address', senderEmail); }}
+        onAllowDomain={() => { void allowImages('domain', senderDomain); }}
         onUnsubscribe={handleUnsubscribe}
         onDownload={async (physicalCopyId: string, part: string, filename: string) => {
           const response = await fetch(`/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments/${encodeURIComponent(part)}`);

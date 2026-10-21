@@ -24,6 +24,10 @@ describe('conversation reader final UX contract', () => {
     assert.match(reader, /setCopyReadState\(copy\.id, true\)/);
     assert.match(reader, /queueReadStateMutation\(copyId, read/);
     assert.doesNotMatch(reader, /for \(const message of messages\)/);
+    // Allowing images for a sender reloads matching bodies only; it must not touch read state.
+    const reload = reader.slice(reader.indexOf('const reloadAllowedBodies'), reader.indexOf('}, [messages, selectedCopyFor, loadBody]);'));
+    assert.match(reload, /loadBody\(message\.id, true, true\)/);
+    assert.doesNotMatch(reload, /setCopyReadState|queueReadStateMutation|markRead/);
   });
 
   it('positions each navigation target once in the reader scroll container', () => {

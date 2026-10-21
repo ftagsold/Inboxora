@@ -320,6 +320,19 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       });
   }, [selectedCopyFor, t]);
   useEffect(() => { for (const id of expanded) loadBody(id); }, [expanded, loadBody]);
+  // A sender or domain was just allowed: reload, with images, every loaded body in this
+  // conversation from it that still has blocked images.
+  // Only reloads bodies; it never changes read state.
+  const reloadAllowedBodies = useCallback((type: 'address' | 'domain', value: string) => {
+    const blockedFromAllowed = messages.filter(message => {
+      const copy = selectedCopyFor(message.id);
+      const email = String(copy?.fromEmail || '').toLowerCase();
+      const matches = type === 'address' ? email === value : email.split('@').pop() === value;
+      const body = copy?.id ? bodiesRef.current[copy.id] : undefined;
+      return matches && Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
+    });
+    blockedFromAllowed.forEach(message => { void loadBody(message.id, true, true); });
+  }, [messages, selectedCopyFor, loadBody]);
   const navigationTargetId = activeTargetLogicalId || initialTargetId;
   // Align once when the target header mounts, then once more after that exact
   // body's iframe has applied its first measured height. The second pass uses the
@@ -427,7 +440,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, paddingBottom: isMobile ? 12 : 24, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
-      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={selectedAccountAvailable && physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={handleReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
+      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={selectedAccountAvailable && physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onImagesAllowed={reloadAllowedBodies} onReply={handleReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
     })}
   </section>;
 }
