@@ -1,5 +1,6 @@
 import CalendarInvitationCard from './CalendarInvitationCard.tsx';
 import { useCallback, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import MessageBodyRenderer from './MessageBodyRenderer.tsx';
 import ContextMenu from './ContextMenu.tsx';
@@ -78,6 +79,8 @@ interface MessageDetailContentProps {
   onInitialBodyLayout?: () => void;
   canAccessCopy?: boolean;
   mobile?: boolean;
+  /** Rendered inside a message card: details get the card's inset, the body spans its full width. */
+  embedded?: boolean;
   className?: string;
 }
 
@@ -102,6 +105,7 @@ export default function MessageDetailContent({
   onInitialBodyLayout,
   canAccessCopy = true,
   mobile = false,
+  embedded = false,
   className = '',
 }: MessageDetailContentProps) {
   const { t } = useTranslation();
@@ -117,6 +121,12 @@ export default function MessageDetailContent({
   const blocked = Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
   const listUnsubscribe = message?.list_unsubscribe ?? message?.listUnsubscribe;
   const unsubscribedAt = message?.unsubscribed_at ?? message?.unsubscribedAt;
+  const showInvitation = Boolean(canAccessCopy && physicalCopyId && (body?.calendarInvitation || attachments.some(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''))));
+  const showUnsubscribe = Boolean(listUnsubscribe && !unsubscribedAt && unsubscribeStatus !== 'done');
+  const hasBody = !status.loading && !status.error && Boolean(html || text);
+  const showNoContent = !status.loading && !status.error && Boolean(body) && !html && !text;
+  const hasDetails = attachments.length > 0 || showInvitation || showUnsubscribe || blocked
+    || Boolean(status.loading || status.error || status.unavailable) || showNoContent;
   const openContextMenu = useCallback(({ x, y, selectedText = '' }: BodyContextMenuPosition) => {
     setContextMenu({ x, y, selectedText });
   }, []);
@@ -142,33 +152,43 @@ export default function MessageDetailContent({
   };
   const retry = () => onLoadBody?.(physicalCopyId, true);
 
+  // Every block below the header shares one inset and one 12px rhythm; the body closes the stack.
+  const inset = mobile ? '12px' : '14px 16px';
+  const notice = (accent: string): CSSProperties => ({ padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderLeft: `3px solid ${accent}`, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' });
+  const statusLine: CSSProperties = { fontSize: 13, color: 'var(--text-tertiary)' };
+  const bodyPanel: CSSProperties = embedded
+    ? { position: 'relative', padding: inset, background: 'var(--message-body-bg)', borderTop: '1px solid var(--border-subtle)', borderRadius: '0 0 8px 8px', overflow: 'hidden', contain: 'layout' }
+    : { position: 'relative', padding: '14px 16px 12px', background: 'var(--message-body-bg)', borderRadius: mobile ? 0 : 10, border: mobile ? 'none' : '1px solid var(--border-subtle)', overflow: 'hidden', contain: 'layout' };
+
   return <div aria-label={legacyAiLabels.join(' ')} className={className} data-message-detail-content="true" data-physical-copy-id={physicalCopyId || undefined}>
-    {attachments.length > 0 && <div data-message-detail-attachments="true" style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('message.attachment', { count: attachments.length })}</div>
-        {attachments.length > 1 && <a data-message-detail-download-all="true" href={canAccessCopy && physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments.zip` : undefined} download={canAccessCopy || undefined} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-          {t('message.downloadAll')}
-        </a>}
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {attachments.map((att: { part?: string; type?: string; filename?: string; size?: number }, i: number) => <button key={att.part || i} data-message-detail-attachment={String(att.part || i)} onClick={() => download(att)} disabled={!canAccessCopy || downloadingPart === att.part} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', cursor: downloadingPart === att.part ? 'wait' : 'pointer', color: 'var(--text-primary)', maxWidth: 240 }}>
-          <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}><FileIcon type={att.type} /></span>
-          <span style={{ minWidth: 0, textAlign: 'left' }}><span style={{ display: 'block', fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--text-tertiary)' }}>{downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}</span></span>
-        </button>)}
-      </div>
+    {hasDetails && <div data-message-detail-details="true" style={{ display: 'flex', flexDirection: 'column', gap: 12, ...(embedded ? { padding: inset, borderTop: '1px solid var(--border-subtle)' } : { marginBottom: hasBody ? 12 : 0 }) }}>
+      {attachments.length > 0 && <div data-message-detail-attachments="true">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('message.attachment', { count: attachments.length })}</div>
+          {attachments.length > 1 && <a data-message-detail-download-all="true" href={canAccessCopy && physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments.zip` : undefined} download={canAccessCopy || undefined} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            {t('message.downloadAll')}
+          </a>}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {attachments.map((att: { part?: string; type?: string; filename?: string; size?: number }, i: number) => <button key={att.part || i} data-message-detail-attachment={String(att.part || i)} onClick={() => download(att)} disabled={!canAccessCopy || downloadingPart === att.part} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', cursor: downloadingPart === att.part ? 'wait' : 'pointer', color: 'var(--text-primary)', maxWidth: 240 }}>
+            <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}><FileIcon type={att.type} /></span>
+            <span style={{ minWidth: 0, textAlign: 'left' }}><span style={{ display: 'block', fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--text-tertiary)' }}>{downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}</span></span>
+          </button>)}
+        </div>
+      </div>}
+      {showInvitation && physicalCopyId && <CalendarInvitationCard key={physicalCopyId} messageId={physicalCopyId} />}
+      {showUnsubscribe && <div className="msg-notice" data-message-detail-unsubscribe="true" style={notice('var(--text-tertiary)')}>
+        <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span><button type="button" onClick={unsubscribe} disabled={unsubscribeStatus === 'loading'}>{unsubscribeStatus === 'loading' ? t('common.loading') : unsubscribeStatus === 'error' ? t('message.unsubscribe.error') : t('message.unsubscribe.button')}</button>
+      </div>}
+      {blocked && <div className="msg-notice" data-message-detail-remote-images="true" style={notice('var(--accent)')}>
+        <span>{t('message.remoteImagesBlocked')}</span><div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}><button type="button" onClick={() => onRemoteImages?.(physicalCopyId)}>{t('message.loadImages')}</button>{message?.from_email && <button type="button" onClick={() => onAllowSender?.(physicalCopyId)}>{t('message.allowSender', { email: message.from_email })}</button>}{message?.from_email?.includes('@') && <button type="button" onClick={() => onAllowDomain?.(physicalCopyId)}>{t('message.allowDomain', { domain: message.from_email.split('@')[1] })}</button>}</div>
+      </div>}
+      {status.loading && <div role="status" style={statusLine}>{t('conversation.loadingBody')}</div>}
+      {status.error && <div role="alert" style={{ ...statusLine, color: 'var(--text-danger)' }}><strong>{t('message.loadingError')}</strong> {status.error}<button type="button" onClick={retry}>{t('common.retry')}</button></div>}
+      {status.unavailable && <div role="status" style={statusLine}>{t('conversation.noBody')}</div>}
+      {showNoContent && <div style={statusLine}>{t('message.noContent')}</div>}
     </div>}
-    {canAccessCopy && physicalCopyId && (body?.calendarInvitation || attachments.some(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''))) && <CalendarInvitationCard key={physicalCopyId} messageId={physicalCopyId} />}
-    {listUnsubscribe && !unsubscribedAt && unsubscribeStatus !== 'done' && <div className="msg-notice" data-message-detail-unsubscribe="true" style={{ marginBottom: 10, padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
-      <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span><button type="button" onClick={unsubscribe} disabled={unsubscribeStatus === 'loading'}>{unsubscribeStatus === 'loading' ? t('common.loading') : unsubscribeStatus === 'error' ? t('message.unsubscribe.error') : t('message.unsubscribe.button')}</button>
-    </div>}
-    {blocked && <div className="msg-notice" data-message-detail-remote-images="true" style={{ marginTop: 10, marginBottom: 10, padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
-      <span>{t('message.remoteImagesBlocked')}</span><div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}><button type="button" onClick={() => onRemoteImages?.(physicalCopyId)}>{t('message.loadImages')}</button>{message?.from_email && <button type="button" onClick={() => onAllowSender?.(physicalCopyId)}>{t('message.allowSender', { email: message.from_email })}</button>}{message?.from_email?.includes('@') && <button type="button" onClick={() => onAllowDomain?.(physicalCopyId)}>{t('message.allowDomain', { domain: message.from_email.split('@')[1] })}</button>}</div>
-    </div>}
-    {status.loading && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.loadingBody')}</div>}
-    {status.error && <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}><strong>{t('message.loadingError')}</strong> {status.error}<button type="button" onClick={retry}>{t('common.retry')}</button></div>}
-    {status.unavailable && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
-    {!status.loading && !status.error && body && !html && !text && <div style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('message.noContent')}</div>}
-    {!status.loading && !status.error && (html || text) && <div className="msg-card conversation-message-body-panel" data-message-detail-body="true" style={{ position: 'relative', padding: '14px 16px 12px', background: 'var(--message-body-bg)', borderRadius: mobile ? 0 : 10, border: mobile ? 'none' : '1px solid var(--border-subtle)', overflow: 'hidden', contain: 'layout' }}>
+    {hasBody && <div className="msg-card conversation-message-body-panel" data-message-detail-body="true" style={bodyPanel}>
       <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={openContextMenu} onOpenLink={openExternalLink} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
     </div>}
     {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} message={message} variant="messagePane" selectedText={contextMenu.selectedText} onClose={() => setContextMenu(null)} onAction={(action, data) => { setContextMenu(null); onContextAction?.(action, data, physicalCopyId); }} />}
