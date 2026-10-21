@@ -79,6 +79,20 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 - The calendar event context menu and the calendar "⋮" menu now use the same look as the mail
   context menus (icons, hover rows, red delete on hover).
 
+- Conversations show the newest message on top by default; Settings → "Newest message first"
+  switches back to oldest first. Expanded thread rows in the message list follow the same order.
+- In a conversation with more than one message, each message's quoted history is omitted
+  instead of folded (those messages are cards of the same conversation). Forwarded content stays
+  visible; single messages keep the foldable "Show quoted text".
+- Conversation reader spacing: side padding and the gap between messages are halved (14 px /
+  12 px), and the first card starts level with the message list's toolbar.
+- Everything syncs on the configured sync interval: the server now reconciles deletions/moves
+  in every folder and polls INBOX read/star state on every sync tick (previously every 10th tick,
+  or only for providers without IDLE flag push); the open message list, an expanded thread and the
+  unread counts soft-refresh every interval while the tab is visible (previously only when the
+  WebSocket was down); and the calendar view reloads its events every interval while visible,
+  silently and never during a drag or an open dialog.
+
 ### Removed
 
 - The update check and its "Update available" entries in the sidebar and user menu, together
@@ -103,6 +117,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   deletes it when it is already in Trash, or is a draft), and read/star are written to the
   server, with a durable retry if that write fails. Archive, move and spam already used the
   server and are unchanged.
+- With "Group messages into conversations" disabled, "Load more" stayed visible with nothing
+  left to load: the folder's server-side message count could exceed the locally cached messages.
+  A short page now ends the list.
 - The default sender account for calendar invitations was never saved by the server; it now
   persists (only one of your own accounts is accepted).
 - The conversation reader's "Always allow sender" and "Always allow domain" buttons on the
