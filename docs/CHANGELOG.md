@@ -37,6 +37,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   while system Back keeps closing the open view or overlay as before. An unknown account in the
   URL falls back to the unified inbox.
 
+- Answer received calendar invitations directly in the mail: **Accept**, **Maybe** or
+  **Decline** sends an RFC 5546 reply to the organizer from the account that received it (as the
+  invited address or alias). Accept/Maybe add or refresh the event in the chosen calendar with
+  your participation status; Decline removes the copy the message had added. Your answer is
+  remembered (until the organizer sends a revised invitation), and the message is archived once
+  the reply is sent. If the reply cannot be sent, nothing is recorded and the calendar is
+  unchanged.
+- Received invitations list the events in your calendars they overlap with (name, time and
+  calendar), or say there is no conflict. All-day events and contact birthdays are not counted
+  against a timed invitation.
+
 ### Changed
 
 - Let a single-day all-day event be resized from either edge in month view, the same way a
@@ -61,6 +72,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   subscriptions and CalDAV/CardDAV servers 15 s (was 1 h). Intervals you already chose, and
   existing sources, are unchanged. The public-holiday subscription keeps its daily interval.
 
+- Dark ink theme: the accent is now `#2980B9` (was `#8aa5dd`), with matching dim, glow and
+  accent-text colours.
+- The calendar's "Loading calendar…" notice only appears when a fetch (including the reload
+  after a save or edit) takes longer than 500 ms, so fast requests no longer flash it.
+- The calendar event context menu and the calendar "⋮" menu now use the same look as the mail
+  context menus (icons, hover rows, red delete on hover).
+
 ### Removed
 
 - The update check and its "Update available" entries in the sidebar and user menu, together
@@ -78,6 +96,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   later cross-device moves into an already-populated folder were never picked up.
 - Add matching top padding to the "remote images blocked" banner in the message reader, so the
   space above it matches the space below it to the message body.
+- Deleting, marking read/unread or starring from the conversation reader or the grouped list
+  only changed Inboxora's own database: a deleted message disappeared locally (not even in
+  Trash) while staying in the inbox on every other device, and read/star changes never reached
+  the server. Delete now moves the message to the account's Trash on the server (or permanently
+  deletes it when it is already in Trash, or is a draft), and read/star are written to the
+  server, with a durable retry if that write fails. Archive, move and spam already used the
+  server and are unchanged.
+- The default sender account for calendar invitations was never saved by the server; it now
+  persists (only one of your own accounts is accepted).
 - The conversation reader's "Always allow sender" and "Always allow domain" buttons on the
   blocked-images notice did nothing; they now save the allow-list entry and reload that sender's
   messages in the conversation with their images.
@@ -86,6 +113,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   free row; no other event's row changes.
 - Keep the calendar search's clear (✕) button inside the search field; the search-icon rule also
   matched the clear button's icon and pushed it past the field's right edge.
+
+### Database migration
+
+- `0094_calendar_invitation_responses.sql` (additive): new table `calendar_invitation_responses`
+  storing your answers to received invitations. It runs automatically at backend start after
+  `0093`; nothing has to be applied by hand before rollout, and older backends ignore the table.
 
 ### Security
 
