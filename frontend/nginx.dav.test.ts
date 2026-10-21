@@ -52,7 +52,9 @@ describe('UnifiedPush (/push) reverse proxy contract', () => {
 describe('DAV reverse proxy contract', () => {
   it('forwards CardDAV, CalDAV and RFC 6764 discovery paths in every public server block', () => {
     assert.match(config, /server backend:3000 resolve;/);
-    assert.match(config, /resolver 127\.0\.0\.11 valid=10s/);
+    // The resolver comes from the container's own DNS (works on Docker and Podman), filled in
+    // by the nginx image entrypoint because the Dockerfile sets NGINX_ENTRYPOINT_LOCAL_RESOLVERS.
+    assert.match(config, /resolver \$\{NGINX_LOCAL_RESOLVERS\} valid=10s/);
     for (const server of serverBlocks(config)) {
       assert.match(server, /location \/carddav\/ \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);
       assert.match(server, /location \/caldav\/ \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);

@@ -6,6 +6,8 @@ import 'express-async-errors';
 
 interface FakeQueryResult { rows: Array<Record<string, unknown>> }
 type FakeQuery = (sql: string, parameters?: unknown[]) => Promise<FakeQueryResult>;
+/** The sync outcomes these tests stub: success (optionally with a count) or a not-found/transport error. */
+type FakeSync = (userId: string, sourceId: string) => Promise<{ ok: boolean; error?: string; eventCount?: number }>;
 
 const {
   query, discoverCalendars, discoverAddressBooks,
@@ -18,11 +20,11 @@ const {
   releaseCalendarSource: vi.fn(),
   scheduleCalendarSource: vi.fn(),
   stopCalendarSource: vi.fn(),
-  syncCalendarSource: vi.fn(async () => ({ ok: true })),
+  syncCalendarSource: vi.fn<FakeSync>(async () => ({ ok: true })),
   releaseCarddavSide: vi.fn(),
   scheduleCarddavSide: vi.fn(),
   stopCarddavSide: vi.fn(),
-  syncCarddavSide: vi.fn(async () => ({ ok: true })),
+  syncCarddavSide: vi.fn<FakeSync>(async () => ({ ok: true })),
 }));
 vi.mock('../services/db.js', () => ({ query }));
 vi.mock('../services/encryption.js', () => ({

@@ -21,6 +21,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   past or future, and a matched recurring series expands to every one of its own occurrences, not
   just its base definition. Results open the agenda pane (or the compact day sheet) automatically
   and list in descending order, most recent first.
+- `VITE_APP_NAME` now also names the login screen wordmark, the browser tab title (already in the
+  served `index.html`, before the app loads), the mobile header and the logo's accessible label —
+  not only the sidebar. It remains a frontend build argument.
 
 ### Changed
 
@@ -40,6 +43,22 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   later cross-device moves into an already-populated folder were never picked up.
 - Add matching top padding to the "remote images blocked" banner in the message reader, so the
   space above it matches the space below it to the message body.
+
+### Security
+
+- Fix stored XSS through contact photos: a vCard `PHOTO` data URI with an HTML or SVG type (from a
+  synced CardDAV address book or an imported `.vcf`) was served with that type from the app's
+  origin. Only JPEG/PNG/GIF/WebP photos are now stored or served, and photo and Gravatar responses
+  carry `Content-Security-Policy: default-src 'none'; sandbox`. Already-stored unsafe photos are
+  refused when requested.
+- Parse signature HTML into an inert document when extracting its text, and sanitize it before
+  loading it into the signature editor, so markup such as `<img onerror>` can no longer run.
+- Upgrade nodemailer 9 → 10.0.16 (cross-account TLS `servername` reuse via the shared DNS cache,
+  malformed envelope recipients from quoted local parts, address-parser denial of service) and
+  drop the now-redundant `@types/nodemailer`.
+- Update vulnerable transitive/direct dependencies within their ranges: `proxy-addr` (client-IP
+  spoofing behind `trust proxy`), `undici`, `sanitize-html`, `express`/`body-parser`/`qs`,
+  `ip-address`, `brace-expansion`, `source-map-js`, `@capacitor/android` and `dompurify`.
 
 ## [4.0.2] - 2026-09-17
 

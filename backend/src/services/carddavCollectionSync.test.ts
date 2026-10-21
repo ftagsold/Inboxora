@@ -19,7 +19,6 @@ import {
 } from './carddavCollectionSync.js';
 
 const VCARD_A = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:a\r\nFN:Alice\r\nEMAIL:alice@example.com\r\nEND:VCARD\r\n';
-const VCARD_B = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:b\r\nFN:Bob\r\nEMAIL:bob@example.com\r\nEND:VCARD\r\n';
 
 function sourceRow(overrides: Record<string, unknown> = {}) {
   return {

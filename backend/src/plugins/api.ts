@@ -118,3 +118,9 @@ export {
   getMessageAnnotations,
   setMessageAnnotation,
 } from '../services/mailAccess.js';
+
+// ── Request and error helpers ─────────────────────────────────────────────────
+// Pure helpers for reading route/query params and normalizing caught errors — no data access.
+export { queryString, queryInt, routeParam, sessionUserId } from '../utils/query.js';
+export { toAppError } from '../utils/errors.js';
+export type { PluginContext } from './registry.js';
