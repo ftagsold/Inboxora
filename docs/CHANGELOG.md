@@ -22,8 +22,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   just its base definition. Results open the agenda pane (or the compact day sheet) automatically
   and list in descending order, most recent first.
 - `VITE_APP_NAME` now also names the login screen wordmark, the browser tab title (already in the
-  served `index.html`, before the app loads), the mobile header and the logo's accessible label —
-  not only the sidebar. It remains a frontend build argument.
+  served `index.html`, before the app loads), the mobile header, the logo's accessible label and
+  the installed PWA — not only the sidebar. It is read from the **frontend container's
+  environment at start-up** instead of being baked in at build time, so one published image can
+  be renamed per deployment with a restart. Set it on the frontend container (it no longer has
+  any effect as a build argument).
+- `PASSWORD_LOGIN_DISABLED=true` (backend) makes sign-in SSO-only from the environment: password
+  login, registration (including the first account) and password-reset requests are refused, the
+  login page shows only SSO providers, and the admin "password login" toggle is shown locked.
+  Configure a working SSO provider that grants admin rights before enabling it.
 - Give each view its own URL: `/mail/<account>/<folder>` (`/mail/all/<folder>` for the unified
   inbox), `/calendar` and `/contacts`. A view can be bookmarked, reloaded or opened directly; on
   desktop the browser's Back/Forward move between them. On mobile the URL is kept current in place
@@ -44,12 +51,18 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   invitation, unsubscribe and blocked-images notices, and the body share one inset and a uniform
   12px rhythm. The single-message pane uses the same uniform spacing between these blocks.
 
+- AI controls (the message toolbar's AI menu and Summarize, "Manage AI actions", the compose
+  assistant and the AI actions settings tab) are shown only while an AI provider is configured
+  and connected. The conversation reader previously showed its AI menu regardless. The status
+  is fetched once per session and refreshed when an admin saves the AI settings.
+
 ### Removed
 
 - The update check and its "Update available" entries in the sidebar and user menu, together
   with the backend `/api/update` endpoint, so the server no longer queries GitHub for releases.
-  `UPDATE_CHECK_DISABLED` / `UPDATE_CHECK_REPO` no longer have any effect. The desktop app's own
-  updater is unchanged.
+  `UPDATE_CHECK_DISABLED` / `UPDATE_CHECK_REPO` no longer have any effect. The web UI also no
+  longer shows "Update ready" prompts relayed from the desktop/Android shells or asks the Android
+  shell to check for updates; the shells' own native menus are unchanged.
 
 ### Fixed
 

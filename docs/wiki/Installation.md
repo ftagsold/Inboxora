@@ -115,11 +115,14 @@ migrations as a release, and rolling back to an older image is not supported.
 | `NTFY_DATA` | No | Host path for the bundled ntfy data (a Docker named volume by default). |
 | `FCM_SERVICE_ACCOUNT_JSON` | No | Optional/experimental FCM transport for custom Android builds. Not required. |
 | `DOMAIN` / `ACME_EMAIL` | No | Only for the bundled Caddy profile that terminates TLS itself. |
+| `PASSWORD_LOGIN_DISABLED` | No | `true` makes sign-in SSO-only: password login, registration and password-reset requests are refused, and the admin toggle is locked. Configure a working SSO provider (with admin mapping) first. |
 | `IMAP_MAX_PERSISTENT_PER_HOST` | No | Caps always-on IMAP connections per host when one mail server limits them. |
 | `POSTGRES_DATA` / `REDIS_DATA` / `PUID` / `PGID` | No | Bind mounts and ownership for Unraid-style deployments. |
 
-`VITE_APP_NAME` (frontend build argument, default `Inboxora`) renames the app in the sidebar, login
-screen, mobile header and browser tab; it is baked into the image, so set it when building.
+`VITE_APP_NAME` (frontend container, default `Inboxora`) renames the app in the sidebar, login
+screen, mobile header, browser tab and installed PWA. It is read when the frontend container
+starts, so changing it needs only a container restart, not a rebuild. Set it on the **frontend**
+container's environment, not the backend's.
 
 `VITE_EMAIL_DIV_RENDER` is an experimental renderer switch; leave it unset.
 
