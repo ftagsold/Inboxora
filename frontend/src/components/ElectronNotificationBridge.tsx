@@ -6,30 +6,6 @@ import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/n
 import type { StoreMessageRow, StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 
-function linuxInstructionPath(filePath: string | null | undefined) {
-  const normalized = String(filePath || '').replace(/\\/g, '/');
-  if (!normalized) return null;
-  return normalized.replace(/^\/home\/[^/]+(?=\/)/, '$HOME');
-}
-
-function getLinuxInstallCommandFromPath(filePath: string | null | undefined) {
-  const normalized = linuxInstructionPath(filePath);
-  if (!normalized) return null;
-
-  const escaped = normalized.startsWith('$HOME/')
-    ? normalized.replace(/(["\\`])/g, '\\$1')
-    : normalized.replace(/(["\\$`])/g, '\\$1');
-  const quotedPath = `"${escaped}"`;
-
-  if (/\.deb$/i.test(normalized)) return `sudo apt install ${quotedPath}`;
-  if (/\.rpm$/i.test(normalized)) return `sudo dnf install ${quotedPath}`;
-  return null;
-}
-
-function isLinuxPackagePath(filePath: string | null | undefined) {
-  return /\.(deb|rpm)$/i.test(String(filePath || ''));
-}
-
 type NativeAction = 'new-mail' | 'open-message' | 'reply-message' | 'delete-message' | 'star-message' | 'sync';
 
 interface NativeComposeData {
@@ -158,86 +134,6 @@ export default function ElectronNotificationBridge() {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
   }, [addNotification, nativeBridgeReady]);
-
-  useEffect(() => {
-    if (!nativeBridgeReady) return undefined;
-    const unsubscribe = window.inboxoraNative?.updates?.onStatus?.((status) => {
-      if (status?.type !== 'downloaded') return;
-
-      const platform = window.inboxoraNative?.platform;
-      const filePath = status?.data?.filePath || status?.data?.updatePath || '';
-      const installCommand = status?.data?.installCommand
-        || (platform === 'linux' ? getLinuxInstallCommandFromPath(filePath) : null);
-      const manualInstall = Boolean(
-        status?.data?.manualInstall
-        || installCommand
-        || (platform === 'linux' && (isLinuxPackagePath(filePath) || status?.data?.manual))
-      );
-      addNotification({
-        type: 'success',
-        title: 'Update ready',
-        body: manualInstall
-          ? `Inboxora downloaded and verified the update.${installCommand ? ` Install it from a terminal with:\n${installCommand}` : ''}`
-          : 'Inboxora downloaded the update.',
-        allowWrap: true,
-        persistent: true,
-        actionLabel: manualInstall ? 'Copy & Quit' : 'Install',
-        onAction: async () => {
-          if (manualInstall) {
-            const result = await window.inboxoraNative?.updates?.copyInstallCommandAndQuit?.({
-              installCommand,
-              filePath,
-            });
-            if (!result?.copied) {
-              addNotification({
-                type: 'error',
-                title: 'Copy failed',
-                body: 'The update command could not be copied.',
-              });
-            }
-            return;
-          }
-
-          const result = await window.inboxoraNative?.updates?.installDownloaded?.();
-          if (result?.reason === 'manual-install-required' && result.installCommand) {
-            addNotification({
-              type: 'success',
-              title: 'Update ready',
-              body: `Inboxora downloaded and verified the update. Install it from a terminal with:\n${result.installCommand}`,
-              allowWrap: true,
-              persistent: true,
-              actionLabel: 'Copy & Quit',
-              onAction: async () => {
-                await window.inboxoraNative?.updates?.copyInstallCommandAndQuit?.({
-                  installCommand: result.installCommand,
-                  filePath,
-                });
-              },
-            });
-            return;
-          }
-
-          if (result && result.installed === false) {
-            addNotification({
-              type: 'error',
-              title: 'Install failed',
-              body: 'The update was downloaded, but the installer could not be started.',
-            });
-          }
-        },
-      });
-    });
-
-    return () => {
-      if (typeof unsubscribe === 'function') unsubscribe();
-    };
-  }, [addNotification, nativeBridgeReady]);
-
-  useEffect(() => {
-    if (!nativeBridgeReady) return;
-    if (window.inboxoraNative?.platform !== 'android') return;
-    window.inboxoraNative?.updates?.check?.(false)?.catch?.(() => {});
-  }, [nativeBridgeReady]);
 
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;
