@@ -206,6 +206,5 @@ from `.env`/secrets rather than clicked through in the browser. See the commente
 
 A few values exist only in the environment or in the database:
 
-- `UPDATE_CHECK_DISABLED` turns off the server-side release check.
 - `IMAP_MAX_PERSISTENT_PER_HOST` caps always-on IMAP connections per host.
 - The conversation engine's automated-series segmentation mode is not exposed in the interface.

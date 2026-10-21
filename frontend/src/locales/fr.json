@@ -1701,7 +1701,6 @@
     "emptying": "Vidage de « {{name}} »…",
     "emptied": "Dossier vidé",
     "backToAccounts": "Retour aux comptes",
-    "updateAvailable": "Mise à jour disponible : v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
     "hiddenFolders_many": "{{count}} hidden folders"
   },

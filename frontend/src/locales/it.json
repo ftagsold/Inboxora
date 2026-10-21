@@ -1701,7 +1701,6 @@
     "emptying": "Svuotamento di \"{{name}}\"…",
     "emptied": "Cartella svuotata",
     "backToAccounts": "Torna agli account",
-    "updateAvailable": "Aggiornamento disponibile: v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
     "hiddenFolders_many": "{{count}} hidden folders"
   },

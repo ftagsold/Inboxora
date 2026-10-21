@@ -49,7 +49,6 @@ import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
-import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
 import conversationsRoutes from './routes/conversations.js';
 import conversationRebuildRoutes from './routes/conversationRebuild.js';
@@ -265,12 +264,6 @@ app.all('/.well-known/caldav', (req: Request, res: Response) => res.redirect(308
 
 app.get('/api/health', (req: Request, res: Response) => res.json({ status: 'ok' }));
 app.get('/api/version', (_req: Request, res: Response) => res.json({ version: APP_VERSION, sha: process.env.BUILD_SHA || 'dev' }));
-// Server-side update check (#261). Cached in updateCheck.js so repeated hits never
-// re-query GitHub; the browser only talks to Inboxora. Never throws into the response.
-app.get('/api/update', async (_req: Request, res: Response) => {
-  try { res.json(await getUpdateStatus(APP_VERSION)); }
-  catch { res.json({ current: APP_VERSION, latest: null, updateAvailable: false, disabled: false }); }
-});
 
 // Catch unhandled errors thrown (or rejected) inside async route handlers.
 // The `express-async-errors` import above patches Express 4 to forward async

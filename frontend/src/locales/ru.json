@@ -1701,7 +1701,6 @@
     "emptying": "Очистка «{{name}}»…",
     "emptied": "Папка очищена",
     "backToAccounts": "Назад к аккаунтам",
-    "updateAvailable": "Доступно обновление: v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
     "hiddenFolders_many": "{{count}} hidden folders"
   },

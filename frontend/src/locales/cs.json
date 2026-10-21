@@ -1702,8 +1702,7 @@
     "emptyFailed": "Vyprázdnění se nezdařilo",
     "emptying": "Vyprazdňování složky „{{name}}“…",
     "emptied": "Složka vyprázdněna",
-    "backToAccounts": "Zpět k účtům",
-    "updateAvailable": "Je dostupná aktualizace: v{{version}}"
+    "backToAccounts": "Zpět k účtům"
   },
   "signatureEditor": {
     "bold": "Tučné (Ctrl+B)",

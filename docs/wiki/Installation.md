@@ -117,7 +117,6 @@ migrations as a release, and rolling back to an older image is not supported.
 | `DOMAIN` / `ACME_EMAIL` | No | Only for the bundled Caddy profile that terminates TLS itself. |
 | `IMAP_MAX_PERSISTENT_PER_HOST` | No | Caps always-on IMAP connections per host when one mail server limits them. |
 | `POSTGRES_DATA` / `REDIS_DATA` / `PUID` / `PGID` | No | Bind mounts and ownership for Unraid-style deployments. |
-| `UPDATE_CHECK_DISABLED` | No | Disables the server-side GitHub release check. |
 
 `VITE_APP_NAME` (frontend build argument, default `Inboxora`) renames the app in the sidebar, login
 screen, mobile header and browser tab; it is baked into the image, so set it when building.

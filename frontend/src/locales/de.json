@@ -1701,7 +1701,6 @@
     "emptying": "„{{name}}” wird geleert…",
     "emptied": "Ordner geleert",
     "backToAccounts": "Zurück zu Konten",
-    "updateAvailable": "Update verfügbar: v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
     "hiddenFolders_many": "{{count}} hidden folders"
   },

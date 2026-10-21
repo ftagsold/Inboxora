@@ -481,18 +481,6 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
     });
   }, [accounts, accountsReady, expandedAccounts, favoriteFolders, folders, setFolders]);
 
-  // Update-available check (#261). Reads the cached server-side status; the browser
-  // never contacts GitHub. Silent on any failure.
-  const [updateInfo, setUpdateInfo] = useState<{ url?: string; version?: string; latest?: string; updateAvailable?: boolean; [key: string]: unknown } | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/update')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (!cancelled && d) setUpdateInfo(d); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
   const handleLogout = async () => {
     // Remove this device's native push registration (server + local secrets) while
     // the session is still valid, so no notification survives the sign-out.
@@ -1776,22 +1764,6 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             </svg>
           </button>
 
-          {/* Update available (#261) */}
-          {updateInfo?.updateAvailable && (
-            <div
-              onClick={() => { setMobileSidebarOpen(false); window.open(updateInfo.url, '_blank', 'noopener'); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-              onTouchStart={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-              onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = ''}
-              onTouchCancel={e => e.currentTarget.style.background = ''}
-            >
-              <span style={{ color: 'var(--accent)', display: 'flex', flexShrink: 0 }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </span>
-              <span style={{ flex: 1, fontSize: 13, color: 'var(--accent)' }}>{t('sidebar.updateAvailable', { version: updateInfo.latest })}</span>
-            </div>
-          )}
-
           {/* Lock */}
           {user?.hasLockPin && (
             <div
@@ -1980,16 +1952,6 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             </button>
           </div>
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
-          {updateInfo?.updateAvailable && (
-            <>
-              <CtxMenuItem
-                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
-                label={t('sidebar.updateAvailable', { version: updateInfo.latest })}
-                onClick={() => { setUserMenuOpen(false); window.open(updateInfo.url, '_blank', 'noopener'); }}
-              />
-              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
-            </>
-          )}
           <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>} label={t('profile.editProfile')}
             onClick={() => { setUserMenuOpen(false); setShowProfile(true); }} />
           <CtxMenuItem icon={ICONS.settings} label={t('sidebar.settings')}

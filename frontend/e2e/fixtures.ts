@@ -152,7 +152,6 @@ export const test = base.extend({
     await page.route('**/api/accounts', route => route.fulfill({ json: fixture.accounts }));
     await page.route('**/api/ai/status', route => route.fulfill({ json: { enabled: false } }));
     await page.route('**/api/todoist/status', route => route.fulfill({ json: { connected: false } }));
-    await page.route('**/api/update', route => route.fulfill({ json: { current: '3.2.4', latest: '3.2.4', updateAvailable: false } }));
     await page.route('**/api/contacts**', route => route.fulfill({ json: { contacts: [], total: 0 } }));
     await page.route('**/api/calendar/calendars', route => route.fulfill({ json: { calendars: [
       { id: 'calendar-personal', name: 'Personal', color: '#6366f1', source: 'local', read_only: false },

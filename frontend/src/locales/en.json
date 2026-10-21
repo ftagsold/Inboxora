@@ -1701,7 +1701,6 @@
     "emptying": "Emptying \"{{name}}\"…",
     "emptied": "Folder emptied",
     "backToAccounts": "Back to accounts",
-    "updateAvailable": "Update available: v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
     "hiddenFolders_many": "{{count}} hidden folders"
   },

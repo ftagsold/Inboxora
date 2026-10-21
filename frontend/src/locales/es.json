@@ -1701,7 +1701,6 @@
     "emptying": "Vaciando «{{name}}»…",
     "emptied": "Carpeta vaciada",
     "backToAccounts": "Volver a cuentas",
-    "updateAvailable": "Actualización disponible: v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
     "hiddenFolders_many": "{{count}} hidden folders"
   },
