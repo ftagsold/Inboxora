@@ -7,6 +7,7 @@ import { api } from '../utils/api.ts';
 import { conversationApi } from '../utils/conversationApi.ts';
 import { useWebSocket } from '../hooks/useWebSocket.ts';
 import { useBackLayer, useBackNavigation } from '../hooks/useBackNavigation.ts';
+import { useRouteSync } from '../hooks/useRouteSync.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { useCompactLayout } from '../hooks/useCompactLayout.ts';
 import { Button, PanelResizeHandle } from './ui.tsx';
@@ -433,6 +434,7 @@ export default function MailApp() {
     setNativeFolder(null);
   }, [setSelectedMessage]);
   useBackNavigation(isMobile);
+  useRouteSync(isMobile);
   useBackLayer(readerOpen && !showContacts && !showCalendar, closeReader, 10);
   useBackLayer(showContacts, () => setShowContacts(false), 20);
   useBackLayer(showCalendar, () => setShowCalendar(false), 20);
@@ -790,21 +792,21 @@ export default function MailApp() {
     const oidcError = params.get('oidc_error');
 
     if (provider) {
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', window.location.pathname);
       api.getAccounts()
         .then(accounts => { setAccounts(accounts); })
         .catch(console.error);
       setAdminTab('accounts');
       setShowAdmin(true);
     } else if (oauthError) {
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', window.location.pathname);
     } else if (oidcSuccess) {
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', window.location.pathname);
       if (oidcSuccess === 'linked') {
         addNotification({ type: 'info', title: t('admin.ssoLinked.title'), body: t('admin.ssoLinked.body') });
       }
     } else if (oidcError) {
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', window.location.pathname);
       addNotification({ type: 'error', title: t('admin.ssoError.title'), body: oidcError });
     }
   }, [addNotification, setAccounts, setAdminTab, setShowAdmin, t]);
