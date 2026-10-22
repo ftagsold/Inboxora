@@ -81,6 +81,10 @@ async fn main() -> anyhow::Result<()> {
 
     services::calendar::start_occurrence_scheduler(db.clone());
     services::auth::reload_auth_settings(&db).await;
+    // Encrypt any plaintext credentials left from before at-rest encryption existed.
+    services::credentials::encrypt_existing(&db).await?;
+    // OAuth app credentials configured in the admin UI override the environment.
+    routes::integrations::load_integration_configs(&db).await;
     services::auth::start_auth_event_pruning(db.clone());
     // Remote DAV/iCalendar sync. During a side-by-side rollout only one backend should run
     // these schedulers: `BACKGROUND_SYNC=off` leaves them to the other process.

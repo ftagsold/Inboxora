@@ -13,6 +13,7 @@ pub mod contacts;
 pub mod dav;
 pub mod dav_credentials;
 pub mod dav_servers;
+pub mod integrations;
 pub mod oidc;
 pub mod plugins;
 pub mod push;
@@ -52,6 +53,7 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
         ("/api/block-list", block_list::router()),
         ("/api/contacts", contacts::router()),
         ("/api/search", search::router()),
+        ("/api/integrations", integrations::router()),
         ("/api/totp", totp::router()),
         ("/api/rules", rules::router()),
         ("/api/plugins", plugins::router()),

@@ -5,6 +5,7 @@ pub mod auth;
 pub mod calendar;
 pub mod categorizer;
 pub mod contact_backfill;
+pub mod credentials;
 pub mod dav_client;
 pub mod dav_sync;
 pub mod dav_xml;
