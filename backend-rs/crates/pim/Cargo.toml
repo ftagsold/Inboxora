@@ -1,0 +1,19 @@
+[package]
+name = "inboxora-pim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono = "0.4.45"
+chrono-tz = { version = "0.10.4", features = ["case-insensitive"] }
+inboxora-mail = { version = "5.0.0", path = "../mail" }
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+url = "2.5.8"
+
+[lints]
+workspace = true

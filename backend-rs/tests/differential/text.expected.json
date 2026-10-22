@@ -368,5 +368,660 @@
    },
    "out": "Reply-To: \"R\" <r@x.test>"
   }
- ]
+ ],
+ "utils": {
+  "disposition": [
+   {
+    "input": "report.pdf",
+    "safe": "report.pdf",
+    "header": "attachment; filename=\"report.pdf\"; filename*=UTF-8''report.pdf"
+   },
+   {
+    "input": "ré‮port (1).pdf",
+    "safe": "réport (1).pdf",
+    "header": "attachment; filename=\"r_port (1).pdf\"; filename*=UTF-8''r%C3%A9port%20%281%29.pdf"
+   },
+   {
+    "input": "../etc/passwd",
+    "safe": ".._etc_passwd",
+    "header": "attachment; filename=\".._etc_passwd\"; filename*=UTF-8''.._etc_passwd"
+   },
+   {
+    "input": "\u0001\u0002",
+    "safe": "attachment",
+    "header": "attachment; filename=\"attachment\"; filename*=UTF-8''attachment"
+   },
+   {
+    "input": "",
+    "safe": "attachment",
+    "header": "attachment; filename=\"attachment\"; filename*=UTF-8''attachment"
+   },
+   {
+    "input": "  spaced  ",
+    "safe": "spaced",
+    "header": "attachment; filename=\"spaced\"; filename*=UTF-8''spaced"
+   },
+   {
+    "input": "a\"b\\c.txt",
+    "safe": "a\"b_c.txt",
+    "header": "attachment; filename=\"a_b_c.txt\"; filename*=UTF-8''a%22b_c.txt"
+   },
+   {
+    "input": "😀.png",
+    "safe": "😀.png",
+    "header": "attachment; filename=\"__.png\"; filename*=UTF-8''%F0%9F%98%80.png"
+   },
+   {
+    "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "safe": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "header": "attachment; filename=\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"; filename*=UTF-8''xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   {
+    "input": "it's (*).doc",
+    "safe": "it's (*).doc",
+    "header": "attachment; filename=\"it's (*).doc\"; filename*=UTF-8''it%27s%20%28%2A%29.doc"
+   }
+  ],
+  "messageId": [
+   {
+    "input": "<a@b>",
+    "out": "<a@b>"
+   },
+   {
+    "input": " <a@b> ",
+    "out": "<a@b>"
+   },
+   {
+    "input": "a@b",
+    "out": "<a@b>"
+   },
+   {
+    "input": "<a b>",
+    "out": null
+   },
+   {
+    "input": "<é@b>",
+    "out": null
+   },
+   {
+    "input": "",
+    "out": null
+   },
+   {
+    "input": "<>",
+    "out": null
+   },
+   {
+    "input": "<<a@b>>",
+    "out": null
+   },
+   {
+    "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "out": null
+   },
+   {
+    "input": "<a@b>\r\n",
+    "out": "<a@b>"
+   }
+  ],
+  "messageIdList": [
+   {
+    "input": "<a@b> <c@d>\n<a@b>",
+    "out": [
+     "<a@b>",
+     "<c@d>"
+    ]
+   },
+   {
+    "input": "junk <x@y> more <bad id> <z@w>",
+    "out": [
+     "<x@y>",
+     "<z@w>"
+    ]
+   },
+   {
+    "input": "",
+    "out": []
+   },
+   {
+    "input": "<a@b><c@d>",
+    "out": [
+     "<a@b>",
+     "<c@d>"
+    ]
+   }
+  ],
+  "plainText": [
+   {
+    "input": "<p>Hello <b>world</b></p>",
+    "isHtml": true,
+    "plain": "Hello world"
+   },
+   {
+    "input": "<div><span>a</span><span>b</span></div>",
+    "isHtml": true,
+    "plain": "ab"
+   },
+   {
+    "input": "plain text with no markup",
+    "isHtml": false,
+    "plain": "plain text with no markup"
+   },
+   {
+    "input": "",
+    "isHtml": false,
+    "plain": ""
+   },
+   {
+    "input": "<p>unclosed paragraph<p>second",
+    "isHtml": true,
+    "plain": "unclosed paragraph\nsecond"
+   },
+   {
+    "input": "<ul><li>one<li>two</ul>",
+    "isHtml": true,
+    "plain": "one\ntwo"
+   },
+   {
+    "input": "<table><tr><td>a<td>b<tr><td>c</table>",
+    "isHtml": true,
+    "plain": "ab\nc"
+   },
+   {
+    "input": "<div><p>para</div>after",
+    "isHtml": true,
+    "plain": "para\n\nafter"
+   },
+   {
+    "input": "<b><i>misnested</b></i>",
+    "isHtml": true,
+    "plain": "misnested"
+   },
+   {
+    "input": "</p>stray close<br/>",
+    "isHtml": true,
+    "plain": "stray close"
+   },
+   {
+    "input": "<br><hr><img src=\"https://x.test/a.png\">",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<h1>Title</h1><h2>Sub</h2><p>Body</p>",
+    "isHtml": true,
+    "plain": "Title\nSub\nBody"
+   },
+   {
+    "input": "<center><font color=\"red\" size=\"3\" face=\"Arial\">old</font></center>",
+    "isHtml": true,
+    "plain": "old"
+   },
+   {
+    "input": "<dl><dt>term<dd>def</dl>",
+    "isHtml": true,
+    "plain": "termdef"
+   },
+   {
+    "input": "<pre>  pre\n  formatted  </pre>",
+    "isHtml": true,
+    "plain": "pre\n  formatted"
+   },
+   {
+    "input": "<blockquote type=\"cite\">quoted <cite>x</cite></blockquote>",
+    "isHtml": true,
+    "plain": "quoted x"
+   },
+   {
+    "input": "<tbody><tr><td>orphan rows</td></tr></tbody>",
+    "isHtml": true,
+    "plain": "orphan rows"
+   },
+   {
+    "input": "a &amp; b &lt; c &gt; d &quot;e&quot; &#39;f&#39;",
+    "isHtml": true,
+    "plain": "a & b < c > d \"e\" 'f'"
+   },
+   {
+    "input": "caf&eacute; &copy; &nbsp; &hellip; &#8230; &#x2014; &bogus; &amp",
+    "isHtml": true,
+    "plain": "café ©   … … — &bogus; &"
+   },
+   {
+    "input": "<p title=\"a &amp; b &quot;q&quot;\">x</p>",
+    "isHtml": true,
+    "plain": "x"
+   },
+   {
+    "input": "5 > 3 and 2 < 4",
+    "isHtml": false,
+    "plain": "5 > 3 and 2 < 4"
+   },
+   {
+    "input": "<a href=\"https://x.test/?a=1&b=2\">q</a>",
+    "isHtml": true,
+    "plain": "q"
+   },
+   {
+    "input": "<a href=\"https://x.test/?a=1&amp;b=2\">q</a>",
+    "isHtml": true,
+    "plain": "q"
+   },
+   {
+    "input": "&lt;script&gt;alert(1)&lt;/script&gt;",
+    "isHtml": true,
+    "plain": "<script>alert(1)</script>"
+   },
+   {
+    "input": "<td width=\"\" height=\"10\" nowrap bgcolor=\"#fff\" align=\"center\">cell</td>",
+    "isHtml": true,
+    "plain": "cell"
+   },
+   {
+    "input": "<img alt=\"\" src=\"cid:abc\">",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<img src=\"https://x.test/a.png\" alt=\"A\" width=\"100\" height=\"50\" onerror=\"alert(1)\">",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<div onclick=\"x()\" data-foo=\"1\" class=\"a b\" id=\"main\" style=\"color: red\">x</div>",
+    "isHtml": true,
+    "plain": "x"
+   },
+   {
+    "input": "<span style=\"color:red;;font-weight: bold !important; background: url(http://x.test/bg.png)\">s</span>",
+    "isHtml": true,
+    "plain": "s"
+   },
+   {
+    "input": "<span style=\"  \">empty style</span>",
+    "isHtml": true,
+    "plain": "empty style"
+   },
+   {
+    "input": "<span style=\"color red\">broken style</span>",
+    "isHtml": true,
+    "plain": "broken style"
+   },
+   {
+    "input": "<span style=\"font-family: 'Helvetica Neue', Arial; margin: 0 auto\">fonts</span>",
+    "isHtml": true,
+    "plain": "fonts"
+   },
+   {
+    "input": "<span style=\"color: red; /* comment */ padding: 1px\">comment</span>",
+    "isHtml": true,
+    "plain": "comment"
+   },
+   {
+    "input": "<span style=\"a:b}c{d:e\">brace</span>",
+    "isHtml": true,
+    "plain": "brace"
+   },
+   {
+    "input": "<span style=\"color:RED;Font-Size:12PX\">case</span>",
+    "isHtml": true,
+    "plain": "case"
+   },
+   {
+    "input": "<div dir=\"rtl\" lang=\"ar\">rtl</div>",
+    "isHtml": true,
+    "plain": "rtl"
+   },
+   {
+    "input": "<a name=\"anchor\">anchor</a>",
+    "isHtml": true,
+    "plain": "anchor"
+   },
+   {
+    "input": "<table summary=\"s\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" background=\"http://x.test/t.png\"><tr><td background=\"data:image/png;base64,AAAA\">x</td></tr></table>",
+    "isHtml": true,
+    "plain": "x"
+   },
+   {
+    "input": "<td abbr=\"a\" axis=\"b\" headers=\"h\" scope=\"col\">td</td>",
+    "isHtml": true,
+    "plain": "td"
+   },
+   {
+    "input": "<img srcset=\"http://x.test/a.png 1x, https://x.test/b.png 2x\" src=\"http://x.test/s.png\">",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<img srcset=\"data:image/png;base64,AAA= 1x, javascript:alert(1) 2x\">",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<img src=\"data:image/png;base64,iVBORw0KGgo=\" loading=\"eager\" decoding=\"sync\">",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<img src=\"https://svcs.ebay.com/imageser/foo?imageUrl=https%3A%2F%2Fi.ebayimg.com%2Fimages%2Fx.jpg\">",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<div background=\"http://x.test/b.png\" style=\"background-image:url('http://x.test/c.png')\">bg</div>",
+    "isHtml": true,
+    "plain": "bg"
+   },
+   {
+    "input": "<a href=\"http://x.test/p\">http</a>",
+    "isHtml": true,
+    "plain": "http"
+   },
+   {
+    "input": "<a href=\"//x.test/p\">protocol relative</a>",
+    "isHtml": true,
+    "plain": "protocol relative"
+   },
+   {
+    "input": "<a href=\"mailto:a@x.test\">mail</a> <a href=\"tel:+123\">tel</a> <a href=\"sms:+1\">sms</a>",
+    "isHtml": true,
+    "plain": "mail tel sms"
+   },
+   {
+    "input": "<a href=\"#frag\">frag</a> <a href=\"/root\">root</a> <a href=\"?q=1\">q</a> <a href=\"./rel\">rel</a>",
+    "isHtml": true,
+    "plain": "frag root q rel"
+   },
+   {
+    "input": "<a href=\"benchmade.com\">bare domain</a> <a href=\"www.example.com/path\">www</a>",
+    "isHtml": true,
+    "plain": "bare domain www"
+   },
+   {
+    "input": "<a href=\"javascript:alert(1)\">js</a>",
+    "isHtml": true,
+    "plain": "js"
+   },
+   {
+    "input": "<a href=\"JaVaScRiPt:alert(1)\">js case</a>",
+    "isHtml": true,
+    "plain": "js case"
+   },
+   {
+    "input": "<a href=\"java\tscript:alert(1)\">js tab</a>",
+    "isHtml": true,
+    "plain": "js tab"
+   },
+   {
+    "input": "<a href=\" javascript:alert(1)\">js space</a>",
+    "isHtml": true,
+    "plain": "js space"
+   },
+   {
+    "input": "<a href=\"&#106;avascript:alert(1)\">js entity</a>",
+    "isHtml": true,
+    "plain": "js entity"
+   },
+   {
+    "input": "<a href=\"data:text/html,<script>alert(1)</script>\">data</a>",
+    "isHtml": true,
+    "plain": "data"
+   },
+   {
+    "input": "<a href=\"vbscript:msgbox(1)\">vb</a>",
+    "isHtml": true,
+    "plain": "vb"
+   },
+   {
+    "input": "<a href=\"https://x.test\" target=\"_blank\" rel=\"nofollow\" title=\"t\">full</a>",
+    "isHtml": true,
+    "plain": "full"
+   },
+   {
+    "input": "<a>no href</a>",
+    "isHtml": true,
+    "plain": "no href"
+   },
+   {
+    "input": "<a href=\"\">empty href</a>",
+    "isHtml": true,
+    "plain": "empty href"
+   },
+   {
+    "input": "<html><head><title>Doc title</title><meta charset=\"utf-8\"><style>.a{color:red}</style></head><body><p>Body</p></body></html>",
+    "isHtml": true,
+    "plain": "Doc titleBody"
+   },
+   {
+    "input": "<head><!--[if gte mso 9]><style>.mso{mso-line-height:1}</style><![endif]--><!--[if !mso]><!--><style>.web{x:1}</style><!--<![endif]--></head><p>b</p>",
+    "isHtml": true,
+    "plain": "b"
+   },
+   {
+    "input": "<style>@import url(https://fonts.test/f.css); .x{background:url(\"http://x.test/a.png\")} @media (prefers-color-scheme: dark) { .a { color: white } .b { color: black } } [data-ogsc] .c { color: red } .d { color-scheme: light dark; filter: invert(1) hue-rotate(180deg); }</style><p>x</p>",
+    "isHtml": true,
+    "plain": "x"
+   },
+   {
+    "input": "<style>.a{background:url(https://tracker.test/p.gif)} .b{background:url(cid:img1)} .c{background:url(data:image/png;base64,AA==)}</style>",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<style>p { color: red }</style><style>q{}</style>",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<style><script>alert(1)</script></style>",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<head><title>t</title>",
+    "isHtml": true,
+    "plain": "t"
+   },
+   {
+    "input": "<head>unterminated head <style>x{}</style>",
+    "isHtml": true,
+    "plain": "unterminated head"
+   },
+   {
+    "input": "<script>alert(1)</script>after",
+    "isHtml": false,
+    "plain": "after"
+   },
+   {
+    "input": "<SCRIPT SRC=//x.test/x.js></SCRIPT>",
+    "isHtml": false,
+    "plain": ""
+   },
+   {
+    "input": "<iframe src=\"https://x.test\"></iframe>fallback",
+    "isHtml": false,
+    "plain": "fallback"
+   },
+   {
+    "input": "<iframe src=\"x\"><img src=x onerror=alert(1)></iframe>",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<object data=\"x\"></object><embed src=\"y\"><applet code=\"z\"></applet>",
+    "isHtml": false,
+    "plain": ""
+   },
+   {
+    "input": "<form action=\"https://x.test\"><input name=\"q\"><button>go</button><select><option>o1</option></select><textarea>t <b>x</b></textarea></form>",
+    "isHtml": true,
+    "plain": "goo1t <b>x</b>"
+   },
+   {
+    "input": "<svg onload=alert(1)><circle r=\"1\"/></svg>",
+    "isHtml": false,
+    "plain": ""
+   },
+   {
+    "input": "<svg><style><img src=x onerror=alert(1)></style></svg>",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<math><mi xlink:href=\"javascript:alert(1)\">x</mi></math>",
+    "isHtml": false,
+    "plain": "x"
+   },
+   {
+    "input": "<xmp><img src=x onerror=alert(1)></xmp>",
+    "isHtml": true,
+    "plain": "<img src=x onerror=alert(1)>"
+   },
+   {
+    "input": "<noscript><p title=\"</noscript><img src=x onerror=alert(1)>\"></noscript>",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<textarea></textarea/><img src=x onerror=alert(1)>",
+    "isHtml": true,
+    "plain": "</textarea/><img src=x onerror=alert(1)>"
+   },
+   {
+    "input": "<option>&lt;script&gt;alert(1)&lt;/script&gt;</option>",
+    "isHtml": true,
+    "plain": "<script>alert(1)</script>"
+   },
+   {
+    "input": "<img src=x onerror=alert(1)//",
+    "isHtml": false,
+    "plain": ""
+   },
+   {
+    "input": "<img src=\"x\" `onerror=alert(1)>",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<a href=\"https://ok.test\" onmouseover=\"alert(1)\">hover</a>",
+    "isHtml": true,
+    "plain": "hover"
+   },
+   {
+    "input": "<div style=\"background-image: url(javascript:alert(1))\">css js</div>",
+    "isHtml": true,
+    "plain": "css js"
+   },
+   {
+    "input": "<div style=\"width: expression(alert(1))\">expr</div>",
+    "isHtml": true,
+    "plain": "expr"
+   },
+   {
+    "input": "<base href=\"https://evil.test/\"><link rel=\"stylesheet\" href=\"https://evil.test/x.css\"><meta http-equiv=\"refresh\" content=\"0;url=javascript:alert(1)\">",
+    "isHtml": true,
+    "plain": ""
+   },
+   {
+    "input": "<!-- comment --><p>after comment</p><!--[if mso]>mso only<![endif]-->",
+    "isHtml": true,
+    "plain": "after comment"
+   },
+   {
+    "input": "<![CDATA[cdata]]><p>x</p>",
+    "isHtml": true,
+    "plain": "x"
+   },
+   {
+    "input": "<!DOCTYPE html><p>doctype</p>",
+    "isHtml": true,
+    "plain": "doctype"
+   },
+   {
+    "input": "<p>a<p/>b</p>",
+    "isHtml": true,
+    "plain": "a\nb"
+   },
+   {
+    "input": "<img/src=\"x\"/onerror=alert(1)>",
+    "isHtml": false,
+    "plain": ""
+   },
+   {
+    "input": "<div/onclick=\"x\">slash attrs</div>",
+    "isHtml": true,
+    "plain": "slash attrs"
+   },
+   {
+    "input": "<a href=\"https://x.test\"\nonclick=\"y\">newline attr</a>",
+    "isHtml": true,
+    "plain": "newline attr"
+   },
+   {
+    "input": "<p class=\"a\"class=\"b\">dup</p>",
+    "isHtml": true,
+    "plain": "dup"
+   },
+   {
+    "input": "<<p>>double angle",
+    "isHtml": true,
+    "plain": "<>double angle"
+   },
+   {
+    "input": "<p>unterminated <b",
+    "isHtml": true,
+    "plain": "unterminated"
+   },
+   {
+    "input": "<p id=\"x\" id=\"y\">duplicate attr</p>",
+    "isHtml": true,
+    "plain": "duplicate attr"
+   },
+   {
+    "input": "<div style=\"color: red\">deep deep deep deep deep </div>",
+    "isHtml": true,
+    "plain": "deep deep deep deep deep"
+   },
+   {
+    "input": "<span lang=en>unquoted</span>",
+    "isHtml": true,
+    "plain": "unquoted"
+   },
+   {
+    "input": "<td colspan=2 rowspan=\"3\">spans</td>",
+    "isHtml": true,
+    "plain": "spans"
+   },
+   {
+    "input": "<html><head><title>Ignored</title><style>.x{}</style></head><body><div style=\"display:none\">&zwnj;&nbsp;&zwnj;&nbsp;preheader</div><p>Visible ##TRACK## text</p><p>======</p><p>more</p></body></html>",
+    "isHtml": true,
+    "plain": "Ignored‌ ‌ preheader\nVisible ##TRACK## text\n======\nmore"
+   },
+   {
+    "input": "<p>Hello​​world</p><p>&shy;soft</p>",
+    "isHtml": true,
+    "plain": "Hello​​world\n­soft"
+   },
+   {
+    "input": "<table><tr><td>Order</td><td>#123</td></tr></table><p>Thanks!</p>",
+    "isHtml": true,
+    "plain": "Order#123\nThanks!"
+   },
+   {
+    "input": "<script>var x = \"hidden\";</script><noscript>noscript text</noscript><p>shown</p>",
+    "isHtml": true,
+    "plain": "noscript textshown"
+   },
+   {
+    "input": "<p>word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word </p>",
+    "isHtml": true,
+    "plain": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+   },
+   {
+    "input": "<style>unclosed style <p>never shown",
+    "isHtml": true,
+    "plain": ""
+   }
+  ]
+ }
 }

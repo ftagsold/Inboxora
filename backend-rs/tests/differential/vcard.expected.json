@@ -1,0 +1,734 @@
+{
+ "parse": [
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:abc-1\r\nFN:Jane Doe\r\nN:Doe;Jane;;;\r\nEMAIL;TYPE=INTERNET,WORK:Jane@Example.com\r\nEMAIL;TYPE=HOME;PREF=1:jane@home.test\r\nTEL;TYPE=CELL:+1 555 0100\r\nORG:ACME\\, Inc;Dept\r\nNOTE:Line1\\nLine2; semi\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": "abc-1",
+    "displayName": "Jane Doe",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "emails": [
+     {
+      "value": "jane@example.com",
+      "type": "internet,work",
+      "primary": false
+     },
+     {
+      "value": "jane@home.test",
+      "type": "home",
+      "primary": true
+     }
+    ],
+    "phones": [
+     {
+      "value": "+1 555 0100",
+      "type": "cell"
+     }
+    ],
+    "organization": "ACME, Inc",
+    "notes": "Line1\nLine2; semi",
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Apple\r\nitem1.EMAIL;type=INTERNET;type=pref:a@x.test\r\nitem1.X-ABLabel:_$!<Other>!$_\r\nitem2.X-ABDATE;type=pref:2010-06-12\r\nitem2.X-ABLabel:Wedding\r\nBDAY:1990-02-28\r\nANNIVERSARY:20100612\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Apple",
+    "firstName": null,
+    "lastName": null,
+    "emails": [
+     {
+      "value": "a@x.test",
+      "type": "internet",
+      "primary": true
+     }
+    ],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": "1990-02-28",
+    "anniversary": "2010-06-12",
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [
+     {
+      "label": "Wedding",
+      "value": "2010-06-12"
+     },
+     {
+      "label": "Birthday",
+      "value": "1990-02-28"
+     },
+     {
+      "label": "Anniversary",
+      "value": "2010-06-12"
+     }
+    ],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Android\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2001-01-01;0;Graduation;;;;;;;;;;;;\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;;0;Launch;2002-02-02;;;\r\nBDAY:--03-15\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Android",
+    "firstName": null,
+    "lastName": null,
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [
+     {
+      "label": "Graduation",
+      "value": "2001-01-01"
+     },
+     {
+      "label": "Birthday",
+      "value": "--03-15"
+     }
+    ],
+    "invalidDates": [
+     "Launch"
+    ],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Bad dates\r\nBDAY:2023-02-30\r\nX-ABDATE;TYPE=\"Unterminated:2020-01-01\r\nX-ABDATE;TYPE=\"Fine\";X=1:2020-01-02\r\nX-ABDATE;LABEL=Custom\\, label:2020-01-03\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Bad dates",
+    "firstName": null,
+    "lastName": null,
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [
+     {
+      "label": "Fine",
+      "value": "2020-01-02"
+     }
+    ],
+    "invalidDates": [
+     "2023-02-30"
+    ],
+    "invalidDateLabels": [
+     "unterminated parameter",
+     "Custom\\, label"
+    ]
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Rich\r\nTITLE:CEO\r\nROLE:Boss\r\nNICKNAME:Bossy\r\nURL;TYPE=WORK:https://acme.test\r\nURL:javascript:alert(1)\r\nIMPP:xmpp:me@jabber.test\r\nIMPP;TYPE=SKYPE:live:me\r\nCATEGORIES:Friends,Work\\,Stuff,,\r\nADR;TYPE=HOME:;;1 Main St;Springfield;IL;62704;USA\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Rich",
+    "firstName": null,
+    "lastName": null,
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": "CEO",
+    "role": "Boss",
+    "nickname": "Bossy",
+    "urls": [
+     {
+      "value": "https://acme.test",
+      "type": "work"
+     }
+    ],
+    "instantMessages": [
+     {
+      "value": "xmpp:me@jabber.test",
+      "type": "xmpp"
+     },
+     {
+      "value": "live:me",
+      "type": "skype"
+     }
+    ],
+    "categories": [
+     "Friends",
+     "Work,Stuff"
+    ],
+    "addresses": [
+     {
+      "type": "home",
+      "pobox": "",
+      "extended": "",
+      "street": "1 Main St",
+      "locality": "Springfield",
+      "region": "IL",
+      "postalCode": "62704",
+      "country": "USA"
+     }
+    ],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Photo\r\nPHOTO;ENCODING=b;TYPE=PNG:iVBORw0KGgo=\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Photo",
+    "firstName": null,
+    "lastName": null,
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": "data:image/png;base64,iVBORw0KGgo=",
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Photo2\r\nPHOTO:data:image/svg+xml;base64,PHN2Zz4=\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Photo2",
+    "firstName": null,
+    "lastName": null,
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Photo3\r\nPHOTO;VALUE=uri:https://x.test/p.jpg\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Photo3",
+    "firstName": null,
+    "lastName": null,
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\nVERSION:3.0\nFN:Folded long name that goes on and on and on and on and on and on and on and on and on\n  continued\nEMAIL:a@b.test\nTEL:tel:+15550101\nEND:VCARD\n",
+   "out": {
+    "uid": null,
+    "displayName": "Folded long name that goes on and on and on and on and on and on and on and on and on continued",
+    "firstName": null,
+    "lastName": null,
+    "emails": [
+     {
+      "value": "a@b.test",
+      "type": "other",
+      "primary": true
+     }
+    ],
+    "phones": [
+     {
+      "value": "+15550101",
+      "type": "other"
+     }
+    ],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nFN:No version\r\nEMAIL;PREF:pref@x.test\r\nEMAIL:other@x.test\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "No version",
+    "firstName": null,
+    "lastName": null,
+    "emails": [
+     {
+      "value": "pref@x.test",
+      "type": "other",
+      "primary": true
+     },
+     {
+      "value": "other@x.test",
+      "type": "other",
+      "primary": false
+     }
+    ],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nFN:Pref rank\r\nEMAIL;PREF=5:five@x.test\r\nEMAIL;PREF=2:two@x.test\r\nEMAIL;TYPE=pref:typepref@x.test\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Pref rank",
+    "firstName": null,
+    "lastName": null,
+    "emails": [
+     {
+      "value": "five@x.test",
+      "type": "other",
+      "primary": false
+     },
+     {
+      "value": "two@x.test",
+      "type": "other",
+      "primary": false
+     },
+     {
+      "value": "typepref@x.test",
+      "type": "other",
+      "primary": true
+     }
+    ],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN;CHARSET=UTF-8:Jürgen Müller 😀\r\nN:Müller;Jürgen;;;\r\nX-SOCIALPROFILE;type=twitter:https://twitter.com/x\r\nX-CUSTOM:keep me\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Jürgen Müller 😀",
+    "firstName": "Jürgen",
+    "lastName": "Müller",
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "garbage without vcard markers",
+   "out": {
+    "uid": null,
+    "displayName": null,
+    "firstName": null,
+    "lastName": null,
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "",
+   "out": {
+    "uid": null,
+    "displayName": null,
+    "firstName": null,
+    "lastName": null,
+    "emails": [],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  },
+  {
+   "input": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Quoted\r\nX-ABDATE;TYPE=\"Wed;ding\":2020-05-05\r\nEMAIL;TYPE=\"WORK\":q@x.test\r\nEND:VCARD\r\n",
+   "out": {
+    "uid": null,
+    "displayName": "Quoted",
+    "firstName": null,
+    "lastName": null,
+    "emails": [
+     {
+      "value": "q@x.test",
+      "type": "work",
+      "primary": true
+     }
+    ],
+    "phones": [],
+    "organization": null,
+    "notes": null,
+    "photoData": null,
+    "birthday": null,
+    "anniversary": null,
+    "title": null,
+    "role": null,
+    "nickname": null,
+    "urls": [],
+    "instantMessages": [],
+    "categories": [],
+    "addresses": [],
+    "contactDates": [
+     {
+      "label": "Wed;ding",
+      "value": "2020-05-05"
+     }
+    ],
+    "invalidDates": [],
+    "invalidDateLabels": []
+   }
+  }
+ ],
+ "generate": [
+  {
+   "input": {
+    "uid": "u1",
+    "displayName": "Jane Doe",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "emails": [
+     {
+      "value": "jane@x.test",
+      "type": "work",
+      "primary": true
+     },
+     {
+      "value": "j2@x.test"
+     }
+    ],
+    "phones": [
+     {
+      "value": "+1 555",
+      "type": "cell"
+     },
+     {
+      "value": "123"
+     }
+    ],
+    "organization": "ACME, Inc",
+    "notes": "a;b\nc"
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:u1\r\nFN:Jane Doe\r\nN:Doe;Jane;;;\r\nEMAIL;TYPE=WORK,PREF:jane@x.test\r\nEMAIL;TYPE=OTHER:j2@x.test\r\nTEL;TYPE=CELL:+1 555\r\nTEL;TYPE=VOICE:123\r\nORG:ACME\\, Inc\r\nNOTE:a\\;b\\nc\r\nEND:VCARD\r\n"
+  },
+  {
+   "input": {
+    "firstName": "Only"
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:\r\nFN:Only\r\nN:;Only;;;\r\nEND:VCARD\r\n"
+  },
+  {
+   "input": {
+    "emails": [
+     {
+      "value": "fallback@x.test"
+     }
+    ]
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:\r\nFN:fallback@x.test\r\nEMAIL;TYPE=OTHER:fallback@x.test\r\nEND:VCARD\r\n"
+  },
+  {
+   "input": {
+    "uid": "u2",
+    "displayName": "Dates",
+    "contactDates": [
+     {
+      "label": "Birthday",
+      "value": "1990-01-01"
+     },
+     {
+      "label": "birthday",
+      "value": "1990-01-01"
+     },
+     {
+      "label": "Wedding; party",
+      "value": "20200505"
+     },
+     {
+      "label": "Bad",
+      "value": "2020-13-01"
+     },
+     {
+      "label": "Partial",
+      "value": "--05-06"
+     }
+    ]
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:u2\r\nFN:Dates\r\nBDAY;TYPE=Birthday:1990-01-01\r\nX-ABDATE;TYPE=\"Wedding; party\":2020-05-05\r\nX-ABDATE;TYPE=Partial:--05-06\r\nEND:VCARD\r\n"
+  },
+  {
+   "input": {
+    "uid": "u3",
+    "birthday": "1991-02-03",
+    "anniversary": "bad",
+    "title": "CEO",
+    "role": "r",
+    "nickname": "n",
+    "urls": [
+     {
+      "value": "https://x.test",
+      "type": "home"
+     },
+     {
+      "value": ""
+     }
+    ],
+    "instantMessages": [
+     {
+      "value": "xmpp:a@b"
+     }
+    ],
+    "categories": [
+     "A",
+     "B,C"
+    ],
+    "addresses": [
+     {
+      "type": "work",
+      "street": "1 Main;St",
+      "locality": "Town"
+     }
+    ]
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:u3\r\nFN:\r\nBDAY:1991-02-03\r\nTITLE:CEO\r\nROLE:r\r\nNICKNAME:n\r\nURL;TYPE=HOME:https://x.test\r\nIMPP;TYPE=OTHER:xmpp:a@b\r\nCATEGORIES:A,B\\,C\r\nADR;TYPE=WORK:;;1 Main\\;St;Town;;;\r\nEND:VCARD\r\n"
+  },
+  {
+   "input": {
+    "uid": "long",
+    "displayName": "ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ",
+    "notes": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:long\r\nFN:ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ\r\n ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ\r\nNOTE:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\n xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\n xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\nEND:VCARD\r\n"
+  }
+ ],
+ "merge": [
+  {
+   "raw": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:abc-1\r\nFN:Jane Doe\r\nN:Doe;Jane;;;\r\nEMAIL;TYPE=INTERNET,WORK:Jane@Example.com\r\nEMAIL;TYPE=HOME;PREF=1:jane@home.test\r\nTEL;TYPE=CELL:+1 555 0100\r\nORG:ACME\\, Inc;Dept\r\nNOTE:Line1\\nLine2; semi\r\nEND:VCARD\r\n",
+   "contact": {
+    "displayName": "Jane Q Doe",
+    "emails": [
+     {
+      "value": "new@x.test",
+      "type": "home"
+     }
+    ]
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:abc-1\r\nFN:Jane Q Doe\r\nEMAIL;TYPE=HOME:new@x.test\r\nEND:VCARD\r\n"
+  },
+  {
+   "raw": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN;CHARSET=UTF-8:Jürgen Müller 😀\r\nN:Müller;Jürgen;;;\r\nX-SOCIALPROFILE;type=twitter:https://twitter.com/x\r\nX-CUSTOM:keep me\r\nEND:VCARD\r\n",
+   "contact": {
+    "uid": "keep",
+    "displayName": "Changed",
+    "title": "New title"
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nX-SOCIALPROFILE;type=twitter:https://twitter.com/x\r\nX-CUSTOM:keep me\r\nFN:Changed\r\nTITLE:New title\r\nEND:VCARD\r\n"
+  },
+  {
+   "raw": "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Apple\r\nitem1.EMAIL;type=INTERNET;type=pref:a@x.test\r\nitem1.X-ABLabel:_$!<Other>!$_\r\nitem2.X-ABDATE;type=pref:2010-06-12\r\nitem2.X-ABLabel:Wedding\r\nBDAY:1990-02-28\r\nANNIVERSARY:20100612\r\nEND:VCARD\r\n",
+   "contact": {
+    "displayName": "Apple",
+    "contactDates": [
+     {
+      "label": "Anniversary",
+      "value": "2011-01-01"
+     }
+    ]
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nitem1.X-ABLabel:_$!<Other>!$_\r\nitem2.X-ABLabel:Wedding\r\nFN:Apple\r\nANNIVERSARY;TYPE=Anniversary:2011-01-01\r\nEND:VCARD\r\n"
+  },
+  {
+   "raw": "not a vcard",
+   "contact": {
+    "displayName": "Fresh"
+   },
+   "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:\r\nFN:Fresh\r\nEND:VCARD\r\n"
+  }
+ ],
+ "dates": [
+  {
+   "input": "2020-02-29",
+   "out": "2020-02-29",
+   "strict": "2020-02-29"
+  },
+  {
+   "input": "2021-02-29",
+   "out": null,
+   "strict": null
+  },
+  {
+   "input": "20200101",
+   "out": "2020-01-01",
+   "strict": "2020-01-01"
+  },
+  {
+   "input": "--02-29",
+   "out": "--02-29",
+   "strict": null
+  },
+  {
+   "input": "--0230",
+   "out": null,
+   "strict": null
+  },
+  {
+   "input": " 1999-12-31 ",
+   "out": "1999-12-31",
+   "strict": "1999-12-31"
+  },
+  {
+   "input": "1999-1-1",
+   "out": null,
+   "strict": null
+  },
+  {
+   "input": "0000-01-01",
+   "out": null,
+   "strict": null
+  }
+ ]
+}

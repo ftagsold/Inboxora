@@ -150,3 +150,50 @@ fn text_helpers_match_node() {
     }
     assert!(failures.is_empty(), "{} mismatches:\n{}", failures.len(), failures.join("\n"));
 }
+
+#[test]
+fn utils_match_node() {
+    use inboxora_mail::util;
+    let raw =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/differential/text.expected.json"))
+            .unwrap();
+    let t: Value = serde_json::from_str(&raw).unwrap();
+    let u = &t["utils"];
+    let mut failures = Vec::new();
+    for c in u["disposition"].as_array().unwrap() {
+        let input = c["input"].as_str().unwrap();
+        let (safe, header) = (util::safe_filename(Some(input)), util::attachment_disposition(input));
+        if safe != c["safe"].as_str().unwrap() || header != c["header"].as_str().unwrap() {
+            failures.push(format!(
+                "disposition {input:?}: node {} / {} rust {safe:?} / {header:?}",
+                c["safe"], c["header"]
+            ));
+        }
+    }
+    for c in u["messageId"].as_array().unwrap() {
+        let out = util::normalize_message_id(c["input"].as_str().unwrap());
+        if serde_json::json!(out) != c["out"] {
+            failures.push(format!("messageId {}: node {} rust {out:?}", c["input"], c["out"]));
+        }
+    }
+    for c in u["messageIdList"].as_array().unwrap() {
+        let out = util::normalize_message_id_list(c["input"].as_str().unwrap());
+        if serde_json::json!(out) != c["out"] {
+            failures.push(format!("messageIdList {}: node {} rust {out:?}", c["input"], c["out"]));
+        }
+    }
+    for c in u["plainText"].as_array().unwrap() {
+        let input = c["input"].as_str().unwrap();
+        let (is_html, plain) = (util::is_html_description(input), util::html_to_plain_text(input));
+        let snippet_like = super_snippet_difference(input);
+        if is_html != c["isHtml"].as_bool().unwrap() || (plain != c["plain"].as_str().unwrap() && !snippet_like) {
+            failures.push(format!("plainText {input:?}: node {} {} rust {is_html} {plain:?}", c["isHtml"], c["plain"]));
+        }
+    }
+    assert!(failures.is_empty(), "{} mismatches:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// htmlToPlainText also uses htmlparser2 10 (see `snippet_version_difference`).
+fn super_snippet_difference(input: &str) -> bool {
+    snippet_version_difference(input)
+}

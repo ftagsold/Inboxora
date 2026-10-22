@@ -10,10 +10,13 @@ publish.workspace = true
 base64 = "0.23.1"
 chrono = "0.4.45"
 encoding_rs = "0.8.42"
+getrandom = "0.4.3"
 html5ever = "0.40.1"
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.11.1"
+unicode-normalization = "0.1.26"
 url = "2.5.8"
 
 [lints]
