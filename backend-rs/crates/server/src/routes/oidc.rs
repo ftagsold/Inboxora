@@ -344,7 +344,7 @@ async fn callback(
         let jwks_uri = js_string(doc.get("jwks_uri").unwrap_or(&Value::Null));
         let claims = match tokens.get("id_token").and_then(Value::as_str).filter(|t| !t.is_empty()) {
             None => Err("OIDC token response did not include an id_token".to_owned()),
-            Some(t) => oidc::verify_id_token(t, &jwks_uri, &issuer_doc, &client_id, insecure).await,
+            Some(t) => oidc::verify_id_token(t, &jwks_uri, Some(&issuer_doc), &client_id, insecure).await,
         };
         let claims = match claims {
             Ok(c) => c,

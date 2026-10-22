@@ -50,11 +50,14 @@ node tests/contract/harness.mjs [filter]
 | 1 | pure libraries (MIME, sanitizer, vCard, iCal/recurrence, threading) | done — differential corpora in `tests/differential` |
 | 2 | database-only route groups (block list, contacts, search, rules, categories, push devices, calendar reads) | done |
 | 3 | DAV servers and DAV sync | done — `/carddav`, `/caldav`, well-known redirects, app passwords, secret feeds, DAV clients, `/api/dav/servers`, `/api/calendar/sources`, remote sync with write-back, contact backfills. Calendar event mutations moved to phase 5 (they deliver invitations over SMTP) |
-| 4 | authentication | pending |
+| 4 | authentication | done — `/api/auth` (password, TOTP, email OTP, lock, preferences, reset), `/api/totp`, OIDC sign-in, Microsoft OAuth, `/api/admin`, `/api/integrations`, SMTP mailer |
 | 5 | mail engine, mail routes, send, WebSocket events, calendar event mutations and invitations | pending |
 | 6 | AI, integrations, cutover | pending |
 
 Plugins (GTD) are out of scope for the rewrite.
+
+Test hook: `MS_AUTHORITY_URL` overrides the Microsoft identity platform base URL (Node has it
+fixed); production deployments leave it unset.
 
 Background sync: the Rust server starts the remote DAV/iCalendar schedulers unless
 `BACKGROUND_SYNC=off`. While Node and Rust serve side by side, run them in only one process.

@@ -9,6 +9,7 @@ pub mod credentials;
 pub mod dav_client;
 pub mod dav_sync;
 pub mod dav_xml;
+pub mod oauth;
 pub mod oidc;
 pub mod push;
 pub mod smtp;

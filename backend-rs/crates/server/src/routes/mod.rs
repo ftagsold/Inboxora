@@ -14,6 +14,7 @@ pub mod dav;
 pub mod dav_credentials;
 pub mod dav_servers;
 pub mod integrations;
+pub mod oauth;
 pub mod oidc;
 pub mod plugins;
 pub mod push;
@@ -70,6 +71,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
             .merge(admin_only(state))
             .nest("/api/auth/oidc", oidc::api_router())
             .nest("/auth/oidc", oidc::browser_router())
+            .nest("/oauth", oauth::router())
             .merge(system::router())
             .merge(categories::router())
             .merge(push::router())

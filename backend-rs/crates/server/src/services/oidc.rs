@@ -187,7 +187,7 @@ async fn fetch_jwks(uri: &str, insecure: bool) -> Result<jsonwebtoken::jwk::JwkS
 pub async fn verify_id_token(
     token: &str,
     jwks_uri: &str,
-    issuer: &str,
+    issuer: Option<&str>,
     audience: &str,
     insecure: bool,
 ) -> Result<serde_json::Map<String, Value>, String> {
@@ -218,7 +218,9 @@ pub async fn verify_id_token(
     v.leeway = 0;
     v.validate_nbf = true;
     v.required_spec_claims.clear();
-    v.set_issuer(&[issuer]);
+    if let Some(iss) = issuer {
+        v.set_issuer(&[iss]);
+    }
     v.set_audience(&[audience]);
     let data =
         jsonwebtoken::decode::<serde_json::Map<String, Value>>(token, &decoding, &v).map_err(|e| e.to_string())?;
