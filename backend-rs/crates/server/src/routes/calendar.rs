@@ -35,6 +35,7 @@ pub fn router() -> Router<AppState> {
         .route("/events", get(list_events))
         .route("/events/search", get(search_events))
         .route("/events/{id}/attendees", get(attendees))
+        .merge(super::calendar_events::router())
         .merge(super::calendar_feed::api_router())
         .merge(super::calendar_sources::router())
 }

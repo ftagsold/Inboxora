@@ -6,6 +6,7 @@ pub mod auth;
 pub mod block_list;
 pub mod caldav;
 pub mod calendar;
+pub mod calendar_events;
 pub mod calendar_feed;
 pub mod calendar_sources;
 pub mod carddav;

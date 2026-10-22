@@ -121,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
         mail: mail.clone(),
     };
     crate::services::conversation_ops::start_ingest_retry(state.db.clone());
+    crate::services::calendar_invite::start_outbox_worker(state.db.clone());
     if inboxora_core::config::env("BACKGROUND_SYNC").as_deref() != Some("off") {
         mail.start();
         let test_mode = inboxora_core::config::env("NODE_ENV").as_deref() == Some("test")

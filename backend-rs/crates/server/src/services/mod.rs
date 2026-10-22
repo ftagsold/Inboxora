@@ -3,6 +3,7 @@
 pub mod ai;
 pub mod auth;
 pub mod calendar;
+pub mod calendar_invite;
 pub mod categorizer;
 pub mod contact_backfill;
 pub mod conversation;
