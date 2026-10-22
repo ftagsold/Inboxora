@@ -12,6 +12,7 @@ pub mod contacts;
 pub mod dav;
 pub mod dav_credentials;
 pub mod dav_servers;
+pub mod oidc;
 pub mod plugins;
 pub mod push;
 pub mod rules;
@@ -54,6 +55,8 @@ pub fn router(state: &AppState) -> Router<AppState> {
     groups().into_iter().fold(
         Router::new()
             .nest("/api/auth", auth::router())
+            .nest("/api/auth/oidc", oidc::api_router())
+            .nest("/auth/oidc", oidc::browser_router())
             .merge(system::router())
             .merge(categories::router())
             .merge(push::router())

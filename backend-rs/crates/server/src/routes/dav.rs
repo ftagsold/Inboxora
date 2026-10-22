@@ -218,17 +218,54 @@ pub fn tagged(mut res: Response, method: &Method, pattern: &str) -> Response {
 
 /// `res.redirect(308, location)` for `app.all('/.well-known/…')`.
 pub fn permanent_redirect(req: &Request, location: &'static str) -> Response {
-    let accept = header_str(req.headers(), "accept");
-    let kind = negotiate_text_or_html(accept);
+    express_redirect(req.headers(), req.method(), StatusCode::PERMANENT_REDIRECT, location)
+}
+
+/// `encodeurl(url)`: percent-encode characters that may not appear in a URL, keeping
+/// existing valid `%XX` escapes.
+pub fn encode_url(url: &str) -> String {
+    let b = url.as_bytes();
+    let mut out = String::with_capacity(url.len());
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        let allowed = matches!(c, 0x21 | 0x23..=0x3B | 0x3D | 0x3F..=0x5F | 0x61..=0x7A | 0x7C | 0x7E);
+        if c == b'%'
+            && b.get(i + 1).is_some_and(u8::is_ascii_hexdigit)
+            && b.get(i + 2).is_some_and(u8::is_ascii_hexdigit)
+        {
+            out.push('%');
+            i += 1;
+            continue;
+        }
+        if allowed {
+            out.push(c as char);
+        } else {
+            out.push_str(&format!("%{c:02X}"));
+        }
+        i += 1;
+    }
+    out
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+}
+
+/// Express 4 `res.redirect([status,] url)`: Location plus a negotiated text/HTML body.
+pub fn express_redirect(headers: &HeaderMap, method: &Method, status: StatusCode, location: &str) -> Response {
+    let address = encode_url(location);
+    let reason = status.canonical_reason().unwrap_or("");
+    let kind = negotiate_text_or_html(header_str(headers, "accept"));
     let body = match kind {
-        Some("text/plain") => format!("Permanent Redirect. Redirecting to {location}"),
-        Some(_) => format!("<p>Permanent Redirect. Redirecting to {location}</p>"),
+        Some("text/plain") => format!("{reason}. Redirecting to {address}"),
+        Some(_) => format!("<p>{reason}. Redirecting to {}</p>", escape_html(&address)),
         None => String::new(),
     };
-    let head = req.method() == Method::HEAD;
     let len = body.len();
-    let mut res = if head { Response::new(AxumBody::empty()) } else { Response::new(AxumBody::from(body)) };
-    *res.status_mut() = StatusCode::PERMANENT_REDIRECT;
+    let mut res =
+        if *method == Method::HEAD { Response::new(AxumBody::empty()) } else { Response::new(AxumBody::from(body)) };
+    *res.status_mut() = status;
     let h = res.headers_mut();
     h.insert(header::VARY, HeaderValue::from_static("Accept"));
     if let Some(k) = kind {
@@ -241,7 +278,9 @@ pub fn permanent_redirect(req: &Request, location: &'static str) -> Response {
             }),
         );
     }
-    h.insert(header::LOCATION, HeaderValue::from_static(location));
+    if let Ok(v) = HeaderValue::from_str(&address) {
+        h.insert(header::LOCATION, v);
+    }
     h.insert(header::CONTENT_LENGTH, HeaderValue::from(len));
     res.extensions_mut().insert(crate::http::middleware::NoEtag);
     res.into_response()

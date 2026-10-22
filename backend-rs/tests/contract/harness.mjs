@@ -164,7 +164,8 @@ async function send(name, step, cookies) {
     if (k === 'etag') v = step.exactEtag ? v : '<present>';
     h[k] = v;
   }
-  return { status: res.status, headers: h, json, text: json === undefined ? text : undefined, setsCookie: Boolean(setCookie), bytes: step.compareBytes ? text.length : undefined };
+  const raw = { status: res.status, location: res.headers.get('location'), text };
+  return { status: res.status, headers: h, json, text: json === undefined ? text : undefined, setsCookie: Boolean(setCookie), bytes: step.compareBytes ? text.length : undefined, raw };
 }
 
 function diff(a, b, at = '$') {
@@ -223,18 +224,22 @@ async function main() {
             const r = await send(name, step, cookies[name]);
             // Capture from the raw body: normalisation rewrites ids and ignoreKeys drops secrets.
             if (step.capture) {
-              const got = r.json ? step.capture(structuredClone(r.json), ctx[name]) : {};
-              const missing = Object.entries(got || {}).filter(([, v]) => v === undefined).map(([k]) => k);
-              if (!r.json || missing.length) throw new Error(`step ${i} (${name}): capture produced no ${missing.join(', ') || 'JSON body'} from ${r.status} ${JSON.stringify(r.json ?? r.text)?.slice(0, 300)}\n${BACKENDS[name].log.slice(-6).join('')}`);
+              // Captures read the JSON body, or the raw response (status, Location, text) for redirects.
+              const got = step.capture(r.json === undefined ? null : structuredClone(r.json), ctx[name], r.raw) || {};
+              const missing = Object.entries(got).filter(([, v]) => v === undefined).map(([k]) => k);
+              if (missing.length) throw new Error(`step ${i} (${name}): capture produced no ${missing.join(', ') || 'JSON body'} from ${r.status} ${JSON.stringify(r.json ?? r.text)?.slice(0, 300)}\n${BACKENDS[name].log.slice(-6).join('')}`);
               Object.assign(ctx[name], got);
             }
             r.json = r.json === undefined ? undefined : norms[name](r.json);
             if (r.text !== undefined) r.text = norms[name](r.text);
             if (step.ignore) for (const p of step.ignore) deletePath(r.json, p);
             if (scenario.ignoreKeys) deleteKeys(r.json, scenario.ignoreKeys);
+            delete r.raw;
             results[name] = r;
           }
           const step = typeof rawStep === 'function' ? rawStep(ctx.node) : rawStep;
+          // `textPattern` compares only the text after replacing per-request randomness.
+          if (step.textPattern) for (const n of ['node', 'rust']) results[n].text = String(results[n].text ?? '').replace(step.textPattern, '<random>');
           const fields = ['status', 'headers', 'json', 'text', ...(step.compareSetCookie ? ['setsCookie'] : [])];
           for (const field of fields) {
             const d = diff(results.node[field], results.rust[field], field);

@@ -58,6 +58,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+    // One-time bootstrap: create any OIDC_<N>_* env-configured providers that don't exist yet.
+    services::oidc::seed_env_providers(&db).await;
     match services::contact_backfill::backfill_photos(&db).await {
         Ok(n) if n > 0 => tracing::info!("Backfilled contact photos for {n} contact(s)"),
         Ok(_) => {}
