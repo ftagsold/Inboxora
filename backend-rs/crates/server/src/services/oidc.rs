@@ -5,11 +5,12 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use inboxora_core::crypto;
 use inboxora_core::params;
 use inboxora_core::pg::{Db, Q};
 use inboxora_net::reqwest;
 use parking_lot::Mutex;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 const DISCOVERY_TTL: Duration = Duration::from_secs(5 * 60);
 
@@ -597,4 +598,76 @@ pub async fn provision_mail_account(db: &Db, m: MailProvision<'_>) -> Result<(),
     .await
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// `refreshOidcAccountToken`: refresh an OIDC-linked mailbox's access token. Returns the
+/// account row with the plaintext token and new expiry.
+pub async fn refresh_mail_account_token(
+    db: &Db,
+    mut account: Map<String, Value>,
+) -> Result<Map<String, Value>, String> {
+    let s = |k: &str| account.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned);
+    let Some(provider_id) = s("oidc_provider_id") else {
+        return Err("This mailbox is not linked to an OIDC provider — please log in again to reconnect it".into());
+    };
+    let row = db
+        .opt(
+            "SELECT id, issuer_url, client_id, client_secret, allow_insecure FROM oidc_providers WHERE id = $1",
+            params![&provider_id],
+        )
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "The OIDC provider for this mailbox no longer exists".to_owned())?;
+    let refresh =
+        s("oauth_refresh_token").as_deref().and_then(crypto::decrypt).filter(|t| !t.is_empty()).ok_or_else(|| {
+            "OIDC refresh token is missing or corrupted — please log in again to reconnect this mailbox".to_owned()
+        })?;
+    let secret = row
+        .get::<_, Option<String>>("client_secret")
+        .as_deref()
+        .and_then(crypto::decrypt)
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| "OIDC client secret decryption failed".to_owned())?;
+    let insecure = row.get::<_, Option<bool>>("allow_insecure").unwrap_or(false);
+    let issuer: String = row.get("issuer_url");
+    let client_id: String = row.get("client_id");
+    let doc = discovery(&issuer, insecure).await?;
+    let endpoint = doc
+        .get("token_endpoint")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "OIDC discovery missing required field: token_endpoint".to_owned())?
+        .to_owned();
+    let form = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh.as_str()),
+        ("client_id", client_id.as_str()),
+        ("client_secret", secret.as_str()),
+    ];
+    let (status, body) = token_request(&endpoint, &form, insecure).await?;
+    let tokens: Map<String, Value> = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let text = |k: &str| tokens.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+    if !(200..300).contains(&status) {
+        return Err(text("error_description")
+            .or_else(|| text("error"))
+            .unwrap_or("OIDC token refresh failed")
+            .to_owned());
+    }
+    let secs = tokens.get("expires_in").and_then(Value::as_f64).filter(|v| v.is_finite() && *v > 0.0).unwrap_or(3600.0);
+    let expiry = chrono::Utc::now() + chrono::Duration::milliseconds((secs * 1000.0) as i64);
+    let access = text("access_token").map(str::to_owned);
+    let enc = |v: &str| crypto::encrypt(v).map_err(|e| e.to_string());
+    db.exec(
+        "UPDATE email_accounts SET oauth_access_token = $1, oauth_refresh_token = COALESCE($2, oauth_refresh_token), oauth_token_expiry = $3 WHERE id = $4",
+        params![
+            access.as_deref().map(enc).transpose()?,
+            text("refresh_token").map(enc).transpose()?,
+            expiry,
+            account.get("id").cloned().unwrap_or(Value::Null)
+        ],
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    account.insert("oauth_access_token".into(), access.map_or(Value::Null, Value::String));
+    account.insert("oauth_token_expiry".into(), Value::String(inboxora_core::json::js_iso(&expiry)));
+    Ok(account)
 }

@@ -97,15 +97,38 @@ async fn main() -> anyhow::Result<()> {
             tracing::warn!("External calendar scheduler start failed: {e}");
         }
     }
+    let mail = engine::Engine::new(db.clone(), events.clone());
     let state = state::AppState {
         sessions: SessionStore::new(redis.clone(), &cfg.session_secret),
         cfg: cfg.clone(),
         db,
         redis,
         events,
-        on_user_connect: None,
-        on_user_disconnect: None,
+        on_user_connect: Some({
+            let m = mail.clone();
+            Arc::new(move |user: String| {
+                let m = m.clone();
+                tokio::spawn(async move { m.connect_all_for_user(&user).await });
+            })
+        }),
+        on_user_disconnect: Some({
+            let m = mail.clone();
+            Arc::new(move |user: String| {
+                let m = m.clone();
+                tokio::spawn(async move { m.disconnect_user(&user).await });
+            })
+        }),
+        mail: mail.clone(),
     };
+    if inboxora_core::config::env("BACKGROUND_SYNC").as_deref() != Some("off") {
+        mail.start();
+        let test_mode = inboxora_core::config::env("NODE_ENV").as_deref() == Some("test")
+            || inboxora_core::config::env("E2E_DISABLE_IMAP_CONNECT").as_deref() == Some("true");
+        if !test_mode {
+            let m = mail.clone();
+            tokio::spawn(async move { m.connect_all_at_startup().await });
+        }
+    }
     let app = app::build(state);
     let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], cfg.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
