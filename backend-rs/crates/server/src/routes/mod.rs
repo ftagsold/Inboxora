@@ -25,7 +25,9 @@ pub mod plugins;
 pub mod push;
 pub mod rules;
 pub mod search;
+pub mod sender_favicons;
 pub mod system;
+pub mod todoist;
 pub mod totp;
 pub mod util;
 
@@ -59,6 +61,7 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
         ("/api/accounts", accounts::router()),
         ("/api/block-list", block_list::router()),
         ("/api/contacts", contacts::router()),
+        ("/api/todoist", todoist::router()),
         ("/api/search", search::router()),
         ("/api/mail", mail::router()),
         ("/api/integrations", integrations::router()),
@@ -86,7 +89,8 @@ pub fn router(state: &AppState) -> Router<AppState> {
             .merge(push::router())
             .merge(calendar_feed::public_router())
             .merge(carddav::router())
-            .merge(caldav::router()),
+            .merge(caldav::router())
+            .merge(sender_favicons::router(state)),
         |r, (prefix, group)| r.merge(authed(state, prefix, group)),
     )
 }

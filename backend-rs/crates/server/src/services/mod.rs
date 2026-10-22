@@ -23,5 +23,6 @@ pub mod oauth;
 pub mod oidc;
 pub mod push;
 pub mod push_dispatch;
+pub mod sender_favicon;
 pub mod smtp;
 pub mod totp;
