@@ -1,0 +1,50 @@
+// Text inputs for differential tests of snippet and header helpers.
+export const snippets = [
+  ['Hello there, how are you?', null],
+  ['[image: Banner]\n[image: Logo]\nWelcome to our sale!', null],
+  ['Shop [now](https://x.test/a?b=c) and [later](https://y.test)', null],
+  ['Visit https://example.com/path?x=1 or www.example.org/a or mailto:a@b.test today', null],
+  ['Prices &euro;10 &mdash; &hellip; &#8230; &#x2014; &bogus; (&nbsp;) [ ] < >', null],
+  ['.header { color: red; } body{margin:0} Hi Bob', null],
+  ['Use {curly braces} in prose, ok?', null],
+  ['**** ____ Hello ** world __ *** ====== ----- end', null],
+  ['<!DOCTYPE html><html><body><p>HTML in plain part</p></body></html>', null],
+  ['plain with </div> stray </span> tags </p>', '<p>The <b>HTML</b> version</p>'],
+  ['<!-- converted --> text', '<p>Fallback HTML</p>'],
+  ['( ) [ ] lossy', '<div>Rich alternative</div>'],
+  ['', '<p>Only HTML</p>'],
+  ['', null],
+  ['​‌­﻿  ', '<p>after invisible</p>'],
+  ['Line1\r\nLine2\n\n\tLine3', null],
+  ['x'.repeat(300), null],
+  ['emoji 😀 '.repeat(30), null],
+  ['Order #12345 (https://shop.test/o/12345) ships soon', null],
+  ['me@www.example.com wrote:', null],
+  ['Use the <b> element for bold', null],
+  ['<a href="x">one</a> <b>two</b> <i>three</i> <u>four</u>', null],
+  ['Price: 5 < 6 > 4', null],
+  ['A{b:c}', null],
+  ['@media (max-width:600px){.x{display:none}} Hello', null],
+];
+export const mimeWords = [
+  '=?utf-8?Q?Caf=C3=A9?=', '=?UTF-8?B?SGVsbG8gV29ybGQ=?=', '=?utf-8?q?a_b?= =?utf-8?q?c?=', 'Re: =?utf-8?B?w6TDtsO8?= plain',
+  '=?utf-8?Q?bad=ZZ?=', 'no words here', '=?utf-8?B?!!!?=', '=?utf-8?Q??=', '=?utf-8?B?8J+YgA==?=', 'a =?utf-8?q?x?=\r\n =?utf-8?q?y?= b',
+];
+export const rawHeaders = [
+  'Subject: Hello\r\n World\r\nFrom: A <a@x.test>\r\nTo: b@y.test\r\nX-Dup: 1\r\nX-Dup: 2\r\n',
+  'From: "Doe, Jane" <JANE@X.TEST>\nTo: a@x.test, "B" <b@x.test>, invalid, <c@x.test>\nCc: =?utf-8?Q?J=C3=B6rg?= <j@x.test>\n',
+  'Delivered-To: me@x.test\r\nX-Original-To: alias@x.test\r\nDelivered-To: Me@X.test\r\nEnvelope-To: other@x.test',
+  'List-Id: <news.x.test>\r\nPrecedence: bulk\r\nFrom: noreply@x.test',
+  'X-GitHub-Reason: mention\r\nFrom: GitHub <notifications@github.com>',
+  'Content-Type: text/calendar; method=REQUEST',
+  'Auto-Submitted: auto-generated',
+  'Auto-Submitted: no\r\nX-Mailer: SendGrid',
+  'From: Do Not Reply <do-not-reply@x.test>',
+  'X-HubSpot-Email-Id: 1',
+  ':no name\r\nnovalue\r\n Folded: start',
+];
+export const storedMessages = [
+  { from_email: 'a@x.test', from_name: 'A =?utf-8?Q?B?=', to_addresses: [{ name: 'T', email: 't@x.test' }, { email: 'u@x.test' }], cc_addresses: '[{"name":"","email":"c@x.test"}]', subject: 'Hi =?utf-8?Q?there?=', message_id: '<m1@x>', date: '2026-10-22T06:59:26.000Z', in_reply_to: '<p@x>', thread_references: '<r@x> <p@x>' },
+  { from_email: '', from_name: 'Only Name', subject: '(no subject)', to_addresses: null },
+  { reply_to: [{ name: 'R', email: 'r@x.test' }], subject: '' },
+];

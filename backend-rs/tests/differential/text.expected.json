@@ -1,0 +1,372 @@
+{
+ "snippetFromBody": [
+  {
+   "text": "Hello there, how are you?",
+   "html": null,
+   "out": "Hello there, how are you?"
+  },
+  {
+   "text": "[image: Banner]\n[image: Logo]\nWelcome to our sale!",
+   "html": null,
+   "out": "Welcome to our sale!"
+  },
+  {
+   "text": "Shop [now](https://x.test/a?b=c) and [later](https://y.test)",
+   "html": null,
+   "out": "Shop now and later"
+  },
+  {
+   "text": "Visit https://example.com/path?x=1 or www.example.org/a or mailto:a@b.test today",
+   "html": null,
+   "out": "Visit or or today"
+  },
+  {
+   "text": "Prices &euro;10 &mdash; &hellip; &#8230; &#x2014; &bogus; (&nbsp;) [ ] < >",
+   "html": null,
+   "out": "Prices €10 — … … —"
+  },
+  {
+   "text": ".header { color: red; } body{margin:0} Hi Bob",
+   "html": null,
+   "out": "Hi Bob"
+  },
+  {
+   "text": "Use {curly braces} in prose, ok?",
+   "html": null,
+   "out": "Use {curly braces} in prose, ok?"
+  },
+  {
+   "text": "**** ____ Hello ** world __ *** ====== ----- end",
+   "html": null,
+   "out": "Hello world end"
+  },
+  {
+   "text": "<!DOCTYPE html><html><body><p>HTML in plain part</p></body></html>",
+   "html": null,
+   "out": "HTML in plain part"
+  },
+  {
+   "text": "plain with </div> stray </span> tags </p>",
+   "html": "<p>The <b>HTML</b> version</p>",
+   "out": "plain with stray tags"
+  },
+  {
+   "text": "<!-- converted --> text",
+   "html": "<p>Fallback HTML</p>",
+   "out": "Fallback HTML"
+  },
+  {
+   "text": "( ) [ ] lossy",
+   "html": "<div>Rich alternative</div>",
+   "out": "Rich alternative"
+  },
+  {
+   "text": "",
+   "html": "<p>Only HTML</p>",
+   "out": "Only HTML"
+  },
+  {
+   "text": "",
+   "html": null,
+   "out": ""
+  },
+  {
+   "text": "​‌­﻿  ",
+   "html": "<p>after invisible</p>",
+   "out": "after invisible"
+  },
+  {
+   "text": "Line1\r\nLine2\n\n\tLine3",
+   "html": null,
+   "out": "Line1 Line2 Line3"
+  },
+  {
+   "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "html": null,
+   "out": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "text": "emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 ",
+   "html": null,
+   "out": "emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 emoji 😀 em"
+  },
+  {
+   "text": "Order #12345 (https://shop.test/o/12345) ships soon",
+   "html": null,
+   "out": "Order #12345 ships soon"
+  },
+  {
+   "text": "me@www.example.com wrote:",
+   "html": null,
+   "out": "me@www.example.com wrote:"
+  },
+  {
+   "text": "Use the <b> element for bold",
+   "html": null,
+   "out": "Use the <b> element for bold"
+  },
+  {
+   "text": "<a href=\"x\">one</a> <b>two</b> <i>three</i> <u>four</u>",
+   "html": null,
+   "out": "one two three four"
+  },
+  {
+   "text": "Price: 5 < 6 > 4",
+   "html": null,
+   "out": "Price: 5 < 6 > 4"
+  },
+  {
+   "text": "A{b:c}",
+   "html": null,
+   "out": ""
+  },
+  {
+   "text": "@media (max-width:600px){.x{display:none}} Hello",
+   "html": null,
+   "out": "@media (max-width:600px){ } Hello"
+  }
+ ],
+ "decodeMimeWords": [
+  {
+   "input": "=?utf-8?Q?Caf=C3=A9?=",
+   "out": "Café"
+  },
+  {
+   "input": "=?UTF-8?B?SGVsbG8gV29ybGQ=?=",
+   "out": "Hello World"
+  },
+  {
+   "input": "=?utf-8?q?a_b?= =?utf-8?q?c?=",
+   "out": "a bc"
+  },
+  {
+   "input": "Re: =?utf-8?B?w6TDtsO8?= plain",
+   "out": "Re: äöü plain"
+  },
+  {
+   "input": "=?utf-8?Q?bad=ZZ?=",
+   "out": "bad=ZZ"
+  },
+  {
+   "input": "no words here",
+   "out": "no words here"
+  },
+  {
+   "input": "=?utf-8?B?!!!?=",
+   "out": ""
+  },
+  {
+   "input": "=?utf-8?Q??=",
+   "out": ""
+  },
+  {
+   "input": "=?utf-8?B?8J+YgA==?=",
+   "out": "😀"
+  },
+  {
+   "input": "a =?utf-8?q?x?=\r\n =?utf-8?q?y?= b",
+   "out": "a xy b"
+  }
+ ],
+ "headers": [
+  {
+   "input": "Subject: Hello\r\n World\r\nFrom: A <a@x.test>\r\nTo: b@y.test\r\nX-Dup: 1\r\nX-Dup: 2\r\n",
+   "parsed": {
+    "subject": "Hello World",
+    "from": "A <a@x.test>",
+    "to": "b@y.test",
+    "x-dup": "1\n2"
+   },
+   "to": [
+    {
+     "name": "",
+     "email": "b@y.test"
+    }
+   ],
+   "category": null,
+   "bulk": false,
+   "delivery": [],
+   "raw": "subject: Hello World\r\nfrom: A <a@x.test>\r\nto: b@y.test\r\nx-dup: 1\r\nx-dup: 2"
+  },
+  {
+   "input": "From: \"Doe, Jane\" <JANE@X.TEST>\nTo: a@x.test, \"B\" <b@x.test>, invalid, <c@x.test>\nCc: =?utf-8?Q?J=C3=B6rg?= <j@x.test>\n",
+   "parsed": {
+    "from": "\"Doe, Jane\" <JANE@X.TEST>",
+    "to": "a@x.test, \"B\" <b@x.test>, invalid, <c@x.test>",
+    "cc": "=?utf-8?Q?J=C3=B6rg?= <j@x.test>"
+   },
+   "to": [
+    {
+     "name": "",
+     "email": "a@x.test"
+    },
+    {
+     "name": "B",
+     "email": "b@x.test"
+    },
+    {
+     "name": "",
+     "email": "c@x.test"
+    }
+   ],
+   "category": null,
+   "bulk": false,
+   "delivery": [],
+   "raw": "from: \"Doe, Jane\" <JANE@X.TEST>\r\nto: a@x.test, \"B\" <b@x.test>, invalid, <c@x.test>\r\ncc: =?utf-8?Q?J=C3=B6rg?= <j@x.test>"
+  },
+  {
+   "input": "Delivered-To: me@x.test\r\nX-Original-To: alias@x.test\r\nDelivered-To: Me@X.test\r\nEnvelope-To: other@x.test",
+   "parsed": {
+    "delivered-to": "me@x.test\nMe@X.test",
+    "x-original-to": "alias@x.test",
+    "envelope-to": "other@x.test"
+   },
+   "to": [],
+   "category": null,
+   "bulk": false,
+   "delivery": [
+    "me@x.test",
+    "alias@x.test",
+    "other@x.test"
+   ],
+   "raw": "delivered-to: me@x.test\r\ndelivered-to: Me@X.test\r\nx-original-to: alias@x.test\r\nenvelope-to: other@x.test"
+  },
+  {
+   "input": "List-Id: <news.x.test>\r\nPrecedence: bulk\r\nFrom: noreply@x.test",
+   "parsed": {
+    "list-id": "<news.x.test>",
+    "precedence": "bulk",
+    "from": "noreply@x.test"
+   },
+   "to": [],
+   "category": "automated",
+   "bulk": true,
+   "delivery": [],
+   "raw": "list-id: <news.x.test>\r\nprecedence: bulk\r\nfrom: noreply@x.test"
+  },
+  {
+   "input": "X-GitHub-Reason: mention\r\nFrom: GitHub <notifications@github.com>",
+   "parsed": {
+    "x-github-reason": "mention",
+    "from": "GitHub <notifications@github.com>"
+   },
+   "to": [],
+   "category": "automated",
+   "bulk": false,
+   "delivery": [],
+   "raw": "x-github-reason: mention\r\nfrom: GitHub <notifications@github.com>"
+  },
+  {
+   "input": "Content-Type: text/calendar; method=REQUEST",
+   "parsed": {
+    "content-type": "text/calendar; method=REQUEST"
+   },
+   "to": [],
+   "category": "automated",
+   "bulk": false,
+   "delivery": [],
+   "raw": "content-type: text/calendar; method=REQUEST"
+  },
+  {
+   "input": "Auto-Submitted: auto-generated",
+   "parsed": {
+    "auto-submitted": "auto-generated"
+   },
+   "to": [],
+   "category": "automated",
+   "bulk": false,
+   "delivery": [],
+   "raw": "auto-submitted: auto-generated"
+  },
+  {
+   "input": "Auto-Submitted: no\r\nX-Mailer: SendGrid",
+   "parsed": {
+    "auto-submitted": "no",
+    "x-mailer": "SendGrid"
+   },
+   "to": [],
+   "category": "promotion",
+   "bulk": false,
+   "delivery": [],
+   "raw": "auto-submitted: no\r\nx-mailer: SendGrid"
+  },
+  {
+   "input": "From: Do Not Reply <do-not-reply@x.test>",
+   "parsed": {
+    "from": "Do Not Reply <do-not-reply@x.test>"
+   },
+   "to": [],
+   "category": "automated",
+   "bulk": false,
+   "delivery": [],
+   "raw": "from: Do Not Reply <do-not-reply@x.test>"
+  },
+  {
+   "input": "X-HubSpot-Email-Id: 1",
+   "parsed": {
+    "x-hubspot-email-id": "1"
+   },
+   "to": [],
+   "category": "promotion",
+   "bulk": false,
+   "delivery": [],
+   "raw": "x-hubspot-email-id: 1"
+  },
+  {
+   "input": ":no name\r\nnovalue\r\n Folded: start",
+   "parsed": {
+    "novalue folded": "start"
+   },
+   "to": [],
+   "category": null,
+   "bulk": false,
+   "delivery": [],
+   "raw": "novalue folded: start"
+  }
+ ],
+ "buildHeaders": [
+  {
+   "input": {
+    "from_email": "a@x.test",
+    "from_name": "A =?utf-8?Q?B?=",
+    "to_addresses": [
+     {
+      "name": "T",
+      "email": "t@x.test"
+     },
+     {
+      "email": "u@x.test"
+     }
+    ],
+    "cc_addresses": "[{\"name\":\"\",\"email\":\"c@x.test\"}]",
+    "subject": "Hi =?utf-8?Q?there?=",
+    "message_id": "<m1@x>",
+    "date": "2026-10-22T06:59:26.000Z",
+    "in_reply_to": "<p@x>",
+    "thread_references": "<r@x> <p@x>"
+   },
+   "out": "From: \"A B\" <a@x.test>\r\nTo: \"T\" <t@x.test>, u@x.test\r\nCc: c@x.test\r\nSubject: Hi there\r\nMessage-ID: <m1@x>\r\nDate: Thu, 22 Oct 2026 06:59:26 GMT\r\nIn-Reply-To: <p@x>\r\nReferences: <r@x> <p@x>"
+  },
+  {
+   "input": {
+    "from_email": "",
+    "from_name": "Only Name",
+    "subject": "(no subject)",
+    "to_addresses": null
+   },
+   "out": "From: Only Name"
+  },
+  {
+   "input": {
+    "reply_to": [
+     {
+      "name": "R",
+      "email": "r@x.test"
+     }
+    ],
+    "subject": ""
+   },
+   "out": "Reply-To: \"R\" <r@x.test>"
+  }
+ ]
+}

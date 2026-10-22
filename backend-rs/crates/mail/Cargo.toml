@@ -1,0 +1,25 @@
+[package]
+name = "inboxora-mail"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64 = "0.23.1"
+chrono = "0.4.45"
+encoding_rs = "0.8.42"
+html5ever = "0.40.1"
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+url = "2.5.8"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+html5ever_dom = { version = "0.39", package = "html5ever" }
+markup5ever_rcdom = "0.39.0"
+serde_json = "1.0.154"
