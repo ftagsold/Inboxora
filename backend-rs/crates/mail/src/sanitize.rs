@@ -782,6 +782,14 @@ pub fn sanitize_compose_body(html: &str) -> String {
     if html.is_empty() { String::new() } else { sanitize(html, &COMPOSE_POLICY) }
 }
 
+static TEXT_POLICY: Policy =
+    Policy { allowed_tags: &[], allowed_attrs: &[], allowed_schemes: &[], schemes_by_tag: &[], transforms: &[] };
+
+/// `sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} })`: text only, still escaped.
+pub fn strip_tags(html: &str) -> String {
+    if html.is_empty() { String::new() } else { sanitize(html, &TEXT_POLICY) }
+}
+
 /// Sanitize a user-authored signature (stricter than email bodies).
 pub fn sanitize_signature(html: &str) -> String {
     if html.is_empty() { String::new() } else { sanitize(html, &SIGNATURE_POLICY) }

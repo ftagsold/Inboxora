@@ -2,6 +2,7 @@
 //! (port of `routes/mail.ts`).
 
 pub mod bulk;
+pub mod compose;
 pub mod conversations;
 pub mod folders;
 pub mod read;
@@ -49,6 +50,9 @@ pub fn router() -> Router<AppState> {
         .route("/category-counts", get(single::category_counts))
         .route("/messages/{id}/category", patch(single::set_category))
         .route("/messages/{id}/unsubscribe", post(single::unsubscribe))
+        .route("/send", post(compose::send))
+        .route("/draft", post(compose::save_draft))
+        .route("/draft/{uid}", axum::routing::delete(compose::delete_draft))
         .route("/conversations", get(conversations::list))
         .route("/conversations/{id}", get(conversations::detail))
         .route("/conversations/{id}/diagnostics", get(conversations::diagnostics))

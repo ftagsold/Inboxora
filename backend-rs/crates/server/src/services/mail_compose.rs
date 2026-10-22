@@ -75,7 +75,11 @@ fn single(ct: &str, body: Vec<u8>) -> Result<SinglePart, String> {
 impl Compose {
     pub fn build(&self) -> Result<Built, String> {
         let from: Mailbox = self.from.trim().parse().map_err(|e| format!("Invalid from address: {e}"))?;
-        let mut b = Message::builder().from(from.clone()).subject(self.subject.clone());
+        let mut b = Message::builder().from(from.clone());
+        // nodemailer omits an empty Subject header.
+        if !self.subject.is_empty() {
+            b = b.subject(self.subject.clone());
+        }
         let (to, cc, bcc, reply) =
             (mailboxes(&self.to)?, mailboxes(&self.cc)?, mailboxes(&self.bcc)?, mailboxes(&self.reply_to)?);
         for m in &to {

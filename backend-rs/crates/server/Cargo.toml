@@ -19,7 +19,7 @@ base64 = "0.23.1"
 bcrypt = "0.19.3"
 bytes = "1.12.1"
 chrono = "0.4.45"
-fred = "10.1.0"
+fred = { version = "10.1.0", features = ["i-scripts"] }
 futures-util = "0.3.34"
 hmac = "0.13.0"
 http-body = "1.1.0"

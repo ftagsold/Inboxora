@@ -229,6 +229,38 @@ async fn engine_end_to_end() {
     let ruled = "SELECT COUNT(*)::bigint FROM messages WHERE account_id = $1::uuid AND message_id = '<notice@example.test>' AND folder = 'Archive' AND is_read";
     assert_eq!(wait_for(&db, ruled, params![&account_id], 1).await, 1, "rule moved the new message");
 
+    // Drafts: a composed message round-trips through APPEND, Message-ID search and a
+    // UIDVALIDITY-guarded delete.
+    engine.ensure_folder(&account, "Drafts", false).await.unwrap();
+    let built = crate::services::mail_compose::Compose {
+        from: "\"Alice Example\" <alice@example.test>".into(),
+        to: vec!["bob@example.test".into()],
+        bcc: vec!["hidden@example.test".into()],
+        text: Some("Draft body".into()),
+        html: Some("<p>Draft body</p>".into()),
+        ..Default::default()
+    }
+    .build()
+    .unwrap();
+    assert!(!String::from_utf8_lossy(&built.raw).contains("hidden@example.test"), "Bcc stays out of the MIME");
+    let (draft_uid, draft_validity) =
+        engine.append_to_folder(&account, "Drafts", &built.raw, &["\\Draft", "\\Seen"]).await.unwrap();
+    let (draft_uid, draft_validity) = (draft_uid.unwrap(), draft_validity.unwrap());
+    let fields = super::ops::RecordFields {
+        message_id: built.message_id.clone(),
+        subject: Some("Draft".into()),
+        body_text: Some("Draft body".into()),
+        uid_validity: Some(draft_validity),
+        ..Default::default()
+    };
+    engine.upsert_draft_record(&account, "Drafts", draft_uid, &fields).await.unwrap();
+    let found = engine.find_sent_message_by_message_id(&account, "Drafts", &built.message_id).await.unwrap();
+    assert_eq!(found, super::ops::SentLookup::Found(draft_uid as u32));
+    assert!(engine.permanent_delete_message(&account, draft_uid, "Drafts", Some(draft_validity + 1)).await.is_err());
+    engine.permanent_delete_message(&account, draft_uid, "Drafts", Some(draft_validity)).await.unwrap();
+    let missing = engine.find_sent_message_by_message_id(&account, "Drafts", &built.message_id).await.unwrap();
+    assert_eq!(missing, super::ops::SentLookup::Missing);
+
     engine.disconnect_account(&account_id).await;
     assert!(!engine.is_connected(&account_id));
     other.logout().await;
