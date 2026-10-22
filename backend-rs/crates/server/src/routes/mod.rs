@@ -3,6 +3,7 @@
 pub mod block_list;
 pub mod caldav;
 pub mod calendar;
+pub mod calendar_feed;
 pub mod carddav;
 pub mod categories;
 pub mod contacts;
@@ -49,6 +50,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
             .merge(system::router())
             .merge(categories::router())
             .merge(push::router())
+            .merge(calendar_feed::public_router())
             .merge(carddav::router())
             .merge(caldav::router()),
         |r, (prefix, group)| r.merge(authed(state, prefix, group)),

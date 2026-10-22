@@ -49,7 +49,7 @@ node tests/contract/harness.mjs [filter]
 | 0 | core, middleware stack, sessions, migrations, WebSocket, health/version, contract harness | done |
 | 1 | pure libraries (MIME, sanitizer, vCard, iCal/recurrence, threading) | done — differential corpora in `tests/differential` |
 | 2 | database-only route groups (block list, contacts, search, rules, categories, push devices, calendar reads) | done |
-| 3 | DAV servers and DAV sync | in progress — `/carddav`, `/caldav`, well-known redirects and `/api/dav-credentials` done; feeds, DAV clients/sync, calendar mutations pending |
+| 3 | DAV servers and DAV sync | in progress — `/carddav`, `/caldav`, well-known redirects, `/api/dav-credentials` and secret calendar feeds done; DAV clients/sync and calendar mutations pending |
 | 4 | authentication | pending |
 | 5 | mail engine, mail routes, send, WebSocket events | pending |
 | 6 | AI, integrations, cutover | pending |
