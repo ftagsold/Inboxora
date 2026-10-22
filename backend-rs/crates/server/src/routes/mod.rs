@@ -4,6 +4,7 @@ pub mod block_list;
 pub mod caldav;
 pub mod calendar;
 pub mod calendar_feed;
+pub mod calendar_sources;
 pub mod carddav;
 pub mod categories;
 pub mod contacts;

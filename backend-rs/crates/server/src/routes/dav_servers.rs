@@ -22,14 +22,14 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", axum::routing::patch(update).delete(remove))
 }
 
-fn ts(r: &Row, c: &str) -> Value {
+pub(crate) fn ts(r: &Row, c: &str) -> Value {
     r.try_get::<_, Option<chrono::DateTime<chrono::Utc>>>(c)
         .ok()
         .flatten()
         .map_or(Value::Null, |t| Value::String(inboxora_core::json::js_iso(&t)))
 }
 
-fn text(r: &Row, c: &str) -> Option<String> {
+pub(crate) fn text(r: &Row, c: &str) -> Option<String> {
     r.try_get::<_, Option<String>>(c).ok().flatten()
 }
 
@@ -124,7 +124,7 @@ fn truthy(v: Option<&Value>) -> bool {
 }
 
 /// `String(value)` for request fields used as text.
-fn as_text(v: Option<&Value>) -> Option<String> {
+pub(crate) fn as_text(v: Option<&Value>) -> Option<String> {
     v.filter(|v| truthy(Some(v))).map(crate::services::dav_xml::js_string)
 }
 
@@ -188,7 +188,7 @@ async fn discover(State(s): State<AppState>, _auth: Auth, body: Body) -> Result<
 }
 
 /// One collection entry for storage, after its href passed the SSRF check.
-async fn build_collections(
+pub(crate) async fn build_collections(
     entries: &[Value],
     policy: dav_client::ConnectionPolicy,
     default_name: &str,
@@ -216,7 +216,7 @@ async fn build_collections(
     Ok(out)
 }
 
-fn enc(v: &Value) -> Result<String> {
+pub(crate) fn enc(v: &Value) -> Result<String> {
     crypto::encrypt(&inboxora_core::json::stringify(v)).map_err(Error::internal)
 }
 
@@ -341,7 +341,7 @@ async fn sync(State(s): State<AppState>, auth: Auth, Path(id): Path<String>) -> 
 }
 
 /// Selection toggles (`{ id, selected }`) applied to the stored list.
-fn apply_toggles(current: Vec<Value>, incoming: &[Value]) -> Vec<Value> {
+pub(crate) fn apply_toggles(current: Vec<Value>, incoming: &[Value]) -> Vec<Value> {
     let toggles: Vec<(String, bool)> = incoming
         .iter()
         .filter(|e| truthy(e.get("id")))

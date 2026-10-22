@@ -49,9 +49,9 @@ node tests/contract/harness.mjs [filter]
 | 0 | core, middleware stack, sessions, migrations, WebSocket, health/version, contract harness | done |
 | 1 | pure libraries (MIME, sanitizer, vCard, iCal/recurrence, threading) | done — differential corpora in `tests/differential` |
 | 2 | database-only route groups (block list, contacts, search, rules, categories, push devices, calendar reads) | done |
-| 3 | DAV servers and DAV sync | in progress — `/carddav`, `/caldav`, well-known redirects, `/api/dav-credentials`, secret calendar feeds, DAV clients, `/api/dav/servers`, remote calendar/address-book sync with write-back and contact backfills done; calendar sources and event mutations pending |
+| 3 | DAV servers and DAV sync | done — `/carddav`, `/caldav`, well-known redirects, app passwords, secret feeds, DAV clients, `/api/dav/servers`, `/api/calendar/sources`, remote sync with write-back, contact backfills. Calendar event mutations moved to phase 5 (they deliver invitations over SMTP) |
 | 4 | authentication | pending |
-| 5 | mail engine, mail routes, send, WebSocket events | pending |
+| 5 | mail engine, mail routes, send, WebSocket events, calendar event mutations and invitations | pending |
 | 6 | AI, integrations, cutover | pending |
 
 Plugins (GTD) are out of scope for the rewrite.
