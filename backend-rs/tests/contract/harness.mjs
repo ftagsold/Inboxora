@@ -57,10 +57,14 @@ async function recreateDatabases() {
 }
 
 const children = [];
+// The backend supports Node 22 only; on a newer Node, give safeFetch a matching fetch.
+const NODE_MAJOR = Number(process.versions.node.split('.')[0]);
+const nodeShim = NODE_MAJOR > 22 ? ` --import ${pathToFileURL(path.join(here, 'node-fetch-shim.mjs')).href}` : '';
+
 function start(name) {
   const b = BACKENDS[name];
   const child = name === 'node'
-    ? spawn('npx', ['tsx', 'src/index.ts'], { cwd: path.join(root, 'backend'), env: env(b), stdio: ['ignore', 'pipe', 'pipe'] })
+    ? spawn('npx', ['tsx', 'src/index.ts'], { cwd: path.join(root, 'backend'), env: { ...env(b), NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''}${nodeShim}` }, stdio: ['ignore', 'pipe', 'pipe'] })
     : spawn(RUST_BIN, [], { cwd: path.join(root, 'backend-rs'), env: env(b), stdio: ['ignore', 'pipe', 'pipe'] });
   b.log = [];
   for (const s of [child.stdout, child.stderr]) s.on('data', d => { b.log.push(String(d)); if (b.log.length > 400) b.log.shift(); });

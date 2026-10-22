@@ -34,10 +34,7 @@ pub fn js_number_string(f: f64) -> String {
     if f.is_infinite() {
         return if f > 0.0 { "Infinity".into() } else { "-Infinity".into() };
     }
-    match js_float(f) {
-        Value::Number(n) => n.to_string(),
-        _ => "null".into(),
-    }
+    js_float_text(f)
 }
 
 /// serde_json formatter that prints numbers like JavaScript (`1.0` → `1`, `1e21` → `1e+21`).
@@ -60,7 +57,8 @@ fn js_float_text(f: f64) -> String {
         return "null".into();
     }
     if f.fract() == 0.0 && f.abs() < 1e21 {
-        return format!("{}", f as i128);
+        // Shortest round-trip digits, zero-padded: 2^64 prints as 18446744073709552000.
+        return if f == 0.0 { "0".into() } else { format!("{f}") };
     }
     let s = format!("{f:e}");
     // Rust: "1.5e21" / "1e-7"; JS: "1.5e+21" / "1e-7". JS uses plain notation for 1e-6 ≤ |f| < 1e21.
@@ -130,6 +128,12 @@ mod tests {
         assert_eq!(stringify(&js_float(0.1 + 0.2)), "0.30000000000000004");
         assert_eq!(stringify(&js_float(f64::NAN)), "null");
         assert_eq!(js_number_string(2.5), "2.5");
+        // Integral values beyond 2^53 print their shortest round-trip digits, like `String(n)`.
+        assert_eq!(js_number_string(12_345_678_901_234_567_890.0), "12345678901234567000");
+        assert_eq!(js_number_string(18_446_744_073_709_551_616.0), "18446744073709552000");
+        assert_eq!(js_number_string(-0.0), "0");
+        assert_eq!(js_number_string(1e21), "1e+21");
+        assert_eq!(stringify(&serde_json::json!(1e20)), "100000000000000000000");
         let v: Value = serde_json::from_str(r#"{"a":1.0,"b":2.5,"c":1e21,"d":1e-7,"e":0.000001,"f":-3.0}"#).unwrap();
         assert_eq!(stringify(&v), r#"{"a":1,"b":2.5,"c":1e+21,"d":1e-7,"e":0.000001,"f":-3}"#);
     }

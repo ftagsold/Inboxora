@@ -10,6 +10,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
+pub use reqwest;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq)]

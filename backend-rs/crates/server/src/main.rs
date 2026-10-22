@@ -51,7 +51,17 @@ async fn main() -> anyhow::Result<()> {
         Some("verify") => inboxora_core::migrations::verify(&db, &migrations_dir).await?,
         _ => {
             inboxora_core::migrations::run(&db, &migrations_dir).await?;
+            // The Node migration runner finishes with this backfill.
+            let n = services::contact_backfill::backfill_rich_fields(&db).await?;
+            if n > 0 {
+                tracing::info!("Backfilled rich fields for {n} contact(s)");
+            }
         }
+    }
+    match services::contact_backfill::backfill_photos(&db).await {
+        Ok(n) if n > 0 => tracing::info!("Backfilled contact photos for {n} contact(s)"),
+        Ok(_) => {}
+        Err(e) => return Err(e.into()),
     }
 
     let events = Events::new(Some(redis.clone()));
@@ -70,6 +80,16 @@ async fn main() -> anyhow::Result<()> {
     services::calendar::start_occurrence_scheduler(db.clone());
     services::auth::reload_auth_settings(&db).await;
     services::auth::start_auth_event_pruning(db.clone());
+    // Remote DAV/iCalendar sync. During a side-by-side rollout only one backend should run
+    // these schedulers: `BACKGROUND_SYNC=off` leaves them to the other process.
+    if inboxora_core::config::env("BACKGROUND_SYNC").as_deref() != Some("off") {
+        if let Err(e) = services::dav_sync::start_carddav_schedulers(&db).await {
+            tracing::warn!("CardDAV scheduler start failed: {e}");
+        }
+        if let Err(e) = services::dav_sync::start_calendar_scheduler(&db).await {
+            tracing::warn!("External calendar scheduler start failed: {e}");
+        }
+    }
     let state = state::AppState {
         sessions: SessionStore::new(redis.clone(), &cfg.session_secret),
         cfg: cfg.clone(),

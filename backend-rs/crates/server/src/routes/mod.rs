@@ -9,6 +9,7 @@ pub mod categories;
 pub mod contacts;
 pub mod dav;
 pub mod dav_credentials;
+pub mod dav_servers;
 pub mod plugins;
 pub mod push;
 pub mod rules;
@@ -40,6 +41,7 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
         ("/api/rules", rules::router()),
         ("/api/plugins", plugins::router()),
         ("/api/calendar", calendar::router()),
+        ("/api/dav/servers", dav_servers::router()),
         ("/api/dav-credentials", dav_credentials::router()),
     ]
 }
