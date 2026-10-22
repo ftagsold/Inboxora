@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod admin;
+pub mod ai;
 pub mod auth;
 pub mod block_list;
 pub mod caldav;
@@ -15,6 +16,7 @@ pub mod contacts;
 pub mod dav;
 pub mod dav_credentials;
 pub mod dav_servers;
+pub mod diagnostics;
 pub mod integrations;
 pub mod mail;
 pub mod oauth;
@@ -66,6 +68,8 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
         ("/api/calendar", calendar::router()),
         ("/api/dav/servers", dav_servers::router()),
         ("/api/dav-credentials", dav_credentials::router()),
+        ("/api/ai", ai::router()),
+        ("/api/diagnostics", diagnostics::router()),
     ]
 }
 

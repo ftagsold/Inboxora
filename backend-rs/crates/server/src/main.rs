@@ -120,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
         }),
         mail: mail.clone(),
     };
+    std::sync::LazyLock::force(&crate::routes::diagnostics::STARTED);
     crate::services::conversation_ops::start_ingest_retry(state.db.clone());
     crate::services::calendar_invite::start_outbox_worker(state.db.clone());
     if inboxora_core::config::env("BACKGROUND_SYNC").as_deref() != Some("off") {

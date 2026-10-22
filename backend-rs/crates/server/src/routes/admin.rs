@@ -29,6 +29,7 @@ pub fn router() -> Router<AppState> {
         .route("/system-email/test", post(test_system_email))
         .route("/oidc", get(list_oidc).post(create_oidc))
         .route("/oidc/{id}", patch(update_oidc).delete(delete_oidc))
+        .merge(super::ai::admin_router())
 }
 
 fn truthy(v: Option<&Value>) -> bool {

@@ -13,6 +13,8 @@ export const M = (n) => `00000000-0000-4000-8000-0000000${String(n).padStart(5, 
 
 export async function seedMail({ sql }) {
   await sql(`INSERT INTO users (id, username, password_hash) VALUES ($1, 'alice@example.test', 'x'), ($2, 'bob@example.test', 'x') ON CONFLICT DO NOTHING`, [U.alice, U.bob]);
+  // Invitation senders are ON DELETE RESTRICT; events left by an earlier scenario must go first.
+  await sql(`DELETE FROM calendar_events WHERE invite_account_id IN (SELECT id FROM email_accounts WHERE user_id IN ($1, $2))`, [U.alice, U.bob]);
   await sql(`DELETE FROM email_accounts WHERE user_id IN ($1, $2)`, [U.alice, U.bob]);
   await sql(`INSERT INTO email_accounts (id, user_id, name, email_address, imap_host, enabled, protocol, include_in_unified_inbox, color) VALUES
     ($1, $5, 'Work', 'alice@work.test', 'imap.work.test', true, 'imap', true, '#f00'),

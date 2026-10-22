@@ -1,10 +1,12 @@
 //! Background and shared services used by several route groups.
 
 pub mod ai;
+pub mod ai_http;
 pub mod auth;
 pub mod calendar;
 pub mod calendar_invite;
 pub mod categorizer;
+pub mod codex_auth;
 pub mod contact_backfill;
 pub mod conversation;
 pub mod conversation_ops;

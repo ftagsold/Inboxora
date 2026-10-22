@@ -312,7 +312,7 @@ async fn create_event(State(s): State<AppState>, a: Auth, headers: HeaderMap, b:
         let (u, i, k, f, aid) = (user.clone(), input.clone(), key.clone(), fingerprint.clone(), account_id.clone());
         let outcome = s
             .db
-            .transaction(true, 2, move |tx| {
+            .transaction(false, 2, move |tx| {
                 let (user, input, key, fingerprint, account_id) = (u.clone(), i.clone(), k.clone(), f.clone(), aid.clone());
                 Box::pin(async move {
                     if let Some(prior) = tx
@@ -530,7 +530,7 @@ async fn update_event(
         let (u, i, k, f, aid, eid) =
             (user.clone(), input.clone(), key.clone(), fingerprint.clone(), account_id.clone(), event_id.clone());
         let outcome =
-            s.db.transaction(true, 2, move |tx| {
+            s.db.transaction(false, 2, move |tx| {
                 let (user, input, key, fingerprint, account_id, event_id) =
                     (u.clone(), i.clone(), k.clone(), f.clone(), aid.clone(), eid.clone());
                 Box::pin(
@@ -573,7 +573,7 @@ async fn update_event(
     let (u, i, eid, acc) = (user.clone(), input.clone(), event_id.clone(), account.clone());
     let db = s.db.clone();
     let outcome =
-        s.db.transaction(true, 0, move |tx| {
+        s.db.transaction(false, 0, move |tx| {
             let (user, input, event_id, account, db) = (u.clone(), i.clone(), eid.clone(), acc.clone(), db.clone());
             Box::pin(async move {
                 let Some(existing) = lock_existing(tx, &user, &event_id, &input.calendar_id, "").await? else {
@@ -758,7 +758,7 @@ async fn delete_event(State(s): State<AppState>, a: Auth, Path(event_id): Path<S
     };
     let (u, cid, eid, db) = (user.clone(), calendar_id.clone(), event_id.clone(), s.db.clone());
     let outcome =
-        s.db.transaction(true, 0, move |tx| {
+        s.db.transaction(false, 0, move |tx| {
             let (user, calendar_id, event_id, db) = (u.clone(), cid.clone(), eid.clone(), db.clone());
             Box::pin(async move {
                 let Some(event) =
@@ -877,7 +877,7 @@ async fn occurrence(
     let (u, cid, eid, rid) = (user.clone(), calendar_id.clone(), event_id.clone(), recurrence.clone());
     let outcome = s
         .db
-        .transaction(true, 2, move |tx| {
+        .transaction(false, 2, move |tx| {
             let (user, calendar_id, event_id, recurrence, replacement_input) = (u.clone(), cid.clone(), eid.clone(), rid.clone(), replacement_input.clone());
             Box::pin(async move {
                 let Some(row) = tx
