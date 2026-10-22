@@ -62,6 +62,7 @@ async fn run(state: AppState, socket: WebSocket, decision: Gate) {
     };
     let (tx, mut rx) = mpsc::unbounded_channel::<std::sync::Arc<str>>();
     let _registration = state.events.register(&user_id, tx.clone());
+    crate::services::diagnostics_ring::record_ws_connect();
     tracing::info!("WebSocket connected for user {user_id}");
     let _ = tx.send(json!({ "type": "connected" }).to_string().into());
     // Re-establish mail connections if the server restarted (already-connected accounts are skipped).
@@ -89,5 +90,6 @@ async fn run(state: AppState, socket: WebSocket, decision: Gate) {
         }
     }
     writer.abort();
+    crate::services::diagnostics_ring::record_ws_disconnect();
     tracing::info!("WebSocket disconnected");
 }

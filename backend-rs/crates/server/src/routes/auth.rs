@@ -1240,8 +1240,15 @@ async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body:
         let _ = v;
         crate::services::categorizer::invalidate_global_categorization_cache(&uid);
     }
-    // Sync-interval changes reach the mail engine through its hooks once it runs here.
-    let _ = folder_sync;
+    if defined(b("syncInterval")).is_some_and(|v| !v.is_null())
+        && let Some(ms) = js_parse_int(b("syncInterval")).map(|n| n * 1000).filter(|ms| (15_000..=120_000).contains(ms))
+    {
+        let (mail, user) = (s.mail.clone(), uid.clone());
+        tokio::spawn(async move { mail.update_sync_interval_for_user(&user, ms as u64).await });
+    }
+    if let Some(secs) = folder_sync.as_deref().and_then(|v| v.parse::<u64>().ok()) {
+        s.mail.update_folder_sync_interval_for_user(&uid, secs * 1000);
+    }
     Ok(ok(json!({ "ok": true })))
 }
 
