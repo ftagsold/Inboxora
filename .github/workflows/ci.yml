@@ -51,6 +51,37 @@ jobs:
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
 
+  backend-rs:
+    name: Backend (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-rs
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Assert exact tested SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      # rustup reads rust-toolchain.toml (pinned channel plus rustfmt and clippy).
+      - name: Install toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend-rs
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # Live IMAP/PostgreSQL tests skip without TEST_DB_HOST / IMAP_TEST_* in the environment.
+      - name: Test
+        run: cargo test --workspace --locked
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

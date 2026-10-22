@@ -37,7 +37,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: backend-rs/Dockerfile
       args:
         BUILD_SHA: ${GIT_SHA:-dev}
     container_name: mailflow-backend
@@ -149,7 +149,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      # Distroless image: the server binary probes /api/health itself.
+      test: ["CMD", "/app/inboxora-server", "healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 3
