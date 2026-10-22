@@ -213,6 +213,34 @@ function preservedPartstats(existing: { raw_ical?: string | null; starts_at?: Da
   return new Map(attendeeStatuses(existing.raw_ical).filter(attendee => attendee.partstat !== 'NEEDS-ACTION').map(attendee => [attendee.email, attendee.partstat]));
 }
 
+/**
+ * Who an edit of an invited event is sent to. Attendees hear about it again only when what
+ * their invitation says changed (title, description, place, time); otherwise only attendees
+ * added by this edit are invited. The sequence moves on whenever the stored invitation
+ * changes for someone — details, a removed attendee (whose CANCEL carries the next sequence)
+ * or a new sender — so a later update always supersedes what attendees hold.
+ */
+export function invitationUpdatePlan(
+  existing: { attendees?: unknown; invite_account_id?: string | null; summary?: string | null; description?: string | null; location?: string | null; starts_at?: Date | string | null; ends_at?: Date | string | null; all_day?: boolean | null },
+  next: { attendees: string[]; inviteAccountId: string | null; summary?: string | null; description?: string | null; location?: string | null; startsAt: Date; endsAt: Date; allDay: boolean },
+): { bumpSequence: boolean; recipients: string[] } {
+  const previous = Array.isArray(existing.attendees) ? existing.attendees.map(email => String(email).toLowerCase()) : [];
+  const hadInvitation = Boolean(existing.invite_account_id && previous.length);
+  if (!next.inviteAccountId) return { bumpSequence: hadInvitation, recipients: [] };
+  if (!hadInvitation || existing.invite_account_id !== next.inviteAccountId) return { bumpSequence: true, recipients: next.attendees };
+  const time = (value: Date | string | null | undefined) => value == null ? Number.NaN : new Date(value).getTime();
+  const text = (value: string | null | undefined) => String(value ?? '').trim();
+  const detailsChanged = text(existing.summary) !== text(next.summary)
+    || text(existing.description) !== text(next.description)
+    || text(existing.location) !== text(next.location)
+    || time(existing.starts_at) !== next.startsAt.getTime()
+    || time(existing.ends_at) !== next.endsAt.getTime()
+    || Boolean(existing.all_day) !== Boolean(next.allDay);
+  if (detailsChanged) return { bumpSequence: true, recipients: next.attendees };
+  const removed = previous.some(email => !next.attendees.includes(email));
+  return { bumpSequence: removed, recipients: next.attendees.filter(email => !previous.includes(email)) };
+}
+
 function normalizeAttendees(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   const attendees = value.map(email => typeof email === 'string' ? email.trim().toLowerCase() : '').filter(Boolean);
@@ -288,14 +316,17 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
         : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
     }
+    const plan = invitationUpdatePlan(existing, { attendees: normalizedAttendees, inviteAccountId: invitationAccount.id, summary, description, location, allDay: Boolean(allDay), ...times });
     const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, partstats: preservedPartstats(existing, times), allDay: Boolean(allDay), ...times }));
-    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN NOT $16::boolean THEN invitation_sequence WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId, plan.bumpSequence]);
     const event = result.rows[0];
     const actions = [];
     if (cancelledAttendees.length) actions.push({ account: cancellationAccount, attendees: cancelledAttendees, summary: existing.summary, description: existing.description, location: existing.location, uid: existing.uid, allDay: Boolean(existing.all_day), method: 'CANCEL', sequence: Number(existing.invitation_sequence || 0) + 1, startsAt: new Date(existing.starts_at).toISOString(), endsAt: new Date(existing.ends_at).toISOString() });
-    actions.push({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() });
+    if (plan.recipients.length) actions.push({ account: invitationAccount, attendees: plan.recipients, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() });
+    // Nothing for any attendee to hear about: the edit is saved without a mail.
+    if (!actions.length) return { event, raw: rawIcal, uid: existing.uid, unchanged: true as const };
     const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, event.id, key, fingerprint, JSON.stringify({ actions: invitationActionsForStorage(actions) })]);
-    return { event, outboxId: outbox.rows[0].id, actions };
+    return { event, outboxId: outbox.rows[0].id, actions, raw: rawIcal, uid: existing.uid };
   });
 }
 
@@ -959,7 +990,7 @@ router.post('/events', async (req, res) => {
         `INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id`,
         [req.session.userId, event.id, idempotencyKey, fingerprint, JSON.stringify({ actions: invitationActionsForStorage([{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]) })],
       );
-        return { event, outboxId: outbox.rows[0].id };
+        return { event, outboxId: outbox.rows[0].id, raw: rawIcal };
       });
     } catch (caught) {
       const error = toAppError(caught);
@@ -974,9 +1005,12 @@ router.post('/events', async (req, res) => {
       const delivered = await deliverStoredInvitation({ userId: req.session.userId, outboxId: outcome.outboxId, payload: outcome.payload, fallbackAccountId: outcome.event?.invite_account_id });
       return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
     }
+    // Mirror the new event to a CalDAV calendar before anything else: an event that never
+    // reached the server is removed again by the next sync of that calendar.
+    const remoteSync = await pushIfExternal(access.calendar as WritableCalendarRow, outcome.event.uid, 'put', outcome.raw);
     const actions = await resolveInvitationActions(sessionUserId(req), [{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]);
     const delivered = await deliverInvitationOutbox({ outboxId: outcome.outboxId, actions });
-    return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
+    return res.status(201).json({ ...invitationDeliveryResponse(outcome.event, delivered), ...(remoteSync ? { remoteSync } : {}) });
   }
 
   const uid = crypto.randomUUID();
@@ -1086,9 +1120,13 @@ router.patch('/events/:eventId', async (req, res) => {
       const delivered = await deliverStoredInvitation({ userId: req.session.userId, outboxId: outcome.outboxId, payload: outcome.payload, fallbackAccountId: outcome.event?.invite_account_id });
       return res.json(invitationDeliveryResponse(outcome.event, delivered));
     }
+    // The edit is committed: mirror it to a CalDAV calendar, or the next sync would take
+    // the remote copy (without this edit — or, for a new event, without the event at all).
+    const remoteSync = await pushIfExternal(access.calendar as WritableCalendarRow, outcome.uid, 'put', outcome.raw);
+    if (outcome.unchanged) return res.json({ ...invitationDeliveryResponse(outcome.event, { status: 'sent', lastError: null }), ...(remoteSync ? { remoteSync } : {}) });
     const actions = await resolveInvitationActions(sessionUserId(req), outcome.actions);
     const delivered = await deliverInvitationOutbox({ outboxId: outcome.outboxId, actions });
-    return res.json(invitationDeliveryResponse(outcome.event, delivered));
+    return res.json({ ...invitationDeliveryResponse(outcome.event, delivered), ...(remoteSync ? { remoteSync } : {}) });
   }
 
   const outcome = await withTransaction(async client => {
@@ -1117,16 +1155,17 @@ router.patch('/events/:eventId', async (req, res) => {
       }
     }
 
+    const plan = invitationUpdatePlan(existingEvent, { attendees: normalizedAttendees, inviteAccountId: invitationAccount?.id || null, summary, description, location, allDay: Boolean(allDay), ...times });
     const rawIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, partstats: preservedPartstats(existingEvent, times), allDay: Boolean(allDay), ...times }));
-    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN NOT $16::boolean THEN invitation_sequence WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId, plan.bumpSequence]);
     if (!result.rows[0]) return { notFound: true };
 
     let delivered = null;
-    if (invitationAccount) {
+    if (invitationAccount && plan.recipients.length) {
       try {
         // Keep the row lock until this REQUEST is emitted, so a later mutation
         // cannot overtake it with a higher sequence number.
-        await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: existingEvent.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence, ...times });
+        await sendCalendarInvitation({ account: invitationAccount, attendees: plan.recipients, summary, description, location, uid: existingEvent.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence, ...times });
         delivered = { status: 'sent', lastError: null };
       } catch (caught) {
         const error = toAppError(caught);

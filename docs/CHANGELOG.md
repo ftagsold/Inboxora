@@ -58,6 +58,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 
 ### Changed
 
+- Saving an invited event mails attendees only when something they see changed (title,
+  description, location or time); otherwise only newly added attendees are invited, and an
+  unchanged save sends nothing.
+- An event with attendees always opens with its attendee list shown, whether or not invitations
+  were sent for it.
 - Let a single-day all-day event be resized from either edge in month view, the same way a
   multi-day all-day event already can — it can now grow into a multi-day event by dragging either
   edge, instead of only via the edit dialog.
@@ -121,6 +126,23 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 
 ### Fixed
 
+- All-day invitations to a Microsoft 365 / Exchange mailbox showed one extra day (e.g. 22–24
+  October for 22–23 October) on a Mac or in Outlook reading that mailbox: Exchange turns a
+  date-only event into one running from midnight UTC. Invitations and replies for all-day
+  events now carry Exchange's all-day marker (`X-MICROSOFT-CDO-ALLDAYEVENT`). Invitations
+  already sent keep the extra day until the event is sent again.
+- Invited events in a two-way CalDAV calendar were never uploaded to the server when they were
+  saved with invitations, so the next sync of that calendar deleted them. They are now uploaded on
+  save, and a sync keeps (and retries uploading) any event created here that the server does not
+  have yet instead of deleting it. Events already lost this way are not restored.
+- Dragging an invited event to another time sent every attendee a cancellation and dropped the
+  invitation; attendees now receive the new time instead.
+- A message that consists only of quoted history (a forward with nothing written above it) is
+  shown in full instead of being folded down to a lone "Show quoted text" button.
+- The attendee field of the event dialog no longer shows a second, highlighted input box inside
+  its frame; it reads like the composer's recipient field.
+- The invitation panel shows a multi-day all-day event as its first to last day, not only its
+  first day; all-day dates in received replies no longer depend on the server's timezone.
 - Poll every non-INBOX folder (Sent, Drafts, Trash, Archive, Junk, custom and label folders) on the
   same cadence as the INBOX sync, so a message deleted, archived or otherwise moved from another
   device (webmail, phone, a different mail client) no longer goes missing locally once that folder

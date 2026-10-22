@@ -53,6 +53,14 @@ interface InvitationInput {
 interface InvitationAccount { id?: string; email_address?: string | null; name?: string | null; [key: string]: unknown }
 
 
+// Exchange / Microsoft 365 does not treat a VALUE=DATE event as all-day on its own: it converts
+// the dates to times (midnight UTC, i.e. 02:00 in Berlin) and the event then runs into a third
+// day for a Mac or Outlook reading that mailbox. These Microsoft properties mark the event
+// all-day for Exchange; every other calendar ignores them.
+function allDayHints(allDay: boolean): string[] {
+  return allDay ? ['X-MICROSOFT-CDO-ALLDAYEVENT:TRUE', 'X-MICROSOFT-MSNCALENDAR-ALLDAYEVENT:TRUE'] : [];
+}
+
 function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay = false, method, sequence }: InvitationInput) {
   const lines = [
     'BEGIN:VCALENDAR',
@@ -66,6 +74,7 @@ function invitationIcal({ uid, summary, description, location, organizerEmail, a
     `DTSTART${allDay ? ';VALUE=DATE' : ''}:${formatInvitationDate(startsAt, allDay)}`,
     `DTEND${allDay ? ';VALUE=DATE' : ''}:${formatInvitationDate(endsAt, allDay)}`,
     `ORGANIZER:mailto:${organizerEmail}`,
+    ...allDayHints(allDay),
   ];
   if (method === 'CANCEL') lines.push('STATUS:CANCELLED');
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
@@ -135,6 +144,7 @@ export function invitationReplyIcal({ attendeeEmail, organizerEmail, response, u
     `DTEND${allDay ? ';VALUE=DATE' : ''}:${formatInvitationDate(endsAt, allDay)}`,
     `ORGANIZER:mailto:${organizerEmail}`,
     `ATTENDEE;PARTSTAT=${response}:mailto:${attendeeEmail}`,
+    ...allDayHints(allDay),
   );
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
   lines.push('END:VEVENT', 'END:VCALENDAR', '');

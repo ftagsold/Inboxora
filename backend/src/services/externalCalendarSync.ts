@@ -229,11 +229,39 @@ async function syncCollection(source: ExternalCalendarSource, collection: Source
   // them permanently; without it, the very next edit/delete on that event 404s
   // as "not found" because reconciliation already removed it out from under
   // the client that just created it.
+  //
+  // On a two-way CalDAV calendar a row without a remote_href was created here and has not
+  // reached the server yet (its upload failed or is still pending). It is missing from the
+  // REPORT because the server never had it, not because it was deleted there, so it is
+  // kept and uploaded again below instead of being removed.
+  const twoWay = source.kind === 'caldav' && Boolean(source.writable);
   await query(
-    `DELETE FROM calendar_events WHERE calendar_id = $1 AND uid <> ALL($2::text[]) AND created_at < NOW() - INTERVAL '2 minutes'`,
-    [calendarId, retainedUids.length ? retainedUids : ['']],
+    `DELETE FROM calendar_events WHERE calendar_id = $1 AND uid <> ALL($2::text[]) AND created_at < NOW() - INTERVAL '2 minutes'
+       AND (NOT $3::boolean OR remote_href IS NOT NULL)`,
+    [calendarId, retainedUids.length ? retainedUids : [''], twoWay],
   );
+  if (twoWay && source.user_id) await uploadPendingEvents(String(calendarId), source.user_id);
   return { eventCount: events.length, skipped };
+}
+
+// Retry the upload of events created locally that the server does not have yet. Imported
+// lazily: the writeback module itself imports from this one.
+async function uploadPendingEvents(calendarId: string, userId: string) {
+  const pending = await query<{ uid: string; raw_ical: string }>(
+    `SELECT uid, raw_ical FROM calendar_events WHERE calendar_id = $1 AND user_id = $2 AND recurrence_id = '' AND remote_href IS NULL ORDER BY created_at LIMIT 50`,
+    [calendarId, userId],
+  );
+  if (!pending.rows.length) return;
+  const calendar = (await query<{ id: string; user_id: string; source: string; read_only: boolean; external_url: string | null }>(
+    'SELECT id, user_id, source, read_only, external_url FROM calendars WHERE id = $1 AND user_id = $2',
+    [calendarId, userId],
+  )).rows[0];
+  if (!calendar) return;
+  const { pushEventToRemote } = await import('./externalCalendarWriteback.js');
+  for (const event of pending.rows) {
+    const outcome = await pushEventToRemote({ calendar, uid: event.uid, rawIcal: event.raw_ical, action: 'put' });
+    if ('ok' in outcome && !outcome.ok && !outcome.conflict) console.warn(`Uploading a calendar event to the remote calendar failed: ${outcome.error}`);
+  }
 }
 
 async function syncSource(source: ExternalCalendarSource) {

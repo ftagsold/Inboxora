@@ -48,3 +48,22 @@ test('a reply to an invitation says who answered what', async ({ page, fixtureAp
   await expect(card.getByRole('status')).toHaveText('Zaktualizowano w Twoim kalendarzu');
   await expect(card.getByRole('button')).toHaveCount(0);
 });
+
+test('an event with attendees reopens with its attendee field shown, framed once like the composer', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'event dialog contract');
+  await fixtureApi; await setupV3(page);
+  // Attendees but no recorded sender (e.g. an older event): the section still opens.
+  await page.route('**/api/calendar/events**', route => {
+    if (/\/attendees$/.test(new URL(route.request().url()).pathname)) return route.fulfill({ json: { attendees: [] } });
+    return route.fulfill({ json: { events: [{ id: 'planning', calendar_id: 'calendar-personal', source: 'local', read_only: false, summary: 'Planungsrunde', attendees: ['anna@example.test'], invite_account_id: null, starts_at: '2026-09-10T09:00:00Z', ends_at: '2026-09-10T10:00:00Z' }] } });
+  });
+  await page.goto('/'); await navigateModule(page, 'calendar');
+  await page.getByRole('button', { name: /Planungsrunde/ }).first().dblclick();
+  const attendees = page.getByTestId('calendar-event-dialog').getByTestId('calendar-attendees');
+  await expect(attendees).toBeVisible();
+  await expect(attendees).toContainText('anna@example.test');
+  const input = attendees.locator('input');
+  await input.focus();
+  const inner = await input.evaluate(element => { const style = getComputedStyle(element); return { border: style.borderTopStyle, outline: style.outlineStyle, shadow: style.boxShadow, background: style.backgroundColor }; });
+  expect(inner).toEqual({ border: 'none', outline: 'none', shadow: 'none', background: 'rgba(0, 0, 0, 0)' });
+});

@@ -53,6 +53,7 @@
 .calendar-month-agenda { flex: 1; overflow-y: auto; padding: 14px 18px; }
 .calendar-month-agenda section { margin-bottom: 16px; }
 .calendar-month-agenda h3 { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+.calendar-attendees [data-testid="calendar-attendees"]:focus-within { border-color: var(--accent) !important; }
 .calendar-invites { padding: 12px; background: var(--accent-dim); border: 1px solid var(--border-subtle); border-radius: 8px; }
 .calendar-readonly { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
 /* The calendar panel and the day agenda share one bottom-sheet presentation on

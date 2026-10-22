@@ -1144,6 +1144,73 @@ describe('local calendar API', () => {
     expect(query.mock.calls.filter(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events')).length).toBe(1);
   });
 
+  // An edit that changes nothing an attendee sees must not mail everyone again; a newly added
+  // attendee gets the invitation, and only they do.
+  function invitedEventMocks(existing: Record<string, unknown>, calendar: Record<string, unknown> = { id: 'calendar-1', source: 'local', read_only: false }) {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invite_account_id: 'account-1', invitation_sequence: 2 };
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM calendars')) return { rows: [{ user_id: 'user-1', external_url: null, ...calendar }] };
+      if (sql.includes('FROM email_accounts')) return { rows: [sender] };
+      if (sql.includes('FROM calendar_invitation_outbox')) return { rows: [] };
+      if (sql.includes('FROM calendar_events') && sql.includes('FOR UPDATE')) return { rows: [existing] };
+      if (sql.includes('UPDATE calendar_events')) return { rows: [event] };
+      if (sql.includes('INSERT INTO calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }] };
+      return { rows: [] };
+    });
+    return sender;
+  }
+  const invitedExisting = { uid: 'uid-1', raw_ical: null, attendees: ['kept@example.test'], invite_account_id: 'account-1', invitation_sequence: 2, summary: 'Planning', description: null, location: null, starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
+  const invitedBody = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['kept@example.test'], startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' };
+  const updateParameters = () => query.mock.calls.find(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events SET raw_ical'))?.[1] as unknown[];
+
+  it.each([['with', { 'X-Idempotency-Key': 'unchanged-1' }], ['without', {}]])('sends nothing for an invited event saved unchanged (%s an idempotency key)', async (_label, headers) => {
+    invitedEventMocks(invitedExisting);
+    const response = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(invitedBody) });
+    expect(response.status).toBe(200);
+    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('INSERT INTO calendar_invitation_outbox'))).toBe(false);
+    expect(updateParameters().at(-1)).toBe(false);
+  });
+
+  it.each([['with', { 'X-Idempotency-Key': 'added-1' }], ['without', {}]])('invites only a newly added attendee when nothing else changed (%s an idempotency key)', async (_label, headers) => {
+    invitedEventMocks(invitedExisting);
+    const response = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ ...invitedBody, attendees: ['kept@example.test', 'new@example.test'] }) });
+    expect(response.status).toBe(200);
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ method: 'REQUEST', attendees: ['new@example.test'] }));
+    expect(updateParameters().at(-1)).toBe(false);
+  });
+
+  it('sends the update to every attendee when the details change', async () => {
+    invitedEventMocks(invitedExisting);
+    const response = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'moved-1' }, body: JSON.stringify({ ...invitedBody, attendees: ['kept@example.test', 'new@example.test'], location: 'Room 2' }) });
+    expect(response.status).toBe(200);
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ method: 'REQUEST', attendees: ['kept@example.test', 'new@example.test'] }));
+    expect(updateParameters().at(-1)).toBe(true);
+  });
+
+  it('uploads an invited event to its CalDAV calendar (or the next sync deleted it)', async () => {
+    invitedEventMocks(invitedExisting, { id: 'calendar-1', source: 'caldav', read_only: false, external_url: 'source:source-1' });
+    const response = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'caldav-1' }, body: JSON.stringify({ ...invitedBody, location: 'Room 2' }) });
+    expect(response.status).toBe(200);
+    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('FROM calendar_import_sources'))).toBe(true);
+  });
+
+  it('uploads a new invited event to its CalDAV calendar', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', user_id: 'user-1', source: 'caldav', read_only: false, external_url: 'source:source-1' }] };
+      if (sql.includes('FROM email_accounts')) return { rows: [sender] };
+      if (sql.includes('INSERT INTO calendar_events')) return { rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 }] };
+      if (sql.includes('INSERT INTO calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }] };
+      return { rows: [] };
+    });
+    const response = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'caldav-new' }, body: JSON.stringify(invitedBody) });
+    expect(response.status).toBe(201);
+    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('FROM calendar_import_sources'))).toBe(true);
+  });
+
   it('rejects reuse of an idempotency key for a different update target', async () => {
     const sender = { id: 'account-1', smtp_host: 'smtp.example.test', enabled: true };
     query

@@ -43,17 +43,20 @@ export function parseInboundCalendarReply(raw: unknown): InboundCalendarReply | 
     const value = vevent.getFirstPropertyValue(name);
     return value instanceof ICAL.Time ? value : null;
   };
+  // A DATE value is a calendar day: stored as UTC midnight like every other all-day date,
+  // not as midnight in this server's timezone (which toJSDate would give).
+  const iso = (value: ICAL.Time) => (value.isDate ? new Date(Date.UTC(value.year, value.month - 1, value.day)) : value.toJSDate()).toISOString();
   const start = time('dtstart');
   const end = time('dtend');
   const recurrence = time('recurrence-id');
   return {
     method: 'REPLY',
     uid,
-    recurrenceId: recurrence ? recurrence.toJSDate().toISOString() : null,
+    recurrenceId: recurrence ? iso(recurrence) : null,
     sequence: Number(vevent.getFirstPropertyValue('sequence') || 0) || 0,
     summary: vevent.getFirstPropertyValue('summary') ? String(vevent.getFirstPropertyValue('summary')) : null,
-    startsAt: start ? start.toJSDate().toISOString() : null,
-    endsAt: end ? end.toJSDate().toISOString() : null,
+    startsAt: start ? iso(start) : null,
+    endsAt: end ? iso(end) : null,
     allDay: Boolean(start?.isDate),
     attendees,
   };

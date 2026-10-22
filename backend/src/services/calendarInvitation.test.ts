@@ -39,7 +39,7 @@ const { createAccountSmtpTransport } = vi.hoisted(() => ({
 }));
 vi.mock('./smtpTransport.js', () => ({ createAccountSmtpTransport }));
 
-import { sendCalendarInvitation } from './calendarInvitation.js';
+import { invitationReplyIcal, sendCalendarInvitation } from './calendarInvitation.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 
 describe('sendCalendarInvitation', () => {
@@ -85,6 +85,21 @@ describe('sendCalendarInvitation', () => {
 
     expect(sendMail.mock.calls[0][0].attachments[0].content).toContain('DTSTART;VALUE=DATE:20260901');
     expect(sendMail.mock.calls[0][0].attachments[0].content).toContain('DTEND;VALUE=DATE:20260902');
+  });
+
+  it('marks all-day invitations and replies all-day for Exchange, and leaves timed ones alone', async () => {
+    // Microsoft 365 turns a bare VALUE=DATE event into a timed one (midnight UTC), which a Mac or
+    // Outlook on that mailbox then shows running into a third day.
+    const { sendMail, transport } = createMailTransportMock();
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport });
+    await sendCalendarInvitation({ account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Offsite', uid: 'event-3', allDay: true, startsAt: new Date('2026-10-22T00:00:00.000Z'), endsAt: new Date('2026-10-24T00:00:00.000Z') });
+    await sendCalendarInvitation({ account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Call', uid: 'event-4', startsAt: new Date('2026-10-22T09:00:00.000Z'), endsAt: new Date('2026-10-22T10:00:00.000Z') });
+    const [allDay, timed] = sendMail.mock.calls.map(call => String(call[0].attachments[0].content));
+    expect(allDay).toContain('\r\nX-MICROSOFT-CDO-ALLDAYEVENT:TRUE\r\n');
+    expect(allDay).toContain('DTEND;VALUE=DATE:20261024');
+    expect(timed).not.toContain('X-MICROSOFT-CDO-ALLDAYEVENT');
+    const reply = invitationReplyIcal({ attendeeEmail: 'me@example.test', organizerEmail: 'organizer@example.test', response: 'ACCEPTED', uid: 'event-3', summary: 'Offsite', allDay: true, startsAt: '2026-10-22T00:00:00.000Z', endsAt: '2026-10-24T00:00:00.000Z' });
+    expect(reply).toContain('\r\nX-MICROSOFT-CDO-ALLDAYEVENT:TRUE\r\n');
   });
 
   it('folds long invitation properties without splitting UTF-8 characters', async () => {

@@ -9,7 +9,8 @@ type QueryMock = (text: string, params?: unknown[]) => Promise<DbQueryResult<DbR
 type SafeFetchMock = (url: string, options: RequestInit, policy: SafeFetchOptions) => Promise<Response>;
 type ConnectionPolicyMock = () => ReturnType<typeof ConnectionPolicyModule.getConnectionPolicy>;
 
-const { query, safeFetch, getConnectionPolicy } = vi.hoisted(() => ({
+const { query, safeFetch, getConnectionPolicy, pushEventToRemote } = vi.hoisted(() => ({
+  pushEventToRemote: vi.fn(async () => ({ ok: true })),
   query: vi.fn<QueryMock>(),
   safeFetch: vi.fn<SafeFetchMock>(),
   getConnectionPolicy: vi.fn<ConnectionPolicyMock>(),
@@ -41,6 +42,7 @@ function lastQueryCall(): [string, unknown[]] {
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./safeFetch.js', () => ({ safeFetch }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
+vi.mock('./externalCalendarWriteback.js', () => ({ pushEventToRemote }));
 vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value }));
 
 import { stopCalendarSource, syncCalendarSource } from './externalCalendarSync.js';
@@ -75,7 +77,7 @@ describe('external calendar imports', () => {
     const eventInsert = queryCallContaining('INSERT INTO calendar_events');
     const staleDelete = queryCallContaining('DELETE FROM calendar_events');
     expect(eventInsert[1]).toContain('event-1');
-    expect(staleDelete[1]).toEqual(['calendar-1', ['event-1']]);
+    expect(staleDelete[1]).toEqual(['calendar-1', ['event-1'], false]);
     // A locally created event that hasn't shown up in a remote REPORT yet (its
     // PUT can complete after this sync's snapshot was taken) must survive this
     // reconciliation pass — otherwise the client that just created it gets a
@@ -180,7 +182,7 @@ describe('external calendar imports', () => {
     const result = await syncCalendarSource('user-1', 'source-1');
     expect(result).toEqual({ ok: true, eventCount: 1, skipped: [{ uid: 'broken-event', reason: 'unsupported or malformed VEVENT' }] });
     const staleDelete = queryCallContaining('DELETE FROM calendar_events');
-    expect(staleDelete[1]).toEqual(['calendar-1', ['event-1', 'broken-event']]);
+    expect(staleDelete[1]).toEqual(['calendar-1', ['event-1', 'broken-event'], false]);
     const warning = lastQueryCall()[1][1];
     expect(typeof warning).toBe('string');
     if (typeof warning !== 'string') throw new Error('Expected a serialized warning');
@@ -254,7 +256,28 @@ it.each(['ical_url', 'caldav'])('removes the previous projection for a validated
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
   safeFetch.mockImplementation(async () => successfulResponse(kind === 'caldav' ? '<D:multistatus xmlns:D="DAV:"/>' : 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n'));
   expect(await syncCalendarSource('user-1', `empty-${kind}`)).toEqual({ ok: true, eventCount: 0 });
-  expect(queryCallContaining('DELETE FROM calendar_events')[1]).toEqual(['calendar-1', ['']]);
+  expect(queryCallContaining('DELETE FROM calendar_events')[1]).toEqual(['calendar-1', [''], false]);
+});
+
+it('keeps and re-uploads events a two-way CalDAV calendar has not received yet, instead of deleting them', async () => {
+  // An event created here (e.g. one with invitations) whose upload failed is absent from the
+  // server's REPORT because the server never had it; deleting it lost the user's event.
+  const credentials = { username: 'calendar-user', password: 'enc:v1:calendar-password' };
+  query.mockReset();
+  query.mockImplementation(async (sql: string) => {
+    if (sql.includes('FROM calendar_import_sources')) return { rows: [{ ...source, ...credentials, id: 'two-way', kind: 'caldav', writable: true }] } as unknown as DbQueryResult<DbRow>;
+    if (sql.includes('SELECT id FROM calendars')) return { rows: [{ id: 'calendar-1' }] } as unknown as DbQueryResult<DbRow>;
+    if (sql.includes('remote_href IS NULL ORDER BY')) return { rows: [{ uid: 'local-event', raw_ical: 'BEGIN:VCALENDAR' }] } as unknown as DbQueryResult<DbRow>;
+    if (sql.includes('SELECT id, user_id, source, read_only, external_url FROM calendars')) return { rows: [{ id: 'calendar-1', user_id: 'user-1', source: 'caldav', read_only: false, external_url: 'source:two-way' }] } as unknown as DbQueryResult<DbRow>;
+    return { rows: [] } as unknown as DbQueryResult<DbRow>;
+  });
+  getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
+  safeFetch.mockImplementation(async () => successfulResponse('<D:multistatus xmlns:D="DAV:"/>'));
+  expect(await syncCalendarSource('user-1', 'two-way')).toEqual({ ok: true, eventCount: 0 });
+  const [deleteSql, deleteParams] = queryCallContaining('DELETE FROM calendar_events');
+  expect(deleteSql).toContain('remote_href IS NOT NULL');
+  expect(deleteParams).toEqual(['calendar-1', [''], true]);
+  expect(pushEventToRemote).toHaveBeenCalledWith(expect.objectContaining({ uid: 'local-event', rawIcal: 'BEGIN:VCALENDAR', action: 'put', calendar: expect.objectContaining({ id: 'calendar-1' }) }));
 });
 
 it('does not treat an HTML error page as an empty calendar', async () => {

@@ -135,6 +135,18 @@ function elementStartsWithReplyMarker(element: Element): boolean {
   return false;
 }
 
+// Node.DOCUMENT_POSITION_FOLLOWING, spelled out so this also runs where no DOM globals exist.
+const DOCUMENT_POSITION_FOLLOWING = 4;
+
+function hasContentBefore(doc: Document, element: Element): boolean {
+  const range = doc.createRange();
+  range.setStart(doc.body, 0);
+  range.setEndBefore(element);
+  const before = range.cloneContents();
+  if ((before.textContent || '').replace(/\u00a0/g, ' ').trim()) return true;
+  return Boolean(before.querySelector('img, video, table, hr'));
+}
+
 function createToggle(doc: Document, id: string, showLabel: string, hideLabel: string, onChange: (() => void) | null): HTMLElement {
   const button = doc.createElement('button');
   button.type = 'button';
@@ -192,6 +204,9 @@ function installPlainTextGroup(doc: Document, pre: Element, options: QuoteToggle
   const boundary = plainTextBoundary(text);
   if (boundary < 0) return false;
   const visible = text.slice(0, boundary);
+  // Nothing written above the quoted history: the message *is* that history (a forward), so
+  // folding it would leave only the toggle.
+  if (!visible.trim()) return false;
   const quoted = text.slice(boundary);
   const id = 'mailflow-quote-plain';
   pre.textContent = '';
@@ -217,7 +232,11 @@ export function installMessageQuoteFolding(doc: Document, {
 
   const protectedForwards = protectedForwardRoots(doc);
   protectedForwards.forEach(root => { root.dataset.mailflowForwardRoot = 'true'; });
-  const groups = candidateGroups(doc, protectedForwards);
+  const candidates = candidateGroups(doc, protectedForwards);
+  // Nothing written above the first quoted region: the message *is* that history (a forward,
+  // or a mail sent on unchanged), so folding it would leave only the toggle.
+  const first = candidates.map(group => group[0]).sort((left, right) => left.compareDocumentPosition(right) & DOCUMENT_POSITION_FOLLOWING ? -1 : 1)[0];
+  const groups = first && hasContentBefore(doc, first) ? candidates : [];
   groups.forEach((elements, index) => installGroup(doc, elements, index, { showLabel, hideLabel, onChange }));
   return { count: groups.length, protectedForwardCount: protectedForwards.length };
 }

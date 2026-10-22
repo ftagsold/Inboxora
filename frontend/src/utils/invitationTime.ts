@@ -51,8 +51,16 @@ export function formatInvitationRange(invitation: Record<string, unknown>, langu
   const start = valid(invitation?.startsAt);
   if (!start) return '';
   const locale = intlLocale(language);
-  // All-day: the end is exclusive (the following midnight), so it is never shown.
-  if (invitation.allDay) return formatter(locale, 'date').format(start);
+  // All-day: the end is exclusive (the following midnight), so a multi-day event shows its
+  // last day, not the end. Dates are calendar days (stored as UTC midnight), read in UTC so
+  // a timezone west of UTC does not show the day before.
+  if (invitation.allDay) {
+    const dateFormat = new Intl.DateTimeFormat(locale, { ...RANGE_FORMAT.date, timeZone: 'UTC' });
+    const end = valid(invitation?.endsAt);
+    const lastDay = end ? new Date(end.getTime() - 24 * 60 * 60 * 1000) : null;
+    if (!lastDay || lastDay.getTime() <= start.getTime()) return dateFormat.format(start);
+    return `${dateFormat.format(start)} – ${dateFormat.format(lastDay)}`;
+  }
   const end = valid(invitation?.endsAt);
   if (!end || end <= start) return formatter(locale, 'dateTime').format(start);
   if (sameDay(start, end)) {

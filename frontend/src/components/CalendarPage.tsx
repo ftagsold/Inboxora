@@ -418,8 +418,10 @@ export default function CalendarPage({ isActive = true }) {
       url: event.url || '',
       organizer: event.organizer || '',
       attendees: Array.isArray(event.attendees) ? event.attendees : [],
-      sendInvites: false,
-      inviteAccountId: '',
+      // A moved invited event stays invited: its attendees receive the new time. Sending
+      // without invitations here used to cancel every attendee's copy.
+      sendInvites: Boolean(event.invite_account_id && event.attendees?.length),
+      inviteAccountId: event.invite_account_id || '',
       allDay,
       startsAt: allDay ? dateOnly(start) : toDateTimeLocal(start),
       endsAt: allDay ? dateOnly(end) : toDateTimeLocal(end),
@@ -1946,10 +1948,11 @@ function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpe
       </> : <>
         <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><RichTextEditor value={form.description} onChange={(html: string) => onChange('description', html)} placeholder={t('calendar.descriptionPlaceholder')} label={t('calendar.description')} testId="calendar-event-description" /></div>
         <div className="calendar-invites ui-form"><label className="ui-check"><input type="checkbox" disabled={locked} checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>
-          {form.sendInvites && <><div className="calendar-attendees"><span className="calendar-description-label">{t('calendar.attendees')}</span>
-            <ChipInput chips={form.attendees} onChipsChange={setAttendees} value={attendeeDraft} onChange={setAttendeeDraft} placeholder={t('calendar.attendeesPlaceholder')} getSuggestions={suggestAttendees} chipAdornment={statusOf} disabled={locked} testId="calendar-attendees" containerStyle={{ border: '1px solid var(--border)', borderRadius: 8, padding: '4px 8px', background: 'var(--bg-primary)' }} />
-          </div>
-            <label>{t('calendar.senderAccount')}<select disabled={locked} value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>
+          {/* Attendees stay in view whenever the event has any, invited or not yet. */}
+          {(form.sendInvites || form.attendees.length > 0) && <div className="calendar-attendees"><span className="calendar-description-label">{t('calendar.attendees')}</span>
+            <ChipInput chips={form.attendees} onChipsChange={setAttendees} value={attendeeDraft} onChange={setAttendeeDraft} placeholder={t('calendar.attendeesPlaceholder')} getSuggestions={suggestAttendees} chipAdornment={statusOf} disabled={locked} testId="calendar-attendees" containerStyle={attendeeFieldStyle} inputStyle={attendeeInputStyle} />
+          </div>}
+          {form.sendInvites && <><label>{t('calendar.senderAccount')}<select disabled={locked} value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>
             {!accounts.length && <p>{t('calendar.noSenderAccounts')}</p>}</>}
         </div>
       </>}
@@ -1982,6 +1985,10 @@ const timeAxisHeader: CSSProperties = { borderRight: '1px solid var(--border-sub
 // same element is fragile even when (as here) it isn't currently observable.
 const weekendColumn: CSSProperties = { background: 'color-mix(in srgb, var(--bg-secondary) 55%, var(--bg-primary))' }; const timeDragPreview: CSSProperties = { position: 'absolute', left: 2, right: 2, zIndex: 2, borderRadius: 4, border: '1px dashed var(--accent)', background: 'color-mix(in srgb, var(--accent) 22%, transparent)', pointerEvents: 'none', boxSizing: 'border-box' };
 const timedEvent: CSSProperties = { position: 'absolute', zIndex: 1, margin: 0, overflow: 'hidden', border: 0, borderRadius: 4, padding: '2px 6px', color: 'white', textAlign: 'left', fontSize: 11, lineHeight: 1.45, boxSizing: 'border-box' }; const timedEventTitle: CSSProperties = { display: 'block', fontWeight: 700, whiteSpace: 'normal', overflowWrap: 'break-word' }; const timedEventTimeRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: 3, fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, fontWeight: 400, opacity: .85 }; const timedEventLoc: CSSProperties = { display: 'block', fontSize: 10, opacity: .8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+// The attendee field reads like the composer's recipient row: one framed field with the
+// chips and a borderless text input inside — not a second input box nested in the first.
+const attendeeFieldStyle: CSSProperties = { border: '1px solid var(--border-subtle)', borderRadius: 6, padding: '2px 8px', background: 'var(--bg-primary)', minHeight: 34 };
+const attendeeInputStyle: CSSProperties = { width: 'auto', padding: '5px 0', border: 'none', borderRadius: 0, background: 'transparent', outline: 'none', boxShadow: 'none', color: 'var(--text-primary)', fontSize: 13 };
 const allDayRowLabel: CSSProperties = { background: 'var(--bg-tertiary)', borderRight: '1px solid var(--border-subtle)' };
 const allDayPill: CSSProperties = { margin: '1px 2px', border: 0, borderRadius: 4, padding: '2px 6px', color: 'white', textAlign: 'left', fontSize: 11, fontWeight: 600, lineHeight: 1.45, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0 };
 const workHoursBoundary: CSSProperties = { position: 'absolute', left: 0, right: 0, zIndex: 0, borderTop: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', borderBottom: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', background: 'color-mix(in srgb, var(--accent) 5%, transparent)', pointerEvents: 'none' }; const workHoursBoundaryToday: CSSProperties = { background: 'color-mix(in srgb, var(--accent) 7%, transparent)' };

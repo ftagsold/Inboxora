@@ -29,6 +29,19 @@ for (const [format, html] of Object.entries(BODIES)) {
   });
 }
 
+test('a message that is only quoted history (a forward) stays visible, without a fold', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop reader contract');
+  await fixtureApi;
+  page.__conversationMatrix = '01';
+  const html = '<div>16.10.2026 19:57:53 Maria Tagsold &lt;maria@example.test&gt;:</div><blockquote><div>Forwarded hotel details</div></blockquote>';
+  await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html, text: '', attachments: [], hasBlockedRemoteImages: false, remoteImages: true } }));
+  await page.goto('/?list=0&reader=1');
+  await page.locator('[data-msgid="conversation-gmail-copy-1"]:visible').click();
+  const frame = page.locator('section[data-conversation-id] [data-message-detail-body] iframe').first().contentFrame();
+  await expect(frame.getByText('Forwarded hotel details')).toBeVisible();
+  await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(0);
+});
+
 test('quoted history is never painted expanded before it folds (no flicker)', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop reader contract');
   await fixtureApi;

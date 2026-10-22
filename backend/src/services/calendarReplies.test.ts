@@ -33,6 +33,11 @@ describe('parseInboundCalendarReply', () => {
     });
   });
 
+  it('reads all-day dates as calendar days, whatever the server timezone', () => {
+    const allDay = REPLY.replace('DTSTART:20261022T090000Z', 'DTSTART;VALUE=DATE:20261022').replace('DTEND:20261022T100000Z', 'DTEND;VALUE=DATE:20261024');
+    expect(parseInboundCalendarReply(allDay)).toMatchObject({ allDay: true, startsAt: '2026-10-22T00:00:00.000Z', endsAt: '2026-10-24T00:00:00.000Z' });
+  });
+
   it('ignores anything that is not a reply', () => {
     expect(parseInboundCalendarReply(REPLY.replace('METHOD:REPLY', 'METHOD:REQUEST'))).toBeNull();
     expect(parseInboundCalendarReply('not a calendar')).toBeNull();
