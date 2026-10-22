@@ -1,8 +1,11 @@
 //! Route table. Groups are added here as they are ported.
 
 pub mod block_list;
+pub mod calendar;
 pub mod categories;
 pub mod contacts;
+pub mod plugins;
+pub mod push;
 pub mod rules;
 pub mod search;
 pub mod system;
@@ -30,13 +33,14 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
         ("/api/contacts", contacts::router()),
         ("/api/search", search::router()),
         ("/api/rules", rules::router()),
+        ("/api/plugins", plugins::router()),
+        ("/api/calendar", calendar::router()),
     ]
 }
 
 pub fn router(state: &AppState) -> Router<AppState> {
-    groups()
-        .into_iter()
-        .fold(Router::new().merge(system::router()).merge(categories::router()), |r, (prefix, group)| {
-            r.merge(authed(state, prefix, group))
-        })
+    groups().into_iter().fold(
+        Router::new().merge(system::router()).merge(categories::router()).merge(push::router()),
+        |r, (prefix, group)| r.merge(authed(state, prefix, group)),
+    )
 }

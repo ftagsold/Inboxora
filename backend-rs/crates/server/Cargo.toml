@@ -10,6 +10,7 @@ publish.workspace = true
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["ws", "macros"] }
 base64 = "0.23.1"
+bcrypt = "0.19.3"
 bytes = "1.12.1"
 chrono = "0.4.45"
 fred = "10.1.0"
@@ -23,6 +24,7 @@ inboxora-pim = { version = "5.0.0", path = "../pim" }
 mimalloc = "0.1.52"
 parking_lot = "0.12.5"
 percent-encoding = "2.3.2"
+rayon = "1.12.0"
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }

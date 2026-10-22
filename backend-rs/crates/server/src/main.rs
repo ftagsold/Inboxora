@@ -67,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => tracing::warn!("event subscriber unavailable: {e}"),
     }
 
+    services::calendar::start_occurrence_scheduler(db.clone());
     let state = state::AppState {
         sessions: SessionStore::new(redis.clone(), &cfg.session_secret),
         cfg: cfg.clone(),

@@ -212,6 +212,8 @@ async function main() {
         let failed = null;
         for (const [i, rawStep] of scenario.steps.entries()) {
           const results = {};
+          const waitMs = (typeof rawStep === 'function' ? rawStep(ctx.node) : rawStep).waitMs;
+          if (waitMs) await new Promise(r => setTimeout(r, waitMs));
           for (const name of ['node', 'rust']) {
             const step = typeof rawStep === 'function' ? rawStep(ctx[name]) : rawStep;
             const r = await send(name, step, cookies[name]);

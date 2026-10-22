@@ -903,3 +903,43 @@ pub fn merge_calendar_resource(
     }
     Ok(stringify_component(&root))
 }
+
+/// An attendee's answer on the series master (`attendeeStatuses`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AttendeeStatus {
+    pub email: String,
+    pub name: Option<String>,
+    pub partstat: String,
+}
+
+fn ical_address(v: &str) -> String {
+    mailto_strip(v.trim_start()).trim().to_lowercase()
+}
+
+/// `attendeeStatuses(rawIcal)`.
+pub fn attendee_statuses(raw: &str) -> Vec<AttendeeStatus> {
+    if raw.trim().is_empty() {
+        return Vec::new();
+    }
+    let Ok(root) = parse_component(raw) else { return Vec::new() };
+    let events: Vec<&Component> = root.subcomponents("vevent").collect();
+    let Some(master) = events.iter().find(|e| !e.has("recurrence-id")).or(events.first()) else { return Vec::new() };
+    master
+        .props_named("attendee")
+        .filter_map(|p| {
+            let partstat = p.param("partstat").unwrap_or("NEEDS-ACTION").to_uppercase();
+            let partstat =
+                if matches!(partstat.as_str(), "ACCEPTED" | "TENTATIVE" | "DECLINED" | "NEEDS-ACTION" | "DELEGATED") {
+                    partstat
+                } else {
+                    "NEEDS-ACTION".into()
+                };
+            let email = ical_address(&p.first_str().unwrap_or_else(|| "null".into()));
+            email.contains('@').then(|| AttendeeStatus {
+                email,
+                name: p.param("cn").filter(|n| !n.is_empty()).map(str::to_owned),
+                partstat,
+            })
+        })
+        .collect()
+}
