@@ -28,6 +28,11 @@ async function seed({ sql }) {
   }
   await sql(`INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal') ON CONFLICT DO NOTHING`, [U.alice]);
   await sql(`INSERT INTO contacts (address_book_id, user_id, uid, display_name, birthday, contact_dates) SELECT id, $1, 'bd', 'Birthday Person', '1980-03-10', '[{"label":"Wedding","value":"--03-12"},{"label":"Leap","value":"2000-02-29"}]'::jsonb FROM address_books WHERE user_id = $1 AND name = 'Personal'`, [U.alice]);
+  // Hold the background materialiser off until the step that waits for it: each backend ticks
+  // on its own schedule, so otherwise one could answer from materialised rows and the other
+  // from the projection. "Not dirty, never built" keeps reads on the projection path.
+  await sql(`UPDATE calendar_occurrence_state SET dirty = false, built_from = 'infinity', built_to = '-infinity' WHERE user_id IN ($1, $2)`, [U.alice, U.bob]);
+  await sql(`DELETE FROM calendar_occurrences WHERE user_id IN ($1, $2)`, [U.alice, U.bob]);
   return { keep: [CAL, CAL2, BOB_CAL, U.alice, U.bob, ...events.map(([n]) => EV(n))] };
 }
 
@@ -69,5 +74,13 @@ export default [{
     { path: range('2026-01-01', '2027-01-01'), as: 'alice', waitMs: 7000 },
     { path: range('2026-03-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z'), as: 'alice' },
   ],
+  check: {
+    // Release the materialiser; step 29 waits for it.
+    28: async ({ sql }) => { await sql(`UPDATE calendar_occurrence_state SET dirty = true WHERE user_id IN ($1, $2)`, [U.alice, U.bob]); },
+    29: async ({ sql }) => {
+      const { rows } = await sql(`SELECT count(*)::int AS n FROM calendar_occurrences WHERE user_id = $1`, [U.alice]);
+      if (!rows[0].n) throw new Error('the materialiser must have built occurrences by now');
+    },
+  },
   after: async ({ sql }) => (await sql(`SELECT e.uid, o.recurrence_id, o.starts_at, o.ends_at, o.summary FROM calendar_occurrences o JOIN calendar_events e ON e.id = o.event_id ORDER BY e.uid, o.starts_at`)).rows,
 }];
