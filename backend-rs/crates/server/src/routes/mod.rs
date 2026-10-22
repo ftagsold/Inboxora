@@ -1,9 +1,13 @@
 //! Route table. Groups are added here as they are ported.
 
 pub mod block_list;
+pub mod caldav;
 pub mod calendar;
+pub mod carddav;
 pub mod categories;
 pub mod contacts;
+pub mod dav;
+pub mod dav_credentials;
 pub mod plugins;
 pub mod push;
 pub mod rules;
@@ -35,12 +39,18 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
         ("/api/rules", rules::router()),
         ("/api/plugins", plugins::router()),
         ("/api/calendar", calendar::router()),
+        ("/api/dav-credentials", dav_credentials::router()),
     ]
 }
 
 pub fn router(state: &AppState) -> Router<AppState> {
     groups().into_iter().fold(
-        Router::new().merge(system::router()).merge(categories::router()).merge(push::router()),
+        Router::new()
+            .merge(system::router())
+            .merge(categories::router())
+            .merge(push::router())
+            .merge(carddav::router())
+            .merge(caldav::router()),
         |r, (prefix, group)| r.merge(authed(state, prefix, group)),
     )
 }

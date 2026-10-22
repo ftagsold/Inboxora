@@ -68,6 +68,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     services::calendar::start_occurrence_scheduler(db.clone());
+    services::auth::reload_auth_settings(&db).await;
+    services::auth::start_auth_event_pruning(db.clone());
     let state = state::AppState {
         sessions: SessionStore::new(redis.clone(), &cfg.session_secret),
         cfg: cfg.clone(),

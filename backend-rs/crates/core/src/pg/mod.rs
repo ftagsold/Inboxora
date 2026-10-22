@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 use deadpool_postgres::{GenericClient, Manager, ManagerConfig, Pool, RecyclingMethod};
 use futures_util::future::BoxFuture;
 use serde_json::{Map, Value};
+use tokio_postgres::NoTls;
+pub use tokio_postgres::Row;
 use tokio_postgres::types::ToSql;
-use tokio_postgres::{NoTls, Row};
 
 pub use row::{NodeJson, row_to_json, rows_to_json};
 pub use value::{Val, json};

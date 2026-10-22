@@ -14,7 +14,7 @@ use inboxora_core::pg::{Q, Val};
 use inboxora_core::{Result, params};
 use parking_lot::Mutex;
 use regex::Regex;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::http::{Auth, Qs};
 use crate::routes::contacts::{query_int, query_string};

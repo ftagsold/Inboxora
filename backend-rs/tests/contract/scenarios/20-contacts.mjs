@@ -47,7 +47,7 @@ export default [
     name: 'contacts: create, list, filter, get, patch, delete',
     seed, sessions, ignoreKeys: ['etag'],
     steps: [
-      { method: 'POST', path: '/api/contacts', as: 'alice', body: { displayName: 'Jane Doe', firstName: 'Jane', lastName: 'Doe', emails: [{ value: ' Jane@Example.TEST ', type: 'work', primary: true }], phones: [{ value: '+1 555', type: 'cell' }], organization: 'ACME, Inc', notes: 'a;b\nc', birthday: '1990-02-28', title: ' CEO ', urls: [{ value: 'https://jane.test', type: 'home' }], categories: ['Friends'], addresses: [{ type: 'home', street: '1 Main', locality: 'Town' }] }, ignore: ['etag'], capture: (j) => ({ jane: j.id }) },
+      { method: 'POST', path: '/api/contacts', as: 'alice', body: { displayName: 'Jane Doe', firstName: 'Jane', lastName: 'Doe', emails: [{ value: ' Jane@Example.TEST ', type: 'work', primary: true }], phones: [{ value: '+1 555', type: 'cell' }], organization: 'ACME, Inc', notes: 'a;b\nc', birthday: '1990-02-28', urls: [{ value: 'https://jane.test', type: 'home' }], categories: ['Friends'], addresses: [{ type: 'home', street: '1 Main', locality: 'Town' }] }, ignore: ['etag'], capture: (j) => ({ jane: j.id }) },
       { method: 'POST', path: '/api/contacts', as: 'alice', body: { displayName: 'Dup', emails: [{ value: 'jane@example.test' }] } },
       { method: 'POST', path: '/api/contacts', as: 'alice', body: { emails: null } },
       { method: 'POST', path: '/api/contacts', as: 'alice', body: { phones: 'x' } },

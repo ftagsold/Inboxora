@@ -217,12 +217,18 @@ async function main() {
           for (const name of ['node', 'rust']) {
             const step = typeof rawStep === 'function' ? rawStep(ctx[name]) : rawStep;
             const r = await send(name, step, cookies[name]);
+            // Capture from the raw body: normalisation rewrites ids and ignoreKeys drops secrets.
+            if (step.capture) {
+              const got = r.json ? step.capture(structuredClone(r.json), ctx[name]) : {};
+              const missing = Object.entries(got || {}).filter(([, v]) => v === undefined).map(([k]) => k);
+              if (!r.json || missing.length) throw new Error(`step ${i} (${name}): capture produced no ${missing.join(', ') || 'JSON body'} from ${r.status} ${JSON.stringify(r.json ?? r.text)?.slice(0, 300)}\n${BACKENDS[name].log.slice(-6).join('')}`);
+              Object.assign(ctx[name], got);
+            }
             r.json = r.json === undefined ? undefined : norms[name](r.json);
             if (r.text !== undefined) r.text = norms[name](r.text);
             if (step.ignore) for (const p of step.ignore) deletePath(r.json, p);
             if (scenario.ignoreKeys) deleteKeys(r.json, scenario.ignoreKeys);
             results[name] = r;
-            if (step.capture && r.json) Object.assign(ctx[name], step.capture(r.json, ctx[name]));
           }
           const step = typeof rawStep === 'function' ? rawStep(ctx.node) : rawStep;
           const fields = ['status', 'headers', 'json', 'text', ...(step.compareSetCookie ? ['setsCookie'] : [])];

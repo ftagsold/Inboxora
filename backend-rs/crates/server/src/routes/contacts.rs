@@ -755,7 +755,7 @@ async fn create(State(s): State<AppState>, auth: Auth, body: Body) -> Result<Res
         let sql = format!(
             "INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, \
              emails, phones, organization, notes, birthday, anniversary, contact_dates, title, role, nickname, urls, instant_messages, \
-             categories, addresses, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20,$21,$22,$23, false) {RETURNING}"
+             categories, addresses, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21,$22,$23, false) {RETURNING}"
         );
         let r = |k: &str| rich.get(k).cloned().unwrap_or(Value::Null);
         let row =

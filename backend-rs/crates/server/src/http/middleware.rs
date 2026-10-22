@@ -16,6 +16,17 @@ fn is_dav_path(path: &str) -> bool {
     path == "/carddav" || path.starts_with("/carddav/") || path == "/caldav" || path.starts_with("/caldav/")
 }
 
+/// `Origin` followed by the other (de-duplicated) fields of existing Vary headers.
+fn vary_after_origin<'a>(existing: impl Iterator<Item = &'a str>) -> String {
+    let mut fields = vec!["Origin".to_owned()];
+    for f in existing.flat_map(|v| v.split(',')).map(str::trim).filter(|f| !f.is_empty()) {
+        if !fields.iter().any(|x| x.eq_ignore_ascii_case(f)) {
+            fields.push(f.to_owned());
+        }
+    }
+    fields.join(", ")
+}
+
 /// `cors({ origin: FRONTEND_URL, credentials: true })`, skipped for DAV paths. Preflights
 /// (any OPTIONS) end here with 204, before routing, exactly like the `cors` package.
 pub async fn cors(State(state): State<AppState>, req: Request, next: Next) -> Response {
@@ -40,21 +51,33 @@ pub async fn cors(State(state): State<AppState>, req: Request, next: Next) -> Re
     let mut res = next.run(req).await;
     let h = res.headers_mut();
     h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
-    h.append(header::VARY, HeaderValue::from_static("Origin"));
+    // `cors` adds `Vary: Origin` before the handler runs, so fields the handler varies on
+    // (`res.vary('Accept')`) follow it in one merged header.
+    let vary = vary_after_origin(h.get_all(header::VARY).iter().filter_map(|v| v.to_str().ok()));
+    h.insert(header::VARY, HeaderValue::from_str(&vary).unwrap_or(HeaderValue::from_static("Origin")));
     h.insert(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, HeaderValue::from_static("true"));
     res
 }
+
+/// A handler-chosen metrics key (`METHOD pattern`) for routes dispatched inside one handler.
+#[derive(Clone, Debug)]
+pub struct RoutePattern(pub String);
 
 /// Record request latency under the matched route pattern (never the concrete URL).
 pub async fn timing(req: Request, next: Next) -> Response {
     let start = Instant::now();
     let method = req.method().clone();
     let res = next.run(req).await;
-    let pattern = res
-        .extensions()
-        .get::<MatchedPath>()
-        .map_or_else(|| "unmatched".to_owned(), |p| inboxora_core::metrics::express_pattern(p.as_str()));
-    let key = format!("{method} {pattern}");
+    let key = match res.extensions().get::<RoutePattern>() {
+        Some(RoutePattern(k)) => k.clone(),
+        None => {
+            let pattern = res
+                .extensions()
+                .get::<MatchedPath>()
+                .map_or_else(|| "unmatched".to_owned(), |p| inboxora_core::metrics::express_pattern(p.as_str()));
+            format!("{method} {pattern}")
+        }
+    };
     inboxora_core::metrics::record_http(&key, start.elapsed(), res.status().is_server_error());
     res
 }
@@ -116,8 +139,25 @@ pub async fn etag(req: Request, next: Next) -> Response {
     let res = next.run(req).await;
     let status = res.status();
     let exact = http_body::Body::size_hint(res.body()).exact();
-    if res.headers().contains_key(header::ETAG)
-        || status == StatusCode::NO_CONTENT
+    // A handler-supplied ETag (`res.set('ETag', …).send()`): Express still answers a fresh
+    // conditional GET with 304.
+    if let Some(existing) = res.headers().get(header::ETAG).and_then(|v| v.to_str().ok()).map(str::to_owned) {
+        if conditional
+            && !no_cache
+            && status.is_success()
+            && inm.as_deref().is_some_and(|i| etag_matches(i, &existing))
+            && res.extensions().get::<NoEtag>().is_none()
+        {
+            let (mut parts, _) = res.into_parts();
+            parts.status = StatusCode::NOT_MODIFIED;
+            for h in [header::CONTENT_TYPE, header::CONTENT_LENGTH, header::TRANSFER_ENCODING] {
+                parts.headers.remove(h);
+            }
+            return Response::from_parts(parts, AxumBody::empty());
+        }
+        return res;
+    }
+    if status == StatusCode::NO_CONTENT
         || status == StatusCode::NOT_MODIFIED
         || exact.is_none_or(|n| n > ETAG_MAX_BYTES)
         || res.headers().contains_key(header::UPGRADE)
@@ -248,5 +288,7 @@ mod tests {
     fn csrf_and_lock_scope_is_api_only() {
         assert!(is_api("/api") && is_api("/api/x") && !is_api("/apix") && !is_api("/carddav/"));
         assert!(is_dav_path("/caldav/") && !is_dav_path("/caldavx"));
+        assert_eq!(vary_after_origin(["Accept", "origin, Cookie"].into_iter()), "Origin, Accept, Cookie");
+        assert_eq!(vary_after_origin(std::iter::empty()), "Origin");
     }
 }
