@@ -1,0 +1,29 @@
+[package]
+name = "inboxora-imap"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64 = "0.23.1"
+chrono = "0.4.45"
+flate2 = "1.1.10"
+imap-proto = "0.17.0"
+inboxora-mail = { version = "5.0.0", path = "../mail" }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = "1.15.1"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["net", "time", "io-util", "sync", "rt", "macros"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+tracing = "0.1.44"
+unicode-normalization = "0.1.26"
+webpki-roots = "1.0.4"
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["full"] }
+
+[lints]
+workspace = true

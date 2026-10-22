@@ -12,9 +12,16 @@ pub struct BodyStructure {
     pub encoding: String,
     pub disposition: Option<String>,
     pub charset: Option<String>,
+    /// `Content-Disposition` `filename` parameter.
     pub filename: Option<String>,
+    /// `Content-Type` `name` parameter.
+    pub name: Option<String>,
     pub id: Option<String>,
     pub size: Option<u64>,
+    /// `Content-Disposition` `size` parameter.
+    pub disposition_size: Option<u64>,
+    /// All decoded `Content-Type` parameters.
+    pub parameters: serde_json::Map<String, serde_json::Value>,
     pub children: Vec<BodyStructure>,
 }
 
