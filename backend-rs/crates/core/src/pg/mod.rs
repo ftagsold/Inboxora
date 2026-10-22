@@ -225,24 +225,26 @@ impl Db {
             let mut client = self.client().await?;
             let tx = client.begin(serializable).await?;
             let result = f(&tx).await;
-            match result {
-                Ok(v) => {
-                    tx.commit().await?;
-                    return Ok(v);
-                }
+            let failed = match result {
+                Ok(v) => match tx.commit().await {
+                    Ok(()) => return Ok(v),
+                    // A serialization failure can surface at COMMIT; retry it like Node does.
+                    Err(e) => e,
+                },
                 Err(e) => {
                     if let Err(rb) = tx.rollback().await {
                         tracing::warn!("ROLLBACK failed (original error preserved): {rb}");
                         drop(client);
                     }
-                    let retryable = serializable && matches!(e.pg_code(), Some("40001" | "40P01"));
-                    if retryable && attempt < retries {
-                        attempt += 1;
-                        continue;
-                    }
-                    return Err(e);
+                    e
                 }
+            };
+            let retryable = serializable && matches!(failed.pg_code(), Some("40001" | "40P01"));
+            if retryable && attempt < retries {
+                attempt += 1;
+                continue;
             }
+            return Err(failed);
         }
     }
 

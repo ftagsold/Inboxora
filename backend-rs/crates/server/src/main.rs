@@ -9,6 +9,7 @@ use inboxora_core::pg::Db;
 use inboxora_core::session::SessionStore;
 
 mod app;
+mod engine;
 mod http;
 mod routes;
 mod services;

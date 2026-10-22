@@ -294,6 +294,12 @@ impl<T: Into<Val>> From<Option<T>> for Val {
         v.map_or(Val::Null, Into::into)
     }
 }
+impl<T: Into<Val> + Clone> From<&Option<T>> for Val {
+    fn from(v: &Option<T>) -> Self {
+        v.clone().map_or(Val::Null, Into::into)
+    }
+}
+
 impl<T: Into<Val>> From<Vec<T>> for Val {
     fn from(v: Vec<T>) -> Self {
         Val::Array(v.into_iter().map(Into::into).collect())
