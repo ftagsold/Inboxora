@@ -25,6 +25,8 @@ pub struct Pool {
     state: Mutex<State>,
 }
 
+// Returned by value once per checkout; boxing the lease would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 pub enum Slot {
     /// A pooled connection is ready.
     Ready(Lease),

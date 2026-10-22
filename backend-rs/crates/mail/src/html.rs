@@ -212,8 +212,9 @@ impl<F: FnMut(Event)> TokenSink for Sink<F> {
         if matches!(token, Token::TagToken(_) | Token::EOFToken) {
             self.flush_text(&mut tree);
         }
-        match token {
-            Token::TagToken(tag) => match tag.kind {
+        // Comments, doctypes, NULs and parse errors produce no events.
+        if let Token::TagToken(tag) = token {
+            match tag.kind {
                 TagKind::StartTag => {
                     let name = tag.name.to_string();
                     let mut attrs: Vec<(String, String)> = Vec::with_capacity(tag.attrs.len());
@@ -233,9 +234,7 @@ impl<F: FnMut(Event)> TokenSink for Sink<F> {
                     }
                 }
                 TagKind::EndTag => tree.close(tag.name.to_string()),
-            },
-            // Comments, doctypes, NULs and parse errors produce no events.
-            _ => {}
+            }
         }
         TokenSinkResult::Continue
     }

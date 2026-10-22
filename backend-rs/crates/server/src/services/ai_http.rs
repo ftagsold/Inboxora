@@ -23,10 +23,6 @@ pub fn sanitize_text(value: &str, max: usize) -> String {
     inboxora_mail::text::js_substring(collapsed.trim(), max)
 }
 
-pub fn sanitize_value(value: Option<&Value>, max: usize) -> String {
-    value.and_then(Value::as_str).map(|s| sanitize_text(s, max)).unwrap_or_default()
-}
-
 /// `parseJson`: an object or array, else `None`.
 pub fn parse_json(text: &str) -> Option<Value> {
     serde_json::from_str::<Value>(text).ok().filter(|v| v.is_object() || v.is_array())

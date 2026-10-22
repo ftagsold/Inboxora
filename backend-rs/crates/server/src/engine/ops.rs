@@ -21,7 +21,7 @@ use super::policy::{BODY_PREFETCH_PARTS, classify_move_by_search};
 use super::sync::compute_thread_id;
 use super::{EResult, Engine, EngineError, FlagOp};
 use crate::services::conversation::{RawCopy, persist_copy_for_row};
-use crate::services::mail_utils::{adjust_folder_counts, relocate_insert_cols};
+use crate::services::mail_utils::adjust_folder_counts;
 
 /// Run `$body` with a pooled client bound to `$c`; the connection is evicted on error.
 macro_rules! pooled {
@@ -1039,9 +1039,4 @@ async fn resolve_casing(c: &mut Client, known: &str) -> String {
         }
         Err(_) => known.to_owned(),
     }
-}
-
-/// Bulk-move SQL helpers shared with the routes (`RELOCATE_INSERT_COLS`).
-pub fn relocate_insert_columns() -> String {
-    relocate_insert_cols()
 }

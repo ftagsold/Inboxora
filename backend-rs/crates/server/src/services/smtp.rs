@@ -42,9 +42,16 @@ pub async fn resolve(host: &str, allow_private: bool) -> Result<Resolved, String
 
 #[derive(Debug, Clone)]
 pub enum Auth {
+    #[cfg(test)]
     None,
-    Password { user: String, pass: String },
-    OAuth2 { user: String, token: String },
+    Password {
+        user: String,
+        pass: String,
+    },
+    OAuth2 {
+        user: String,
+        token: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +111,7 @@ impl Transport {
                 }
             }
             match &self.auth {
+                #[cfg(test)]
                 Auth::None => {}
                 Auth::Password { user, pass } => {
                     conn.auth(&[Mechanism::Plain, Mechanism::Login], &Credentials::new(user.clone(), pass.clone()))

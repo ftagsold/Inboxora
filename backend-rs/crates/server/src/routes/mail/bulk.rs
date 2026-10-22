@@ -59,7 +59,7 @@ pub fn bulk_ids(body: &Body, invalid: &str) -> std::result::Result<Vec<String>, 
 }
 
 /// Group preserving first-seen order (JS object insertion order).
-pub fn group<'a, K: PartialEq + Clone>(rows: &'a [Row], key: impl Fn(&Row) -> K) -> Vec<(K, Vec<&'a Row>)> {
+pub fn group<K: PartialEq + Clone>(rows: &[Row], key: impl Fn(&Row) -> K) -> Vec<(K, Vec<&Row>)> {
     let mut out: Vec<(K, Vec<&Row>)> = Vec::new();
     for r in rows {
         let k = key(r);

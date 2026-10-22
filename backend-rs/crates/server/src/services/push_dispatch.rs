@@ -28,9 +28,6 @@ pub const MAIL_CHANGED_TYPE: &str = "mail.changed";
 pub struct MailEvent {
     pub user_id: String,
     pub event_id: Option<String>,
-    pub alert_count: usize,
-    pub account_id: Option<String>,
-    pub folder: String,
     pub web_push: Value,
     pub native: Option<Value>,
 }
@@ -54,9 +51,6 @@ pub fn mail_notification_event(user_id: &str, message: &Value, alert_count: usiz
     }
     MailEvent {
         user_id: user_id.to_owned(),
-        alert_count: count,
-        account_id: s("account_id").or(s("accountId")).map(str::to_owned),
-        folder: s("folder").unwrap_or("INBOX").to_owned(),
         web_push: web,
         native: event_id.as_ref().map(|id| json!({ "type": MAIL_CHANGED_TYPE, "eventId": id })),
         event_id,

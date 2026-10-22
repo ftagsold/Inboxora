@@ -112,10 +112,10 @@ fn projections_match_node() {
         let mut expected = c.get("out").cloned().unwrap_or_else(|| json!({ "error": c["error"] }));
         // Error messages are implementation-specific; compare presence only.
         let strip = |v: &mut Value| {
-            if let Some(o) = v.as_object_mut() {
-                if o.contains_key("error") {
-                    o.insert("error".into(), json!("<error>"));
-                }
+            if let Some(o) = v.as_object_mut()
+                && o.contains_key("error")
+            {
+                o.insert("error".into(), json!("<error>"));
             }
         };
         let mut got_cmp = got_json.clone();

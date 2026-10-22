@@ -1,7 +1,7 @@
 //! Folder-role resolution, cached folder counts and sibling flag fan-out (port of
 //! `utils/mailUtils.ts` and `utils/relocateColumns.ts`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use inboxora_core::Result;
 use inboxora_core::params;
@@ -229,64 +229,6 @@ pub fn adjust_folder_counts(db: &Db, account_id: &str, path: &str, total: i64, u
             Err(e) => tracing::error!("Folder count adjust failed: {e}"),
         }
     });
-}
-
-pub async fn fan_out_read_to_siblings(db: &Db, account_id: &str, message_id: Option<&str>, read: bool) -> Result<()> {
-    let Some(mid) = message_id.filter(|m| !m.is_empty()) else { return Ok(()) };
-    let rows = db
-        .rows(
-            "UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE account_id = $2 AND message_id = $3 AND is_read <> $1 RETURNING folder",
-            params![read, account_id, mid],
-        )
-        .await?;
-    for r in rows {
-        adjust_folder_counts(db, account_id, &r.get::<_, String>("folder"), 0, if read { -1 } else { 1 });
-    }
-    Ok(())
-}
-
-pub async fn fan_out_star_to_siblings(
-    db: &Db,
-    account_id: &str,
-    message_id: Option<&str>,
-    starred: bool,
-) -> Result<()> {
-    let Some(mid) = message_id.filter(|m| !m.is_empty()) else { return Ok(()) };
-    db.exec(
-        "UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE account_id = $2 AND message_id = $3 AND is_starred <> $1",
-        params![starred, account_id, mid],
-    )
-    .await?;
-    Ok(())
-}
-
-pub async fn fan_out_bulk_read_to_siblings(db: &Db, acted: &[String], read: bool) -> Result<()> {
-    if acted.is_empty() {
-        return Ok(());
-    }
-    let rows = db
-        .rows(
-            "UPDATE messages m SET is_read = $1, read_changed_at = NOW() \
-             FROM (SELECT DISTINCT account_id, message_id FROM messages WHERE id = ANY($2::uuid[]) AND message_id IS NOT NULL) acted \
-             WHERE m.account_id = acted.account_id AND m.message_id = acted.message_id AND m.is_read <> $1 AND m.id <> ALL($2::uuid[]) \
-             RETURNING m.account_id, m.folder",
-            params![read, acted.to_vec()],
-        )
-        .await?;
-    let mut deltas: Vec<((String, String), i64)> = Vec::new();
-    let mut index: HashMap<(String, String), usize> = HashMap::new();
-    for r in rows {
-        let key = (r.get::<_, uuid::Uuid>("account_id").to_string(), r.get::<_, String>("folder"));
-        let i = *index.entry(key.clone()).or_insert_with(|| {
-            deltas.push((key, 0));
-            deltas.len() - 1
-        });
-        deltas[i].1 += if read { -1 } else { 1 };
-    }
-    for ((account, folder), unread) in deltas {
-        adjust_folder_counts(db, &account, &folder, 0, unread);
-    }
-    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

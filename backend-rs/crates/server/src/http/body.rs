@@ -57,11 +57,6 @@ impl Body {
         self.0.get(key).and_then(Value::as_str)
     }
 
-    /// `typeof body[key] === 'string' ? body[key].trim() : ''` style access.
-    pub fn trimmed(&self, key: &str) -> String {
-        self.str(key).map(|s| s.trim().to_owned()).unwrap_or_default()
-    }
-
     pub fn truthy(&self, key: &str) -> bool {
         inboxora_core::json::truthy(self.0.get(key))
     }

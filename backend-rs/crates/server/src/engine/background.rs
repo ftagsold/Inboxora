@@ -416,11 +416,10 @@ impl Engine {
                     let new_uid = self.move_message(&account, uid, &snoozed, &original).await?;
                     if let Some(n) = new_uid {
                         self.set_flag(&account, n, &original, "\\Seen", false).await?;
-                    } else if let Some(m) = mid.as_deref().filter(|m| !m.is_empty()) {
-                        if let Err(e) = self.unseen_by_message_id(&account, &original, m).await {
+                    } else if let Some(m) = mid.as_deref().filter(|m| !m.is_empty())
+                        && let Err(e) = self.unseen_by_message_id(&account, &original, m).await {
                             tracing::warn!("Snooze wakeup: could not mark message unread on server (no UIDPLUS): {e}");
                         }
-                    }
                     match new_uid {
                         Some(n) => {
                             self.db

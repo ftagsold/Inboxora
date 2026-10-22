@@ -76,15 +76,6 @@ impl Qs {
         }
     }
 
-    /// `parseInt(req.query.x, 10)` semantics: leading integer, else `None`.
-    pub fn int(&self, key: &str) -> Option<i64> {
-        parse_int(self.str(key)?)
-    }
-
-    pub fn has(&self, key: &str) -> bool {
-        self.0.contains_key(key)
-    }
-
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.0.get(key)
     }

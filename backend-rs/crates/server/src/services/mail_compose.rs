@@ -94,7 +94,7 @@ impl Compose {
         for m in &reply {
             b = b.reply_to(m.clone());
         }
-        let message_id = self.message_id.clone().unwrap_or_else(|| new_message_id(&from.email.to_string()));
+        let message_id = self.message_id.clone().unwrap_or_else(|| new_message_id(from.email.as_ref()));
         b = b.message_id(Some(message_id.clone()));
         if let Some(v) = self.in_reply_to.clone().filter(|s| !s.is_empty()) {
             b = b.in_reply_to(v);

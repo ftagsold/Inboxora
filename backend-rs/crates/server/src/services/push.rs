@@ -132,10 +132,7 @@ pub async fn register(db: &Db, user_id: &str, reg: Registration) -> Result<(Map<
 /// An authenticated device (`req.pushDevice`).
 #[derive(Debug, Clone)]
 pub struct Device {
-    pub id: String,
     pub user_id: String,
-    pub device_id: String,
-    pub transport: String,
 }
 
 fn parse_token(v: &str) -> Option<(String, String)> {
@@ -173,7 +170,7 @@ pub async fn authenticate(db: &Db, token: &str) -> Result<Option<Device>> {
     }
     let s = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
     let _ = db.exec("UPDATE push_devices SET last_seen = NOW() WHERE id = $1", params![s("id")]).await;
-    Ok(Some(Device { id: s("id"), user_id: s("user_id"), device_id: s("device_id"), transport: s("transport") }))
+    Ok(Some(Device { user_id: s("user_id") }))
 }
 
 pub async fn prune_stale(db: &Db) -> Result<u64> {

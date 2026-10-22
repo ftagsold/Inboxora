@@ -479,8 +479,8 @@ pub fn parse(raw: &str) -> ParsedVCard {
                 if v.is_empty() {
                     continue;
                 }
-                if v.starts_with("data:") {
-                    let mime = v[5..].split([';', ',']).next().unwrap_or("");
+                if let Some(data) = v.strip_prefix("data:") {
+                    let mime = data.split([';', ',']).next().unwrap_or("");
                     r.photo_data = safe_image_type(Some(mime)).map(|_| v.to_owned());
                 } else if v.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("http://"))
                     || v.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://"))

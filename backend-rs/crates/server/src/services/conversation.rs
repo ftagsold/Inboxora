@@ -12,7 +12,7 @@ use inboxora_mail::conversation::{
     MessageDate, canonical_subject, classify_direction, fingerprint, logical_message_identity,
 };
 use inboxora_mail::headers::Headers;
-use inboxora_mail::util::{normalize_message_id, normalize_message_id_list};
+use inboxora_mail::util::normalize_message_id_list;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
@@ -54,7 +54,7 @@ fn scalar(v: Option<&str>) -> Option<String> {
 fn outlook_root(thread_index: Option<&str>) -> Option<String> {
     let compact: String = thread_index?.chars().filter(|c| !c.is_whitespace()).collect();
     let raw = inboxora_mail::headers::base64_lenient(&compact);
-    if raw.len() < 22 || (raw.len() - 22) % 5 != 0 {
+    if raw.len() < 22 || !(raw.len() - 22).is_multiple_of(5) {
         return None;
     }
     Some(raw[..22].iter().map(|b| format!("{b:02x}")).collect())
@@ -635,8 +635,6 @@ pub fn references_anchor(references: Option<&str>, in_reply_to: Option<&str>) ->
 pub struct UpsertResult {
     pub logical_message_id: Uuid,
     pub conversation_id: Option<Uuid>,
-    pub kind: String,
-    pub canonical_subject: String,
 }
 
 struct Hydrated {
@@ -1267,12 +1265,7 @@ pub async fn upsert_copy_tx(
         if let Some(prev) = previous_conversation {
             refresh_aggregates(tx, user_id, prev).await?;
         }
-        return Ok(UpsertResult {
-            logical_message_id: logical.id,
-            conversation_id: None,
-            kind: "excluded".into(),
-            canonical_subject: h.canonical_subject,
-        });
+        return Ok(UpsertResult { logical_message_id: logical.id, conversation_id: None });
     }
     if let Some(t) = ov.force_include.as_ref().and_then(|m| m.target_id) {
         requested = Some(resolve_alias(tx, user_id, acct, t).await?);
@@ -1560,12 +1553,7 @@ pub async fn upsert_copy_tx(
         params![conversation_id],
     )
     .await?;
-    Ok(UpsertResult {
-        logical_message_id: logical.id,
-        conversation_id: Some(conversation_id),
-        kind,
-        canonical_subject: h.canonical_subject,
-    })
+    Ok(UpsertResult { logical_message_id: logical.id, conversation_id: Some(conversation_id) })
 }
 
 // ── ingest glue ─────────────────────────────────────────────────────────────────────────────
@@ -1648,40 +1636,6 @@ pub async fn persist_copy_for_row(
             tracing::error!("Conversation failure recording error: {re}");
         }
     }
-}
-
-/// Upsert a stored copy using only what the row carries (retry / rebuild / sent paths).
-pub async fn persist_stored_copy(
-    db: &Db,
-    row_id: Uuid,
-    user_id: &str,
-    operation: &str,
-) -> Result<Option<UpsertResult>> {
-    let Some(row) = db
-        .json_opt(
-            "SELECT m.*, a.user_id, a.imap_host FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2",
-            params![row_id, user_id],
-        )
-        .await?
-    else {
-        return Ok(None);
-    };
-    let account_id = row.get("account_id").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let host = row.get("imap_host").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let provider = provider_identity_for_copy(&row, &host);
-    let identities = resolve_own_identities(db, &account_id, row.get("delivery_addresses"), None).await?;
-    match upsert_copy(db, row_id, &identities, Some(&provider), user_id).await {
-        Ok(r) => Ok(Some(r)),
-        Err(e) => {
-            let _ = record_ingest_failure(db, user_id, Some(&account_id), Some(row_id), operation, &e, json!({})).await;
-            Err(e)
-        }
-    }
-}
-
-/// Canonical Message-ID or None (re-exported for callers).
-pub fn canonical_message_id(raw: &str) -> Option<String> {
-    normalize_message_id(raw)
 }
 
 #[cfg(test)]

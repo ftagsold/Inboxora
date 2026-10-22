@@ -26,8 +26,28 @@ fn init_tracing() {
     tracing_subscriber::fmt().with_env_filter(filter).with_target(false).init();
 }
 
+/// `inboxora-server healthcheck`: probe `/api/health` on the local port (for distroless images,
+/// which have no shell or wget). Exits 0 on HTTP 200.
+fn healthcheck() -> ! {
+    use std::io::{Read, Write};
+    let port = inboxora_core::config::env("PORT").and_then(|p| p.parse::<u16>().ok()).unwrap_or(3000);
+    let probe = || -> std::io::Result<bool> {
+        let timeout = std::time::Duration::from_secs(4);
+        let mut stream = std::net::TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout)?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.write_all(b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?;
+        let mut head = [0u8; 12];
+        stream.read_exact(&mut head)?;
+        Ok(head.starts_with(b"HTTP/1.1 200") || head.starts_with(b"HTTP/1.0 200"))
+    };
+    std::process::exit(if probe().unwrap_or(false) { 0 } else { 1 });
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        healthcheck();
+    }
     init_tracing();
     let cfg = match AppConfig::from_env(env!("CARGO_PKG_VERSION")) {
         Ok(c) => Arc::new(c),
@@ -46,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
     let redis = inboxora_core::redis::connect(&cfg.redis_url, 4).await?;
     let db = Db::connect(&cfg.db)?;
 
-    // While the Node backend runs alongside, it owns migrations (MIGRATIONS=verify).
+    // This backend owns the schema; MIGRATIONS=verify only checks it (e.g. a read-only replica).
     let migrations_dir = inboxora_core::migrations::migrations_dir();
     match inboxora_core::config::env("MIGRATIONS").as_deref() {
         Some("verify") => inboxora_core::migrations::verify(&db, &migrations_dir).await?,

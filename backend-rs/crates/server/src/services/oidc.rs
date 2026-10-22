@@ -456,11 +456,6 @@ pub fn env_providers() -> Vec<EnvProvider> {
     providers
 }
 
-/// `reloadOidcEnvProviders()`.
-pub fn reload_env_providers() {
-    *ENV_PROVIDERS.lock() = None;
-}
-
 /// `getMailConfigForSlug(slug)`.
 pub fn mail_config_for_slug(slug: &str) -> Option<MailConfig> {
     env_providers().into_iter().find(|p| p.slug == slug).and_then(|p| p.mail)

@@ -206,7 +206,7 @@ fn unwrap_embedded_mime_text(decoded: String, depth: usize) -> String {
         let at = m.start();
         let header_block = &trimmed[..at];
         let rest = &trimmed[at..];
-        let payload = if rest.starts_with("\r\n\r\n") { &rest[4..] } else { rest.get(2..).unwrap_or("") };
+        let payload = rest.strip_prefix("\r\n\r\n").unwrap_or_else(|| rest.get(2..).unwrap_or(""));
         let headers = parse_mime_headers(header_block);
         let get = |k: &str| headers.iter().find(|(x, _)| x == k).map(|(_, v)| v.as_str());
         let Some(ct) = get("content-type") else { continue };

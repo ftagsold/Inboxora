@@ -179,7 +179,7 @@ async fn create_task(State(s): State<AppState>, a: Auth, b: Body) -> Response {
         }
         let created = call(&t, reqwest::Method::POST, "/tasks", Some(Value::Object(task))).await?;
         let mut out = created.as_object().cloned().unwrap_or_default();
-        let id = created.get("id").map(|v| inboxora_mail::text::js_string(v)).unwrap_or_else(|| "undefined".into());
+        let id = created.get("id").map(inboxora_mail::text::js_string).unwrap_or_else(|| "undefined".into());
         out.insert("url".into(), json!(format!("https://app.todoist.com/app/task/{id}")));
         Ok::<_, Failure>(ok(Value::Object(out)))
     };

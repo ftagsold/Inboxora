@@ -7,5 +7,5 @@ pub mod middleware;
 pub mod query;
 
 pub use body::Body;
-pub use extract::{Admin, Auth, ClientIp, ReqInfo, Sess};
+pub use extract::{Admin, Auth, ClientIp, Sess};
 pub use query::Qs;

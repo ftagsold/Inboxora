@@ -595,12 +595,9 @@ fn uploaded_bytes(attachments: Option<&Value>) -> u64 {
 
 pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Body) -> Result<Response> {
     let user = a.user_id.clone();
-    let priority = match b.str("priority") {
-        Some(p @ ("high" | "normal" | "low")) => p,
-        _ => "normal",
-    };
+    let priority = b.str("priority").unwrap_or("normal");
     let Some(account_id) =
-        b.get("accountId").filter(|v| inboxora_core::json::truthy(Some(v))).map(|v| inboxora_mail::text::js_string(v))
+        b.get("accountId").filter(|v| inboxora_core::json::truthy(Some(v))).map(inboxora_mail::text::js_string)
     else {
         return Ok(err(400, "accountId required"));
     };
@@ -623,7 +620,7 @@ pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Bod
             return Ok(err(400, "Total attachment size exceeds 25 MB"));
         }
         for (i, x) in list.iter().enumerate() {
-            if !x.get("filename").and_then(Value::as_str).is_some_and(|f| !f.trim().is_empty()) {
+            if x.get("filename").and_then(Value::as_str).is_none_or(|f| f.trim().is_empty()) {
                 return Ok(err(400, &format!("attachments[{i}].filename is required")));
             }
             if !x.get("content").is_some_and(Value::is_string) {
@@ -924,7 +921,7 @@ pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Bod
             if let Some(folder) = &sent {
                 let mapped = |list: &[String]| Value::Array(list.iter().map(|a| parse_address(a)).collect());
                 let meta = RecordFields {
-                    message_id: mid.clone(),
+                    message_id: built.message_id.clone(),
                     subject: Some(subject.clone()),
                     from_name: sender.name.clone(),
                     from_email: Some(sender.email.clone()),

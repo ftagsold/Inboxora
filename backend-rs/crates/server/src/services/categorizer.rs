@@ -165,22 +165,6 @@ pub fn classify_message(headers: &Headers, from_email: Option<&str>, social: &Ha
     detect_category(headers).unwrap_or("primary")
 }
 
-/// `categorizeAndStore`.
-pub async fn categorize_and_store(
-    db: &Db,
-    message_id: &str,
-    headers: &Headers,
-    from_email: Option<&str>,
-    user_id: &str,
-) -> Result<&'static str> {
-    let social = load_social_domains(db, user_id).await?;
-    let category = classify_message(headers, from_email, &social);
-    if category != "primary" {
-        db.exec("UPDATE messages SET category = $1 WHERE id = $2", params![category, message_id]).await?;
-    }
-    Ok(category)
-}
-
 /// `backfillCategories`: social/newsletter categories for uncategorised messages.
 pub async fn backfill_categories(db: &Db, account_id: &str, user_id: &str) -> Result<u64> {
     let social = load_social_domains(db, user_id).await?;

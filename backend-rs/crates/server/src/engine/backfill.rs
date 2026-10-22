@@ -392,7 +392,7 @@ impl Engine {
                 let emails = json!([{ "value": primary, "type": "other", "primary": true }]);
                 let vcard =
                     inboxora_pim::vcard::generate(&json!({ "uid": uid, "displayName": display, "emails": emails }));
-                match self
+                if let Ok(n) = self
                     .db
                     .exec(
                         "INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, primary_email, emails, is_auto) \
@@ -400,11 +400,7 @@ impl Engine {
                          ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO NOTHING",
                         params![ab, user_id, uid, vcard, display, primary, emails.to_string()],
                     )
-                    .await
-                {
-                    Ok(n) => inserted += n,
-                    Err(_) => {}
-                }
+                    .await { inserted += n }
             }
             if inserted > 0 {
                 self.db
@@ -468,7 +464,7 @@ impl Engine {
                     if self.db.opt("SELECT id FROM email_accounts WHERE id = $1", params![account.id()]).await?.is_none() {
                         return Ok(());
                     }
-                    if batches > 0 && batches % 20 == 0 {
+                    if batches > 0 && batches.is_multiple_of(20) {
                         if let Some(mut c) = client.take() {
                             c.logout().await;
                         }
