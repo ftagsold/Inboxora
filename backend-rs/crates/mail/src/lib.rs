@@ -5,6 +5,7 @@ pub mod conversation;
 pub mod css;
 pub mod headers;
 pub mod html;
+pub mod rules;
 pub mod sanitize;
 pub mod snippet;
 pub mod srcset;

@@ -10,6 +10,7 @@ publish.workspace = true
 base64 = "0.23.1"
 chrono = "0.4.45"
 encoding_rs = "0.8.42"
+fancy-regex = "0.19.2"
 getrandom = "0.4.3"
 html5ever = "0.40.1"
 regex = "1.13.1"

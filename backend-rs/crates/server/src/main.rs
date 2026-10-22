@@ -11,6 +11,7 @@ use inboxora_core::session::SessionStore;
 mod app;
 mod http;
 mod routes;
+mod services;
 mod state;
 mod ws;
 

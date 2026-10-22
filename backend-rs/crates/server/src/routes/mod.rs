@@ -1,7 +1,10 @@
 //! Route table. Groups are added here as they are ported.
 
 pub mod block_list;
+pub mod categories;
 pub mod contacts;
+pub mod rules;
+pub mod search;
 pub mod system;
 pub mod util;
 
@@ -20,10 +23,20 @@ fn authed(state: &AppState, prefix: &str, group: Router<AppState>) -> Router<App
     Router::new().nest(prefix, group)
 }
 
+/// Authenticated route groups by mount prefix (Express `app.use(prefix, router)` order).
+fn groups() -> Vec<(&'static str, Router<AppState>)> {
+    vec![
+        ("/api/block-list", block_list::router()),
+        ("/api/contacts", contacts::router()),
+        ("/api/search", search::router()),
+        ("/api/rules", rules::router()),
+    ]
+}
+
 pub fn router(state: &AppState) -> Router<AppState> {
-    Router::new().merge(system::router()).merge(authed(state, "/api/block-list", block_list::router())).merge(authed(
-        state,
-        "/api/contacts",
-        contacts::router(),
-    ))
+    groups()
+        .into_iter()
+        .fold(Router::new().merge(system::router()).merge(categories::router()), |r, (prefix, group)| {
+            r.merge(authed(state, prefix, group))
+        })
 }
