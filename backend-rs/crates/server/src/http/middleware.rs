@@ -220,7 +220,9 @@ pub async fn not_found(req: Request) -> Response {
     let body = format!(
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot {} {}</pre>\n</body>\n</html>\n",
         req.method(),
-        escape_html(req.uri().path())
+        escape_html(
+            req.extensions().get::<axum::extract::OriginalUri>().map_or_else(|| req.uri().path(), |o| o.0.path())
+        )
     );
     let mut res = Response::new(AxumBody::from(body));
     *res.status_mut() = StatusCode::NOT_FOUND;

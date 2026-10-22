@@ -94,14 +94,23 @@ impl Error {
     }
 }
 
+/// A JSON response serialised with JavaScript number formatting (`res.json`).
+pub struct Js(pub Value);
+
+impl IntoResponse for Js {
+    fn into_response(self) -> Response {
+        ([(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")], crate::json::to_vec(&self.0))
+            .into_response()
+    }
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         match self {
-            Error::Http { status, body } => (status, axum::Json(body)).into_response(),
+            Error::Http { status, body } => (status, Js(body)).into_response(),
             other => {
                 tracing::error!("Unhandled route error: {other}");
-                (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(json!({ "error": "Internal server error" })))
-                    .into_response()
+                (StatusCode::INTERNAL_SERVER_ERROR, Js(json!({ "error": "Internal server error" }))).into_response()
             }
         }
     }

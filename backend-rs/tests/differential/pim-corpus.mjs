@@ -31,3 +31,25 @@ export const merges = [
   [vcards[1], { displayName: 'Apple', contactDates: [{ label: 'Anniversary', value: '2011-01-01' }] }],
   ['not a vcard', { displayName: 'Fresh' }],
 ];
+export const richBodies = [
+  { title: ' CEO ', role: null, nickname: undefined, urls: [{ value: 'https://x.test', type: 'work' }, { value: '' }], instantMessages: [{ value: 'xmpp:a@b' }], addresses: [{ type: null, street: '1 Main', locality: 'Town' }, { street: '' }], categories: ['A', ' ', 'B'] },
+  { title: 5, categories: [] },
+  { categories: 'x' },
+  { urls: [{ value: 'ftp://x' }], categories: [] },
+  { urls: 'nope', categories: [] },
+  { title: 'x'.repeat(3000), categories: [] },
+  { addresses: [{ street: 7 }], categories: [] },
+  null,
+];
+export const exportRows = [
+  { uid: 'u1', display_name: 'Jane, "JD" Doe', first_name: 'Jane', last_name: 'Doe', emails: [{ value: 'j@x.test', type: 'cell' }], phones: [{ value: '=1+2', type: 'work' }, { value: '555', type: 'iphone' }], organization: 'ACME', title: '@boss', notes: 'line1\nline2' },
+  { uid: 'u2', display_name: null, first_name: null, last_name: null, emails: [{ value: '  ', type: 'x' }, { value: 'only@x.test' }], phones: null, organization: null, title: null, notes: null },
+];
+export const googleCsv = [
+  'Name,Given Name,Family Name,E-mail 1 - Type,E-mail 1 - Value,E-mail 2 - Value,Phone 1 - Type,Phone 1 - Value,Birthday,Event 1 - Label,Event 1 - Value,Labels,Address 1 - Type,Address 1 - Street,Website 1 - Value,IM 1 - Service,IM 1 - Value,Notes\r\n' +
+  'Jane Doe,Jane,Doe,* Work,JANE@X.TEST,jd@y.test,Mobile,+1 555,1990-02-28,Wedding,2015-06-01,Friends ::: * myContacts,Home,"1 Main St, Apt 2",https://jane.test,Skype,jane.s,"multi\nline"\r\n' +
+  ',,,,,,,,,,,,,,,,,\r\n' +
+  'No Name,,,,,,,,1990-13-45,,,,,,,,,\r\n',
+  'First Name,Last Name,E-mail 1 – Value\nBob,Smith,bob@x.test',
+  '',
+];

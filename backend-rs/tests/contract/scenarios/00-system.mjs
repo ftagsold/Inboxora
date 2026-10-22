@@ -2,12 +2,12 @@
 const USER = '00000000-0000-4000-8000-000000000001';
 
 async function seedUser({ sql }) {
-  await sql(`INSERT INTO users (id, username, password_hash, is_admin) VALUES ($1, 'alice@example.test', 'x', false) ON CONFLICT DO NOTHING`, [USER]);
+  await sql(`INSERT INTO users (id, username, password_hash, is_admin) VALUES ($1, 'locked@example.test', 'x', false) ON CONFLICT DO NOTHING`, [USER]);
   return { keep: [USER] };
 }
 
 export default [
-  { name: 'health and version', steps: [{ path: '/api/health' }, { path: '/api/version', ignore: ['version'], ignoreEtag: true }] },
+  { name: 'health and version', steps: [{ path: '/api/health', exactEtag: true }, { path: '/api/version', ignore: ['version'] }] },
   { name: 'conditional GET answers 304', steps: [
     { path: '/api/health', headers: { 'if-none-match': 'W/"f-VaSQ4oDUiZblZNAEkkN+sX+q3Sg"', 'cache-control': 'max-age=0' } },
     { path: '/api/health', headers: { 'if-none-match': 'W/"f-VaSQ4oDUiZblZNAEkkN+sX+q3Sg"' } },

@@ -315,3 +315,26 @@ mod tests {
         assert_eq!(html_to_plain_text("<p>a</p><div>b<br>c</div><style>x</style>  \n\n\n d"), "a\nb\nc\n\n d");
     }
 }
+
+/// Express `res.attachment(filename)` → `Content-Disposition` (content-disposition package):
+/// a quoted ISO-8859-1 filename, plus `filename*` when the name is not plain Latin-1.
+pub fn express_attachment(filename: &str) -> String {
+    let name = filename.rsplit(['/', '\\']).next().unwrap_or(filename);
+    let latin1 = name.chars().all(|c| (c as u32) < 256 && c != '\u{7f}' && !c.is_control());
+    let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
+    if latin1 {
+        return format!("attachment; filename={}", quote(name));
+    }
+    let fallback: String = name.chars().map(|c| if (c as u32) < 256 && !c.is_control() { c } else { '?' }).collect();
+    let encoded: String = name
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
+    format!("attachment; filename={}; filename*=UTF-8''{encoded}", quote(&fallback))
+}

@@ -689,6 +689,291 @@
    "out": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:\r\nFN:Fresh\r\nEND:VCARD\r\n"
   }
  ],
+ "rich": [
+  {
+   "input": {
+    "title": " CEO ",
+    "role": null,
+    "urls": [
+     {
+      "value": "https://x.test",
+      "type": "work"
+     },
+     {
+      "value": ""
+     }
+    ],
+    "instantMessages": [
+     {
+      "value": "xmpp:a@b"
+     }
+    ],
+    "addresses": [
+     {
+      "type": null,
+      "street": "1 Main",
+      "locality": "Town"
+     },
+     {
+      "street": ""
+     }
+    ],
+    "categories": [
+     "A",
+     " ",
+     "B"
+    ]
+   },
+   "out": {
+    "title": "CEO",
+    "role": null,
+    "nickname": null,
+    "urls": [
+     {
+      "value": "https://x.test",
+      "type": "work"
+     }
+    ],
+    "instantMessages": [
+     {
+      "value": "xmpp:a@b",
+      "type": "other"
+     }
+    ],
+    "addresses": [
+     {
+      "type": "other",
+      "pobox": "",
+      "extended": "",
+      "street": "1 Main",
+      "locality": "Town",
+      "region": "",
+      "postalCode": "",
+      "country": ""
+     }
+    ],
+    "categories": [
+     "A",
+     "B"
+    ]
+   }
+  },
+  {
+   "input": {
+    "title": 5,
+    "categories": []
+   },
+   "out": null
+  },
+  {
+   "input": {
+    "categories": "x"
+   },
+   "out": null
+  },
+  {
+   "input": {
+    "urls": [
+     {
+      "value": "ftp://x"
+     }
+    ],
+    "categories": []
+   },
+   "out": null
+  },
+  {
+   "input": {
+    "urls": "nope",
+    "categories": []
+   },
+   "out": null
+  },
+  {
+   "input": {
+    "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "categories": []
+   },
+   "out": null
+  },
+  {
+   "input": {
+    "addresses": [
+     {
+      "street": 7
+     }
+    ],
+    "categories": []
+   },
+   "out": null
+  },
+  {
+   "input": null,
+   "out": null
+  }
+ ],
+ "exports": {
+  "google": "Name,Given Name,Family Name,Organization 1 - Name,Organization 1 - Title,E-mail 1 - Type,E-mail 1 - Value,Phone 1 - Type,Phone 1 - Value,Notes\r\n\"Jane, \"\"JD\"\" Doe\",Jane,Doe,ACME,'@boss,Mobile,j@x.test,Work,'=1+2,\"line1\nline2\"\r\nonly@x.test,,,,,X,  ,Other,,",
+  "outlook": "First Name,Middle Name,Last Name,Title,Company,E-mail Address,Business Phone,Mobile Phone,Notes\r\nJane,,Doe,'@boss,ACME,j@x.test,'=1+2,555,\"line1\nline2\"\r\n,,,,,only@x.test,,,",
+  "vcard": "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:u1\r\nFN:Jane\\, \"JD\" Doe\r\nN:Doe;Jane;;;\r\nEMAIL;TYPE=MOBILE:j@x.test\r\nTEL;TYPE=WORK:=1+2\r\nTEL;TYPE=MOBILE:555\r\nORG:ACME\r\nTITLE:@boss\r\nNOTE:line1\\nline2\r\nEND:VCARD\r\nBEGIN:VCARD\r\nVERSION:3.0\r\nUID:u2\r\nFN:only@x.test\r\nN:;;;;\r\nEMAIL;TYPE=X:  \r\nEMAIL;TYPE=OTHER:only@x.test\r\nEND:VCARD\r\n"
+ },
+ "googleCsv": [
+  {
+   "input": "Name,Given Name,Family Name,E-mail 1 - Type,E-mail 1 - Value,E-mail 2 - Value,Phone 1 - Type,Phone 1 - Value,Birthday,Event 1 - Label,Event 1 - Value,Labels,Address 1 - Type,Address 1 - Street,Website 1 - Value,IM 1 - Service,IM 1 - Value,Notes\r\nJane Doe,Jane,Doe,* Work,JANE@X.TEST,jd@y.test,Mobile,+1 555,1990-02-28,Wedding,2015-06-01,Friends ::: * myContacts,Home,\"1 Main St, Apt 2\",https://jane.test,Skype,jane.s,\"multi\nline\"\r\n,,,,,,,,,,,,,,,,,\r\nNo Name,,,,,,,,1990-13-45,,,,,,,,,\r\n",
+   "out": [
+    {
+     "displayName": "Jane Doe",
+     "firstName": "Jane",
+     "lastName": "Doe",
+     "emails": [
+      {
+       "value": "jane@x.test",
+       "type": "* work",
+       "primary": true
+      },
+      {
+       "value": "jd@y.test",
+       "type": "other",
+       "primary": false
+      }
+     ],
+     "phones": [
+      {
+       "value": "+1 555",
+       "type": "mobile"
+      }
+     ],
+     "organization": null,
+     "title": null,
+     "role": null,
+     "nickname": null,
+     "birthday": "1990-02-28",
+     "anniversary": null,
+     "contactDates": [
+      {
+       "label": "Birthday",
+       "value": "1990-02-28"
+      },
+      {
+       "label": "Wedding",
+       "value": "2015-06-01"
+      }
+     ],
+     "urls": [
+      {
+       "value": "https://jane.test",
+       "type": "other"
+      }
+     ],
+     "instantMessages": [
+      {
+       "value": "jane.s",
+       "type": "skype"
+      }
+     ],
+     "addresses": [
+      {
+       "type": "home",
+       "pobox": "",
+       "extended": "",
+       "street": "1 Main St, Apt 2",
+       "locality": "",
+       "region": "",
+       "postalCode": "",
+       "country": ""
+      }
+     ],
+     "categories": [
+      "Friends",
+      "* myContacts"
+     ],
+     "notes": "multi\nline",
+     "sourceFields": {
+      "Name": "Jane Doe",
+      "Given Name": "Jane",
+      "Family Name": "Doe",
+      "E-mail 1 - Type": "* Work",
+      "E-mail 1 - Value": "JANE@X.TEST",
+      "E-mail 2 - Value": "jd@y.test",
+      "Phone 1 - Type": "Mobile",
+      "Phone 1 - Value": "+1 555",
+      "Birthday": "1990-02-28",
+      "Event 1 - Label": "Wedding",
+      "Event 1 - Value": "2015-06-01",
+      "Labels": "Friends ::: * myContacts",
+      "Address 1 - Type": "Home",
+      "Address 1 - Street": "1 Main St, Apt 2",
+      "Website 1 - Value": "https://jane.test",
+      "IM 1 - Service": "Skype",
+      "IM 1 - Value": "jane.s",
+      "Notes": "multi\nline"
+     }
+    },
+    {
+     "displayName": "No Name",
+     "firstName": null,
+     "lastName": null,
+     "emails": [],
+     "phones": [],
+     "organization": null,
+     "title": null,
+     "role": null,
+     "nickname": null,
+     "birthday": null,
+     "anniversary": null,
+     "contactDates": [],
+     "urls": [],
+     "instantMessages": [],
+     "addresses": [],
+     "categories": [],
+     "notes": null,
+     "sourceFields": {
+      "Name": "No Name",
+      "Birthday": "1990-13-45"
+     }
+    }
+   ]
+  },
+  {
+   "input": "First Name,Last Name,E-mail 1 – Value\nBob,Smith,bob@x.test",
+   "out": [
+    {
+     "displayName": "Bob Smith",
+     "firstName": "Bob",
+     "lastName": "Smith",
+     "emails": [
+      {
+       "value": "bob@x.test",
+       "type": "other",
+       "primary": true
+      }
+     ],
+     "phones": [],
+     "organization": null,
+     "title": null,
+     "role": null,
+     "nickname": null,
+     "birthday": null,
+     "anniversary": null,
+     "contactDates": [],
+     "urls": [],
+     "instantMessages": [],
+     "addresses": [],
+     "categories": [],
+     "notes": null,
+     "sourceFields": {
+      "First Name": "Bob",
+      "Last Name": "Smith",
+      "E-mail 1 – Value": "bob@x.test"
+     }
+    }
+   ]
+  },
+  {
+   "input": "",
+   "out": []
+  }
+ ],
  "dates": [
   {
    "input": "2020-02-29",

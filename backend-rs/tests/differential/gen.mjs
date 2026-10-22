@@ -76,11 +76,16 @@ textOut.utils = {
 writeFileSync(path.join(here, 'text.expected.json'), JSON.stringify(textOut, null, 1));
 
 const vc = await imp('utils/vcard.ts');
+const cf = await imp('utils/contactFields.ts');
+const ct = await imp('utils/contactTransfer.ts');
 const pim = await import(pathToFileURL(path.join(here, 'pim-corpus.mjs')));
 writeFileSync(path.join(here, 'vcard.expected.json'), JSON.stringify({
   parse: pim.vcards.map(input => ({ input, out: vc.parseVCard(input) })),
   generate: pim.contacts.map(input => ({ input, out: vc.generateVCard(input) })),
   merge: pim.merges.map(([raw, contact]) => ({ raw, contact, out: vc.mergeVCard(raw, contact) })),
+  rich: pim.richBodies.map(input => ({ input, out: cf.normalizeRichContactFields(input) ?? null })),
+  exports: { google: ct.contactsToGoogleCsv(pim.exportRows), outlook: ct.contactsToOutlookCsv(pim.exportRows), vcard: ct.contactsToVCard(pim.exportRows) },
+  googleCsv: pim.googleCsv.map(input => ({ input, out: ct.parseGoogleCsv(input) })),
   dates: ['2020-02-29', '2021-02-29', '20200101', '--02-29', '--0230', ' 1999-12-31 ', '1999-1-1', '0000-01-01'].map(input => ({ input, out: vc.normalizeVCardDate(input), strict: vc.normalizeVCardDate(input, false) })),
 }, null, 1));
 console.log('text/utils: written');

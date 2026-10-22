@@ -113,15 +113,17 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 export function normaliser() {
   const ids = new Map();
   const fixed = new Set();
+  const mapId = (u) => {
+    if (fixed.has(u)) return u;
+    if (!ids.has(u)) ids.set(u, `<uuid#${ids.size}>`);
+    return ids.get(u);
+  };
   const norm = (v) => {
     if (typeof v === 'string') {
-      if (UUID.test(v)) {
-        if (fixed.has(v)) return v;
-        if (!ids.has(v)) ids.set(v, `<uuid#${ids.size}>`);
-        return ids.get(v);
-      }
+      if (UUID.test(v)) return mapId(v);
       if (ISO.test(v)) return '<timestamp>';
-      return v;
+      // UUIDs embedded in larger strings (vCard UIDs, ids like "<uuid>@<recurrence>").
+      return v.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, mapId);
     }
     if (Array.isArray(v)) return v.map(norm);
     if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, norm(x)]));
@@ -155,10 +157,10 @@ async function send(name, step, cookies) {
     let v = res.headers.get(k);
     if (v === null) continue;
     if (k === 'content-type') v = v.replace(/;\s*charset=utf-8/i, '; charset=utf-8');
-    if (k === 'etag' && step.ignoreEtag) continue;
+    if (k === 'etag') v = step.exactEtag ? v : '<present>';
     h[k] = v;
   }
-  return { status: res.status, headers: h, json, text: json === undefined ? text : undefined, setsCookie: Boolean(setCookie) };
+  return { status: res.status, headers: h, json, text: json === undefined ? text : undefined, setsCookie: Boolean(setCookie), bytes: step.compareBytes ? text.length : undefined };
 }
 
 function diff(a, b, at = '$') {
@@ -214,7 +216,9 @@ async function main() {
             const step = typeof rawStep === 'function' ? rawStep(ctx[name]) : rawStep;
             const r = await send(name, step, cookies[name]);
             r.json = r.json === undefined ? undefined : norms[name](r.json);
+            if (r.text !== undefined) r.text = norms[name](r.text);
             if (step.ignore) for (const p of step.ignore) deletePath(r.json, p);
+            if (scenario.ignoreKeys) deleteKeys(r.json, scenario.ignoreKeys);
             results[name] = r;
             if (step.capture && r.json) Object.assign(ctx[name], step.capture(r.json, ctx[name]));
           }
@@ -246,6 +250,14 @@ async function main() {
   stopAll();
   console.log(failures ? `\n${failures} failure(s)` : '\nall contract checks passed');
   process.exit(failures ? 1 : 0);
+}
+
+function deleteKeys(obj, keys) {
+  if (!obj || typeof obj !== 'object') return;
+  for (const k of Object.keys(obj)) {
+    if (!Array.isArray(obj) && keys.includes(k)) delete obj[k];
+    else deleteKeys(obj[k], keys);
+  }
 }
 
 function deletePath(obj, p) {

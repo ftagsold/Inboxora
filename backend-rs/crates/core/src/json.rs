@@ -40,9 +40,53 @@ pub fn js_number_string(f: f64) -> String {
     }
 }
 
-/// `JSON.stringify(value)` for a `serde_json::Value` (keys in insertion order).
+/// serde_json formatter that prints numbers like JavaScript (`1.0` → `1`, `1e21` → `1e+21`).
+#[derive(Clone, Copy, Default)]
+pub struct JsFormatter;
+
+impl serde_json::ser::Formatter for JsFormatter {
+    fn write_f64<W: ?Sized + std::io::Write>(&mut self, writer: &mut W, value: f64) -> std::io::Result<()> {
+        writer.write_all(js_float_text(value).as_bytes())
+    }
+
+    fn write_f32<W: ?Sized + std::io::Write>(&mut self, writer: &mut W, value: f32) -> std::io::Result<()> {
+        writer.write_all(js_float_text(f64::from(value)).as_bytes())
+    }
+}
+
+/// `String(n)` for a finite float, `null` otherwise (JSON.stringify).
+fn js_float_text(f: f64) -> String {
+    if !f.is_finite() {
+        return "null".into();
+    }
+    if f.fract() == 0.0 && f.abs() < 1e21 {
+        return format!("{}", f as i128);
+    }
+    let s = format!("{f:e}");
+    // Rust: "1.5e21" / "1e-7"; JS: "1.5e+21" / "1e-7". JS uses plain notation for 1e-6 ≤ |f| < 1e21.
+    let abs = f.abs();
+    if (1e-6..1e21).contains(&abs) {
+        return format!("{f}");
+    }
+    match s.split_once('e') {
+        Some((m, e)) if !e.starts_with('-') => format!("{m}e+{e}"),
+        _ => s,
+    }
+}
+
+/// `JSON.stringify(value)` (keys in insertion order, JS number formatting).
 pub fn stringify(v: &Value) -> String {
-    serde_json::to_string(v).unwrap_or_else(|_| "null".into())
+    String::from_utf8(to_vec(v)).unwrap_or_else(|_| "null".into())
+}
+
+/// `JSON.stringify(value)` as bytes.
+pub fn to_vec(v: &Value) -> Vec<u8> {
+    let mut out = Vec::with_capacity(128);
+    let mut ser = serde_json::Serializer::with_formatter(&mut out, JsFormatter);
+    if serde::Serialize::serialize(v, &mut ser).is_err() {
+        return b"null".to_vec();
+    }
+    out
 }
 
 /// Convert a bound parameter back to JSON (used for JSON-typed params built from scalars).
@@ -86,6 +130,8 @@ mod tests {
         assert_eq!(stringify(&js_float(0.1 + 0.2)), "0.30000000000000004");
         assert_eq!(stringify(&js_float(f64::NAN)), "null");
         assert_eq!(js_number_string(2.5), "2.5");
+        let v: Value = serde_json::from_str(r#"{"a":1.0,"b":2.5,"c":1e21,"d":1e-7,"e":0.000001,"f":-3.0}"#).unwrap();
+        assert_eq!(stringify(&v), r#"{"a":1,"b":2.5,"c":1e+21,"d":1e-7,"e":0.000001,"f":-3}"#);
     }
 
     #[test]

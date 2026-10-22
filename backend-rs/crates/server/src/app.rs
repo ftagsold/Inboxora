@@ -10,9 +10,11 @@ use crate::state::AppState;
 
 pub fn build(state: AppState) -> Router {
     // Layers wrap outside-in: the last `.layer` runs first.
-    crate::routes::router()
+    crate::routes::router(&state)
         .route("/ws", any(crate::ws::upgrade))
         .fallback(middleware::not_found)
+        // Express answers an unsupported method on a known path with its 404 page.
+        .method_not_allowed_fallback(middleware::not_found)
         .layer(from_fn(middleware::expose_matched_path))
         .layer(from_fn(middleware::lock))
         .layer(from_fn(middleware::csrf))
