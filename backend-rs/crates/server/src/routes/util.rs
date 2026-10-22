@@ -75,3 +75,17 @@ pub async fn require_auth(State(state): State<AppState>, req: Request, next: Nex
         Err(e) => e.into_response(),
     }
 }
+
+/// `router.use(requireAdmin)` for a mount prefix.
+pub async fn require_admin(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let (mut parts, body) = req.into_parts();
+    match <crate::http::Admin as axum::extract::FromRequestParts<AppState>>::from_request_parts(&mut parts, &state)
+        .await
+    {
+        Ok(admin) => {
+            parts.extensions.insert(admin);
+            next.run(Request::from_parts(parts, body)).await
+        }
+        Err(e) => e.into_response(),
+    }
+}

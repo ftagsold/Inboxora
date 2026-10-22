@@ -62,6 +62,10 @@ impl FromRequestParts<AppState> for Admin {
     type Rejection = Error;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        // Already checked by the prefix gate (`require_admin`).
+        if let Some(admin) = parts.extensions.get::<Admin>() {
+            return Ok(admin.clone());
+        }
         let Sess(session) = Sess::from_request_parts(parts, state).await?;
         let Some(user_id) = session.user_id() else {
             return Err(Error::unauthorized());

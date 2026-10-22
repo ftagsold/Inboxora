@@ -1,5 +1,6 @@
 //! Route table. Groups are added here as they are ported.
 
+pub mod admin;
 pub mod auth;
 pub mod block_list;
 pub mod caldav;
@@ -36,6 +37,15 @@ fn authed(state: &AppState, prefix: &str, group: Router<AppState>) -> Router<App
     Router::new().nest(prefix, group)
 }
 
+/// The `/api/admin` group: every request (including unknown subpaths) is admin-checked first.
+fn admin_only(state: &AppState) -> Router<AppState> {
+    let group = admin::router()
+        .fallback(crate::http::middleware::not_found)
+        .method_not_allowed_fallback(crate::http::middleware::not_found)
+        .layer(from_fn_with_state(state.clone(), util::require_admin));
+    Router::new().nest("/api/admin", group)
+}
+
 /// Authenticated route groups by mount prefix (Express `app.use(prefix, router)` order).
 fn groups() -> Vec<(&'static str, Router<AppState>)> {
     vec![
@@ -55,6 +65,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
     groups().into_iter().fold(
         Router::new()
             .nest("/api/auth", auth::router())
+            .merge(admin_only(state))
             .nest("/api/auth/oidc", oidc::api_router())
             .nest("/auth/oidc", oidc::browser_router())
             .merge(system::router())

@@ -1394,46 +1394,14 @@ async fn reset_transport(
     s: &AppState,
     user_id: &str,
 ) -> std::result::Result<Option<(smtp::Transport, String, String)>, String> {
-    if let Ok((t, name, email)) = smtp::system_transport(&s.db).await {
-        return Ok(Some((t, format!("{name} <{email}>"), email)));
-    }
-    let acct =
-        s.db.json_opt(
-            "SELECT ea.* FROM email_accounts ea JOIN users u ON ea.user_id = u.id
-             WHERE ea.enabled = true AND ea.smtp_host IS NOT NULL AND (ea.user_id = $1 OR u.is_admin = true)
-             ORDER BY (ea.user_id = $1) DESC, ea.created_at LIMIT 1",
-            params![user_id],
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    let Some(a) = acct else { return Ok(None) };
-    let text = |k: &str| a.get(k).and_then(Value::as_str).map(str::to_owned).filter(|v| !v.is_empty());
-    let provider = text("oauth_provider");
-    let auth = match (provider.as_deref(), text("oauth_access_token")) {
-        (Some("microsoft" | "google"), Some(token)) => smtp::Auth::OAuth2 {
-            user: text("auth_user").or_else(|| text("email_address")).unwrap_or_default(),
-            token: crypto::decrypt(&token).unwrap_or_default(),
-        },
-        _ => smtp::Auth::Password {
-            user: text("auth_user").unwrap_or_default(),
-            pass: text("auth_pass").and_then(|p| crypto::decrypt(&p)).unwrap_or_default(),
-        },
-    };
-    let policy = crate::services::dav_client::connection_policy(&s.db).await.map_err(|e| e.to_string())?;
-    let resolved = smtp::resolve(&text("smtp_host").unwrap_or_default(), policy.allow_private_hosts).await?;
-    let port = a.get("smtp_port").and_then(Value::as_u64).unwrap_or(587) as u16;
-    let skip_verify = a.get("imap_skip_tls_verify").and_then(Value::as_bool).unwrap_or(false);
-    let transport = smtp::Transport {
-        resolved,
-        port,
-        secure: port == 465,
-        require_tls: false,
-        ignore_tls: false,
-        reject_unauthorized: if policy.allow_insecure_tls { !skip_verify } else { true },
-        auth,
-    };
-    let email = text("email_address").unwrap_or_default();
-    Ok(Some((transport, format!("{} <{email}>", text("name").unwrap_or_default()), email)))
+    smtp::system_or_account_transport(
+        &s.db,
+        "SELECT ea.* FROM email_accounts ea JOIN users u ON ea.user_id = u.id
+         WHERE ea.enabled = true AND ea.smtp_host IS NOT NULL AND (ea.user_id = $1 OR u.is_admin = true)
+         ORDER BY (ea.user_id = $1) DESC, ea.created_at LIMIT 1",
+        user_id,
+    )
+    .await
 }
 
 async fn forgot_password(State(s): State<AppState>, ClientIp(ip): ClientIp, body: Body) -> Result<Response> {

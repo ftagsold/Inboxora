@@ -250,6 +250,47 @@ pub async fn system_transport(db: &Db) -> Result<(Transport, String, String), St
     Ok((transport, from_name, from_email))
 }
 
+/// The system mailer if configured, else the first account `account_sql` (one `$1` user id
+/// parameter) selects: (transport, `From` header, envelope sender). Account credentials are
+/// used as stored (OAuth access tokens are not refreshed here, like the Node flows).
+pub async fn system_or_account_transport(
+    db: &Db,
+    account_sql: &str,
+    user_id: &str,
+) -> Result<Option<(Transport, String, String)>, String> {
+    if let Ok((t, name, email)) = system_transport(db).await {
+        return Ok(Some((t, format!("{name} <{email}>"), email)));
+    }
+    let acct = db.json_opt(account_sql, params![user_id]).await.map_err(|e| e.to_string())?;
+    let Some(a) = acct else { return Ok(None) };
+    let text = |k: &str| a.get(k).and_then(serde_json::Value::as_str).map(str::to_owned).filter(|v| !v.is_empty());
+    let auth = match (text("oauth_provider").as_deref(), text("oauth_access_token")) {
+        (Some("microsoft" | "google"), Some(token)) => Auth::OAuth2 {
+            user: text("auth_user").or_else(|| text("email_address")).unwrap_or_default(),
+            token: crypto::decrypt(&token).unwrap_or_default(),
+        },
+        _ => Auth::Password {
+            user: text("auth_user").unwrap_or_default(),
+            pass: text("auth_pass").and_then(|p| crypto::decrypt(&p)).unwrap_or_default(),
+        },
+    };
+    let policy = crate::services::dav_client::connection_policy(db).await.map_err(|e| e.to_string())?;
+    let resolved = resolve(&text("smtp_host").unwrap_or_default(), policy.allow_private_hosts).await?;
+    let port = a.get("smtp_port").and_then(serde_json::Value::as_u64).unwrap_or(587) as u16;
+    let skip_verify = a.get("imap_skip_tls_verify").and_then(serde_json::Value::as_bool).unwrap_or(false);
+    let transport = Transport {
+        resolved,
+        port,
+        secure: port == 465,
+        require_tls: false,
+        ignore_tls: false,
+        reject_unauthorized: if policy.allow_insecure_tls { !skip_verify } else { true },
+        auth,
+    };
+    let email = text("email_address").unwrap_or_default();
+    Ok(Some((transport, format!("{} <{email}>", text("name").unwrap_or_default()), email)))
+}
+
 /// `sendSystemEmail({ to, subject, text, html })`.
 pub async fn send_system_email(db: &Db, to: &str, subject: &str, text: &str, html: Option<&str>) -> Result<(), String> {
     let (transport, from_name, from_email) = system_transport(db).await?;
