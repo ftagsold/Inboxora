@@ -1,0 +1,55 @@
+# Release notes 5.0.0
+
+**Status:** in development (not released) · **Previous version:** 4.0.2
+
+## Why 5.0.0
+
+5.0.0 replaces the Node.js backend with a rewrite in Rust. The interface, the Android app, DAV
+clients and the database do not change, and the HTTP API stays wire-compatible. Even so, the
+server that holds your mail connections, sessions and credentials is new code, and one feature
+area — plugins — is gone. That is a major version by any reading of semantic versioning.
+
+What the rewrite is for:
+
+- **Lower and steadier resource use.** One async process holds every IMAP IDLE connection, sync
+  timer and WebSocket without a garbage collector. Measured figures against 4.x will be added
+  here before the release.
+- **A mail engine that is ours.** A purpose-built IMAP client (TLS, OAuth2, COMPRESS, CONDSTORE,
+  UIDPLUS, MOVE, IDLE) replaces the imapflow dependency. It is tested against a real Dovecot
+  server.
+- **A smaller attack surface.** The backend image is distroless: no shell, no package manager,
+  non-root.
+
+## Upgrading
+
+1. Back up the database as usual (see [Upgrading](Upgrading.md)).
+2. Pull the 5.0.0 images, or rebuild with `docker compose build`, and start the stack. The new
+   backend applies any pending migrations itself at startup, exactly as 4.x did.
+3. Existing sessions stay valid: the session cookie, Redis session format and encryption keys
+   are unchanged, so nobody is signed out.
+
+Environment variables are the same as in 4.x. If you run your own healthcheck against the
+backend container, note that the image has no `wget` or shell: use
+`/app/inboxora-server healthcheck`, or probe `GET /api/health` from outside the container.
+
+## What is gone
+
+- **Plugins.** The GTD plugin (labels, sections, the pet) and the plugin hooks are not part of
+  5.0.0. `/api/plugins` reports no plugins. Plugin data already in the database is not deleted.
+
+## Behaviour differences worth knowing
+
+The rewrite reproduces 4.x behaviour. A differential test suite runs both backends against
+identical databases and compares their responses, side effects (mail sent, rows written) and
+headers across scenarios for every route group. The deliberate differences are listed in
+`backend-rs/README.md`. The ones a user can notice are:
+
+- A few 4.x bugs are fixed: search `after:`/`before:`, contacts with a title, the conversation
+  rebuild rate limit (now `429`), and raw headers in threading diagnostics.
+- If your SMTP server rejects one recipient of a message, the send fails as a whole and can be
+  retried. 4.x could report a partial delivery instead.
+
+## Known limitations
+
+- The Node backend still sits in `backend/`. It is the reference for the differential tests and
+  is no longer built or shipped.

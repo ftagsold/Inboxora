@@ -5,10 +5,39 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
+limitations — read the matching page in the Wiki: [Release notes 5.0.0 (draft)](wiki/Release-notes-5.0.0.md),
+[Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
 ## [Unreleased]
+
+The next release is **5.0.0**: the backend is rewritten in Rust (see the release notes draft).
+
+### Changed (backend rewrite)
+
+- **The backend is a Rust service** (`backend-rs/`): axum/tokio HTTP and WebSocket server, its own
+  IMAP client and mail engine, lettre-based SMTP, and ports of every 4.x route group except
+  plugins. It speaks the same API, reads the same environment variables, uses the same sessions
+  in Redis, the same `enc:v1` encryption and the same database, which it migrates in place, so an
+  upgrade keeps existing sessions, accounts and data.
+- **The backend image is distroless** and built from `backend-rs/Dockerfile` (cargo-chef,
+  fat LTO). It has no shell: the compose healthchecks run `/app/inboxora-server healthcheck`.
+- The backend now owns migrations; the SQL files are unchanged and ship at `/app/migrations`.
+
+### Removed (backend rewrite)
+
+- **Plugins (GTD) are not available in 5.0.0.** `/api/plugins` lists no plugins, and the GTD
+  labels, sections and pet are gone from the interface's data. Existing plugin tables are left
+  untouched in the database.
+
+### Fixed (backend rewrite)
+
+- Stored conversation raw headers contain the real header text instead of an internal object
+  dump, so threading diagnostics show them correctly.
+- The conversation rebuild rate limit answers `429 Too Many Requests` instead of a generic 500.
+- Search `after:`/`before:` operators and creating a contact with a title no longer fail with 500
+  (both were broken in 4.x). See `backend-rs/README.md` for the full list of intentional
+  behaviour differences.
 
 ### Added
 

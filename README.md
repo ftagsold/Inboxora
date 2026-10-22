@@ -302,6 +302,7 @@ release.
 | [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
+| [Release notes 5.0.0 (draft)](docs/wiki/Release-notes-5.0.0.md) | The Rust backend: why it is a major release and how to upgrade. |
 | [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Development release notes, rollout requirements and known status. |
 | [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |
 
@@ -311,8 +312,8 @@ release.
 # frontend
 cd frontend && npm ci && npm test && npm run lint && npm run build
 
-# backend
-cd backend && npm ci && npm test && npm run lint
+# backend (Rust; see backend-rs/README.md for the live and contract test suites)
+cd backend-rs && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
 Browser coverage uses Playwright and runs the full mocked suite plus visual comparisons:

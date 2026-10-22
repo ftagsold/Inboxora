@@ -1,26 +1,39 @@
 # Inboxora backend (Rust)
 
-Rust rewrite of `backend/`, wire-compatible with the frontend, the Android app, DAV clients and
-existing databases. The plan, ordering and parity gates are in
+The Inboxora backend from 5.0.0 on: a Rust rewrite of `backend/`, wire-compatible with the
+frontend, the Android app, DAV clients and existing databases, which it upgrades in place. The
+Node tree stays in the repository only as the behavioural reference for the differential tests.
+The plan and parity gates are in
 [`docs/rust-backend-migration-plan.md`](../docs/rust-backend-migration-plan.md).
 
 ## Layout
 
 | Crate | Contents |
 |---|---|
+| `crates/imap` | IMAP client on imap-proto: STARTTLS/implicit TLS, PLAIN/LOGIN/XOAUTH2/OAUTHBEARER, NAMESPACE, COMPRESS=DEFLATE, CONDSTORE, UIDPLUS, MOVE, IDLE, modified UTF-7, imapflow-compatible special-use and body-structure numbering |
+| `crates/net` | SSRF-guarded HTTP client (validated DNS, redirect re-checks) and host validation |
 | `crates/core` | config (Node env names/defaults), PostgreSQL pool + node-pg compatible params/rows, migration runner, express-session compatible sessions, `enc:v1` crypto, Redis, event fan-out, metrics |
 | `crates/mail` | HTML sanitizer (sanitize-html 2.18 semantics), snippets, headers/RFC 2047, MIME parts, conversation helpers, small mail utilities |
 | `crates/pim` | vCard 3.0, iCalendar (literal port of the ical.js 2.2 subset: parser, serialiser, VTIMEZONE offsets, RRULE iterator/expansion, events) and the calendar projection functions |
-| `crates/server` | axum binary: Express-equivalent middleware stack, extractors, WebSocket, routes |
+| `crates/server` | axum binary: Express-equivalent middleware stack, extractors, WebSocket, routes, the mail engine (`engine/`: persistent IDLE connections, pooled leases, sync, backfill, flag push) and services (send, conversations, invitations, AI, push) |
 
 ## Running
 
 ```bash
 cargo build --release -p inboxora-server
-# Same environment as the Node backend (DB_*, REDIS_URL, SESSION_SECRET, ENCRYPTION_KEY, APP_URL, …).
-# MIGRATIONS=verify: only check the schema (while the Node backend owns migrations).
-# MIGRATIONS_DIR: defaults to ./migrations, then ../backend/migrations.
+# Same environment as the 4.x backend (DB_*, REDIS_URL, SESSION_SECRET, ENCRYPTION_KEY, APP_URL, …).
+# It applies pending migrations at startup; MIGRATIONS=verify only checks the schema.
+# MIGRATIONS_DIR: defaults to ./migrations, then ../backend/migrations (the SQL files stay there
+# while the Node reference needs them).
 ./target/release/inboxora-server
+./target/release/inboxora-server healthcheck   # exit 0 when /api/health answers 200
+```
+
+The container image (`backend-rs/Dockerfile`, built from the repository root) is a cargo-chef
+multi-stage build on a distroless, non-root runtime with the migrations at `/app/migrations`:
+
+```bash
+docker build -f backend-rs/Dockerfile -t inboxora-backend .
 ```
 
 ## Tests
@@ -51,16 +64,19 @@ node tests/contract/harness.mjs [filter]
 | 2 | database-only route groups (block list, contacts, search, rules, categories, push devices, calendar reads) | done |
 | 3 | DAV servers and DAV sync | done — `/carddav`, `/caldav`, well-known redirects, app passwords, secret feeds, DAV clients, `/api/dav/servers`, `/api/calendar/sources`, remote sync with write-back, contact backfills. Calendar event mutations moved to phase 5 (they deliver invitations over SMTP) |
 | 4 | authentication | done — `/api/auth` (password, TOTP, email OTP, lock, preferences, reset), `/api/totp`, OIDC sign-in, Microsoft OAuth, `/api/admin`, `/api/integrations`, SMTP mailer |
-| 5 | mail engine, mail routes, send, WebSocket events, calendar event mutations and invitations | pending |
-| 6 | AI, integrations, cutover | pending |
+| 5 | mail engine, mail routes, send, WebSocket events, calendar event mutations and invitations | done — IMAP engine (live-tested against Dovecot), `/api/mail` (messages, folders, bulk actions, snooze, spam, unsubscribe, conversations with overrides and rebuilds, send and drafts), `/api/accounts`, calendar mutations with the invitation outbox, received invitations, Web Push/FCM/UnifiedPush dispatch |
+| 6 | AI, integrations, cutover | done — AI providers (OpenAI-compatible API key and ChatGPT device OAuth, streaming chat), Todoist, sender favicons, `/api/diagnostics`, Docker image and compose/CI cutover |
 
 Plugins (GTD) are out of scope for the rewrite.
 
 Test hook: `MS_AUTHORITY_URL` overrides the Microsoft identity platform base URL (Node has it
 fixed); production deployments leave it unset.
 
-Background sync: the Rust server starts the remote DAV/iCalendar schedulers unless
-`BACKGROUND_SYNC=off`. While Node and Rust serve side by side, run them in only one process.
+Background work: the server starts the mail engine (startup connections, sync timers, snippet
+indexer, staleness and flag-push reconcilers, snooze watcher), the DAV/iCalendar schedulers, the
+invitation outbox worker and the conversation ingest retry. `BACKGROUND_SYNC=off` keeps the mail
+engine timers and DAV schedulers off; `NODE_ENV=test` or `E2E_DISABLE_IMAP_CONNECT=true` skips
+the startup IMAP connections.
 
 ## Intentional deviations from the Node backend
 
@@ -91,3 +107,14 @@ Differential tests (`tests/differential/*.expected.json`, regenerated by
   internal declarations.
 - CardDAV/CalDAV request bodies are capped at 16 MiB (Node read them unbounded) and answer 413
   beyond that.
+- Plugins are not ported: `/api/plugins` lists none, account rows carry no `gtd_enabled` /
+  `gtd_folders`, and GTD-only behaviour (label sibling rows, `onSentMessage` hooks, plugin
+  summaries) does not exist.
+- `conversation_raw_headers` stores the message's header text (Node stored a dump of its
+  header-entry objects).
+- The conversation rebuild rate limit answers `429` (Node's global error handler turned the
+  limiter's error into a `500`).
+- An SMTP server rejecting one recipient fails the whole send (the SMTP client does not continue
+  with the accepted recipients), so `partialDelivery` is never reported.
+- Drafts are appended with CRLF line endings like Sent copies (Node used bare LF for drafts).
+- An unauthenticated request to an unknown `/api/ai/*` path answers `401` (Node `404`).

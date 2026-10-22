@@ -7,6 +7,7 @@ product and operational knowledge base.
 ## Requirements
 
 - Node 22 (`frontend/.nvmrc` pins the version).
+- Rust from `backend-rs/rust-toolchain.toml` (rustup installs it on first use).
 - No global TypeScript install: `typescript` is a dev dependency of both projects.
 - Docker only if you want to run the full stack.
 - Chromium for browser tests: `npx playwright install chromium`.
@@ -15,7 +16,8 @@ product and operational knowledge base.
 
 | Path | Contents |
 | --- | --- |
-| `backend/` | Express API, IMAP/SMTP sync, conversation engine, CalDAV/CardDAV servers, SQL migrations — TypeScript, built with `tsc` into `dist/`. |
+| `backend-rs/` | The backend from 5.0.0 on: axum API and WebSocket, IMAP client and mail engine, SMTP, conversation engine, CalDAV/CardDAV servers — Rust workspace. See `backend-rs/README.md`. |
+| `backend/` | The 4.x Node backend, kept as the behavioural reference for the differential contract suite, and the SQL migrations both backends apply. Not built or shipped. |
 | `frontend/` | React application in TypeScript (`.ts`/`.tsx`), shared UI primitives, Playwright specs and visual references. |
 | `docs/wiki/` | Reviewed source of this Wiki. |
 | `docs/CHANGELOG.md` | Release-level change log. |
@@ -36,13 +38,15 @@ npm run lint
 npm run build
 
 # backend
-cd backend
-npm ci
-npm run typecheck   # tsc --noEmit
-npm test
-npm run lint
-npm run build
+cd backend-rs
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace   # live IMAP/PostgreSQL tests run when their env vars are set
 ```
+
+The differential contract suite (`node backend-rs/tests/contract/harness.mjs`) starts the Rust
+and the reference Node backend on identical databases and compares their responses; see
+`backend-rs/README.md`.
 
 ## TypeScript
 
