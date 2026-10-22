@@ -51,7 +51,7 @@ fn parse_value(val: &str) -> Value {
 }
 
 /// JS `Number(string)` for an already-trimmed string.
-fn js_number(t: &str) -> f64 {
+pub fn js_number(t: &str) -> f64 {
     static DEC: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$").unwrap());
     if t.is_empty() {

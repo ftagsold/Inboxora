@@ -1,5 +1,6 @@
 //! Route table. Groups are added here as they are ported.
 
+pub mod auth;
 pub mod block_list;
 pub mod caldav;
 pub mod calendar;
@@ -16,6 +17,7 @@ pub mod push;
 pub mod rules;
 pub mod search;
 pub mod system;
+pub mod totp;
 pub mod util;
 
 use axum::Router;
@@ -39,6 +41,7 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
         ("/api/block-list", block_list::router()),
         ("/api/contacts", contacts::router()),
         ("/api/search", search::router()),
+        ("/api/totp", totp::router()),
         ("/api/rules", rules::router()),
         ("/api/plugins", plugins::router()),
         ("/api/calendar", calendar::router()),
@@ -50,6 +53,7 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
 pub fn router(state: &AppState) -> Router<AppState> {
     groups().into_iter().fold(
         Router::new()
+            .nest("/api/auth", auth::router())
             .merge(system::router())
             .merge(categories::router())
             .merge(push::router())

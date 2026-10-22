@@ -19,6 +19,8 @@ pub struct AppState {
     pub sessions: SessionStore,
     pub events: Events,
     pub on_user_connect: Option<OnUserConnect>,
+    /// Called when a user signs out (the mail engine drops their idle connections).
+    pub on_user_disconnect: Option<OnUserConnect>,
 }
 
 impl axum::extract::FromRef<AppState> for Db {

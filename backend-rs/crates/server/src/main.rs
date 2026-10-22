@@ -97,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         redis,
         events,
         on_user_connect: None,
+        on_user_disconnect: None,
     };
     let app = app::build(state);
     let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], cfg.port));

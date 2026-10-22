@@ -8,4 +8,7 @@ pub mod contact_backfill;
 pub mod dav_client;
 pub mod dav_sync;
 pub mod dav_xml;
+pub mod oidc;
 pub mod push;
+pub mod smtp;
+pub mod totp;
