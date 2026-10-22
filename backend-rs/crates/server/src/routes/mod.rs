@@ -1,5 +1,6 @@
 //! Route table. Groups are added here as they are ported.
 
+pub mod accounts;
 pub mod admin;
 pub mod auth;
 pub mod block_list;
@@ -14,6 +15,7 @@ pub mod dav;
 pub mod dav_credentials;
 pub mod dav_servers;
 pub mod integrations;
+pub mod mail;
 pub mod oauth;
 pub mod oidc;
 pub mod plugins;
@@ -51,9 +53,11 @@ fn admin_only(state: &AppState) -> Router<AppState> {
 /// Authenticated route groups by mount prefix (Express `app.use(prefix, router)` order).
 fn groups() -> Vec<(&'static str, Router<AppState>)> {
     vec![
+        ("/api/accounts", accounts::router()),
         ("/api/block-list", block_list::router()),
         ("/api/contacts", contacts::router()),
         ("/api/search", search::router()),
+        ("/api/mail", mail::router()),
         ("/api/integrations", integrations::router()),
         ("/api/totp", totp::router()),
         ("/api/rules", rules::router()),

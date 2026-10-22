@@ -1,0 +1,89 @@
+//! `/api/mail`: message reading, flags, folders, bulk actions, snooze, spam and unsubscribe
+//! (port of `routes/mail.ts`).
+
+pub mod bulk;
+pub mod folders;
+pub mod read;
+pub mod single;
+
+use axum::Router;
+use axum::routing::{get, patch, post};
+use inboxora_core::Result;
+use inboxora_core::pg::Q;
+use serde_json::Value;
+
+use crate::engine::connect::{Account, load_account};
+use crate::state::AppState;
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/messages", get(read::messages))
+        .route("/messages/{id}", get(read::message).delete(single::delete_message))
+        .route("/resolve-message", get(read::resolve_message))
+        .route("/thread/{thread_id}", get(read::thread))
+        .route("/unread-counts", get(read::unread_counts))
+        .route("/messages/{id}/body", get(read::body))
+        .route("/messages/{id}/headers", get(read::headers))
+        .route("/messages/{id}/attachments.zip", get(read::attachments_zip))
+        .route("/messages/{id}/attachments/{part}", get(read::attachment))
+        .route("/messages/{id}/read", patch(read::mark_read))
+        .route("/messages/{id}/star", patch(read::mark_star))
+        .route("/sync", post(folders::sync))
+        .route("/sync-folders", post(folders::sync_folders))
+        .route("/sync-folder", post(folders::sync_folder))
+        .route("/mark-all-read", post(folders::mark_all_read))
+        .route("/folders", post(folders::create_folder))
+        .route("/folders/delete", post(folders::delete_folder))
+        .route("/folders/rename", post(folders::rename_folder))
+        .route("/folders/empty", post(folders::empty_folder))
+        .route("/messages/bulk-read", post(folders::bulk_read))
+        .route("/messages/bulk-delete", post(bulk::bulk_delete))
+        .route("/mailbox-usage", get(bulk::mailbox_usage))
+        .route("/cleanup-preview", get(bulk::cleanup_preview))
+        .route("/messages/bulk-move", post(bulk::bulk_move))
+        .route("/messages/bulk-archive", post(single::bulk_archive))
+        .route("/messages/{id}/snooze", post(single::snooze))
+        .route("/messages/{id}/spam", post(single::spam))
+        .route("/messages/{id}/ham", post(single::ham))
+        .route("/category-counts", get(single::category_counts))
+        .route("/messages/{id}/category", patch(single::set_category))
+        .route("/messages/{id}/unsubscribe", post(single::unsubscribe))
+}
+
+pub fn is_uuid(v: &str) -> bool {
+    inboxora_mail::util::is_uuid(v)
+}
+
+/// `isValidFolderName`: 1–255 characters, no control characters.
+pub fn valid_folder_name(name: &str) -> bool {
+    let n = inboxora_mail::text::js_len(name);
+    n > 0 && n <= 255 && name.chars().all(|c| (c as u32) > 31 && c as u32 != 127)
+}
+
+/// Strip NUL bytes PostgreSQL rejects.
+pub fn clean(s: &str) -> String {
+    if s.contains('\0') { s.replace('\0', "") } else { s.to_owned() }
+}
+
+/// `messages.attachments` as an array (stored as JSON text or jsonb).
+pub fn attachments_of(v: Option<&Value>) -> Value {
+    match v {
+        Some(Value::String(s)) => {
+            serde_json::from_str(if s.is_empty() { "[]" } else { s }).unwrap_or(Value::Array(vec![]))
+        }
+        Some(v @ Value::Array(_)) => v.clone(),
+        _ => Value::Array(vec![]),
+    }
+}
+
+pub async fn account_of(s: &AppState, id: &str) -> Result<Option<Account>> {
+    load_account(&s.db, id).await
+}
+
+/// The account when it belongs to `user`.
+pub async fn account_for_user(s: &AppState, id: &str, user: &str) -> Result<Option<Account>> {
+    Ok(s.db
+        .json_opt("SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2", inboxora_core::params![id, user])
+        .await?
+        .map(Account::from_map))
+}
