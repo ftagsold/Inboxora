@@ -2,6 +2,7 @@
 //! (port of `routes/mail.ts`).
 
 pub mod bulk;
+pub mod conversations;
 pub mod folders;
 pub mod read;
 pub mod single;
@@ -48,6 +49,30 @@ pub fn router() -> Router<AppState> {
         .route("/category-counts", get(single::category_counts))
         .route("/messages/{id}/category", patch(single::set_category))
         .route("/messages/{id}/unsubscribe", post(single::unsubscribe))
+        .route("/conversations", get(conversations::list))
+        .route("/conversations/{id}", get(conversations::detail))
+        .route("/conversations/{id}/diagnostics", get(conversations::diagnostics))
+        .route("/conversations/{id}/overrides", get(conversations::get_overrides).post(conversations::create_override))
+        .route("/conversations/{id}/archive", post(conversations::archive))
+        .route("/conversations/{id}/delete", post(conversations::delete))
+        .route("/conversations/{id}/move", post(conversations::move_to))
+        .route("/conversations/{id}/read", post(conversations::read))
+        .route("/conversations/{id}/star", post(conversations::star))
+        .route("/conversations/{id}/merge", post(conversations::merge))
+        .route("/conversations/{id}/lock", post(conversations::lock))
+        .route("/conversations/{id}/unlock", post(conversations::unlock))
+        .route("/conversations/{id}/logical-messages/{lm}/body", get(conversations::logical_body))
+        .route("/conversations/{id}/logical-messages/{lm}/split", post(conversations::split))
+        .route("/conversations/{id}/logical-messages/{lm}/move", post(conversations::move_logical))
+        .route("/conversations/{id}/logical-messages/{lm}/force-include", post(conversations::force_include))
+        .route("/conversations/{id}/logical-messages/{lm}/force-exclude", post(conversations::force_exclude))
+        .route("/conversations/bulk-archive", post(conversations::bulk_archive).get(conversations::invalid_id))
+        .route("/conversations/bulk-delete", post(conversations::bulk_delete).get(conversations::invalid_id))
+        .route("/conversations/bulk-read", post(conversations::bulk_read).get(conversations::invalid_id))
+        .route("/conversations/bulk-move", post(conversations::bulk_move).get(conversations::invalid_id))
+        .route("/conversations/rebuild", post(conversations::rebuild).get(conversations::invalid_id))
+        .route("/conversations/rebuild/{job}", get(conversations::rebuild_job))
+        .route("/messages/{id}/conversation", get(conversations::message_conversation))
 }
 
 pub fn is_uuid(v: &str) -> bool {
