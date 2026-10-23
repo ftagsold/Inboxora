@@ -7,7 +7,7 @@ import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.ts';
 import { isDraftSnapshotCurrent } from '../utils/draftSaveAcknowledgement.ts';
 import { useTranslation } from 'react-i18next';
 import ScheduleSendDialog from './ScheduleSendDialog.tsx';
-import { formatScheduled, schedulePresets } from '../utils/scheduleSend.ts';
+import { formatScheduled } from '../utils/scheduleSend.ts';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
@@ -1245,6 +1245,9 @@ export default function ComposeModal() {
       <polygon points="22 2 15 22 11 13 2 9 22 2"/>
     </svg>
   );
+  const clockIcon = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>
+  );
   const saveIcon = (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12" />
@@ -2339,10 +2342,11 @@ export default function ComposeModal() {
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ transform: showSendMenu ? 'rotate(180deg)' : undefined, transition: 'transform .15s' }}><polyline points="6 15 12 9 18 15" /></svg>
           </button>}
+          {/* Invisible copy of the menu item: sizes the button to the menu's width. */}
+          {!scheduledEditId && <span className="send-split-sizer" aria-hidden="true">{clockIcon}{t('compose.schedule.menuItem')}</span>}
           {showSendMenu && !scheduledEditId && (
             <SendOptionsMenu
               onClose={() => setShowSendMenu(false)}
-              onPick={at => { setShowSendMenu(false); void handleSend({ sendAt: at }); }}
               onCustom={() => { setShowSendMenu(false); setShowSchedule(true); }}
             />
           )}
@@ -3305,13 +3309,11 @@ function AttachmentChips({ attachments, onRemove, mobile = false }: { attachment
   );
 }
 
-/** The send button's options, unfolding upwards out of the button: quick "send later" times
- * and the date/time picker. Closes on Escape or an outside click. */
-function SendOptionsMenu({ onClose, onPick, onCustom }: { onClose: () => void; onPick: (at: Date) => void; onCustom: () => void }) {
-  const { t, i18n } = useTranslation();
-  const locale = i18n.resolvedLanguage || i18n.language;
+/** The send button's options, unfolding upwards out of the button. Closes on Escape or an
+ * outside click. */
+function SendOptionsMenu({ onClose, onCustom }: { onClose: () => void; onCustom: () => void }) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement | null>(null);
-  const presets = schedulePresets();
   useEffect(() => {
     ref.current?.querySelector<HTMLButtonElement>('button')?.focus();
     const down = (e: MouseEvent) => {
@@ -3323,18 +3325,10 @@ function SendOptionsMenu({ onClose, onPick, onCustom }: { onClose: () => void; o
     document.addEventListener('keydown', key, true);
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key, true); };
   }, [onClose]);
-  const clock = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>;
   return (
     <div ref={ref} className="send-split-menu" role="menu">
-      <div className="send-split-menu-label">{t('compose.schedule.menuHeading')}</div>
-      {presets.map(p => (
-        <button key={p.key} type="button" role="menuitem" onClick={() => onPick(p.at)}>
-          <span>{t(`compose.schedule.presets.${p.key}`)}</span>
-          <span className="send-split-menu-time">{formatScheduled(p.at, locale)}</span>
-        </button>
-      ))}
       <button type="button" role="menuitem" data-testid="send-later" onClick={onCustom}>
-        {clock}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>
         <span>{t('compose.schedule.menuItem')}</span>
       </button>
     </div>

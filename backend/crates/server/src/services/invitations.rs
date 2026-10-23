@@ -203,20 +203,8 @@ pub fn parse_inbound_invitation(raw: &str) -> Option<Invitation> {
     };
     let summary_text = summary.map(|s| unescape_ical_text(&s.value));
     if method == "CANCEL" {
-        let allowed = [
-            "UID",
-            "DTSTAMP",
-            "DTSTART",
-            "DTEND",
-            "SEQUENCE",
-            "RECURRENCE-ID",
-            "ORGANIZER",
-            "ATTENDEE",
-            "STATUS",
-            "SUMMARY",
-            "DESCRIPTION",
-            "LOCATION",
-        ];
+        // Real cancellations carry more than the RFC 5546 minimum (X-*, CLASS, TRANSP,
+        // CREATED, RRULE, …); those are ignored. Only properties we read must be unambiguous.
         let singletons = [
             "UID",
             "DTSTAMP",
@@ -230,12 +218,11 @@ pub fn parse_inbound_invitation(raw: &str) -> Option<Invitation> {
             "DESCRIPTION",
             "LOCATION",
         ];
-        if ev.iter().any(|p| !allowed.contains(&p.name.as_str())) || singletons.iter().any(|n| named(&ev, n).len() > 1)
-        {
+        if singletons.iter().any(|n| named(&ev, n).len() > 1) {
             return None;
         }
         let organizer = organizer.filter(|o| !o.value.trim().is_empty())?;
-        if stamp.is_none() || stamp_date.as_ref().map(|d| d.form) != Some("utc") || sequence.is_none() {
+        if stamp.is_none() || stamp_date.is_none() {
             return None;
         }
         if let Some(status) = named(&ev, "STATUS").first()
@@ -584,6 +571,19 @@ mod tests {
         let inv = parse_inbound_invitation(&tz).unwrap();
         assert_eq!(inv.starts_at.unwrap().to_rfc3339(), "2026-01-05T08:00:00+00:00");
         assert_eq!(inv.time_zone.as_deref(), Some("Europe/Berlin"));
+    }
+
+    #[test]
+    fn cancellations_tolerate_vendor_properties() {
+        // As Outlook/Google send them: extra properties, no SEQUENCE, STATUS:CANCELLED.
+        let cancel = REQUEST.replace("METHOD:REQUEST", "METHOD:CANCEL").replace(
+            "SUMMARY:",
+            "STATUS:CANCELLED\r\nCLASS:PUBLIC\r\nTRANSP:OPAQUE\r\nX-MICROSOFT-CDO-BUSYSTATUS:FREE\r\nSUMMARY:",
+        );
+        let inv = parse_inbound_invitation(&cancel).unwrap();
+        assert_eq!((inv.method.as_str(), inv.uid.as_str(), inv.sequence), ("CANCEL", "abc@x", 0));
+        // The fields we read must still be unambiguous.
+        assert!(parse_inbound_invitation(&cancel.replace("CLASS:PUBLIC", "UID:other@x")).is_none());
     }
 
     #[test]

@@ -991,7 +991,16 @@ async fn fetch_ics(s: &AppState, row: &Map<String, Value>, user: &str) -> Result
                 .collect()
         })
         .unwrap_or_default();
-    let [only] = candidates.as_slice() else { return Ok(None) };
+    // Several calendar parts (an inline text/calendar plus an .ics attachment of the same
+    // event is common): prefer the text/calendar part.
+    let Some(only) = candidates
+        .iter()
+        .find(|x| ICS_TYPE.is_match(x.get("type").and_then(Value::as_str).unwrap_or("")))
+        .or(candidates.first())
+        .copied()
+    else {
+        return Ok(None);
+    };
     let size = match only.get("size") {
         Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0),
         Some(Value::String(v)) => v.trim().parse().unwrap_or(f64::NAN),
@@ -1051,10 +1060,26 @@ fn iso(t: &Option<DateTime<Utc>>) -> Value {
     t.as_ref().map_or(Value::Null, |t| json!(inboxora_core::json::js_iso(t)))
 }
 
-async fn imported_event(s: &AppState, message: &str, user: &str) -> Result<Option<Map<String, Value>>> {
+/// The local uid an imported invitation gets: stable across the organizer's later updates and
+/// cancellations of the same event (which arrive as other messages).
+fn imported_uid(inv: &Invitation) -> String {
+    let key = json!([inv.uid, inv.organizer, inv.recurrence_id]).to_string();
+    format!("mail-{}", crypto::sha256_hex(key))
+}
+
+/// The calendar copy of this invitation: imported from this message, or (for an update or a
+/// cancellation) from an earlier message about the same event.
+async fn imported_event(
+    s: &AppState,
+    message: &str,
+    user: &str,
+    inv: Option<&Invitation>,
+) -> Result<Option<Map<String, Value>>> {
     s.db.json_opt(
-        "SELECT id, calendar_id, invitation_sequence, starts_at, ends_at, all_day FROM calendar_events WHERE source_message_id = $1 AND user_id = $2 ORDER BY created_at ASC LIMIT 1",
-        params![message, user],
+        "SELECT id, calendar_id, invitation_sequence, starts_at, ends_at, all_day FROM calendar_events \
+         WHERE user_id = $2 AND (source_message_id = $1 OR (uid = $3 AND invite_account_id IS NULL)) \
+         ORDER BY (source_message_id = $1) DESC, created_at ASC LIMIT 1",
+        params![message, user, inv.map(imported_uid)],
     )
     .await
 }
@@ -1086,7 +1111,7 @@ async fn read_invitation(State(s): State<AppState>, a: Auth, Path(message): Path
             "recordedInCalendar": recorded,
         } })));
     };
-    let local = imported_event(&s, &message, user).await?.map(|e| {
+    let local = imported_event(&s, &message, user, Some(&mi.inv)).await?.map(|e| {
         json!({ "id": e.get("id"), "calendarId": e.get("calendar_id"), "sequence": e.get("invitation_sequence").and_then(Value::as_i64).unwrap_or(0),
                 "startsAt": e.get("starts_at"), "endsAt": e.get("ends_at"), "allDay": e.get("all_day") })
     });
@@ -1131,17 +1156,16 @@ async fn remove_invitation(State(s): State<AppState>, a: Auth, Path(message): Pa
     let Some(mi) = read_message_invitation(&s, &message, user).await? else {
         return Ok(err(404, "Calendar invitation not found"));
     };
-    let Some(local) = imported_event(&s, &message, user).await? else {
+    let Some(local) = imported_event(&s, &message, user, Some(&mi.inv)).await? else {
         return Ok(err(404, "This invitation was not added to a calendar"));
     };
     if mi.inv.sequence < local.get("invitation_sequence").and_then(Value::as_i64).unwrap_or(0) {
         return Ok(err(409, "This cancellation is older than the event already in the calendar"));
     }
-    let removed = s
-        .db
-        .opt(
-            "DELETE FROM calendar_events WHERE id = $1 AND user_id = $2 AND source_message_id = $3 AND invite_account_id IS NULL RETURNING id",
-            params![local.get("id").and_then(Value::as_str), user, &message],
+    let removed =
+        s.db.opt(
+            "DELETE FROM calendar_events WHERE id = $1 AND user_id = $2 AND invite_account_id IS NULL RETURNING id",
+            params![local.get("id").and_then(Value::as_str), user],
         )
         .await?;
     if removed.is_none() {
@@ -1160,8 +1184,7 @@ async fn import_invitation(
     partstat: Option<(&str, &str)>,
 ) -> Result<bool> {
     let Some(event) = &mi.event else { return Err(Error::status(409, "This invitation cannot be added")) };
-    let key = json!([mi.inv.uid, mi.inv.organizer, mi.inv.recurrence_id]).to_string();
-    let uid = format!("mail-{}", crypto::sha256_hex(key));
+    let uid = imported_uid(&mi.inv);
     let mut root = parse_component(&event.raw).map_err(Error::internal)?;
     root.remove_all("method");
     if let Some(vevent) = root.comps.iter_mut().find(|c| c.name == "vevent") {
@@ -1286,7 +1309,7 @@ async fn respond_invitation(
     }
     let mut cal: Option<WritableCalendar> = None;
     if response != "DECLINED" {
-        let existing = imported_event(&s, &message, user).await?;
+        let existing = imported_event(&s, &message, user, Some(&mi.inv)).await?;
         let calendar_id = b
             .get("calendarId")
             .filter(|v| truthy(Some(v)))

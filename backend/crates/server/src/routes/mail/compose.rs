@@ -811,7 +811,9 @@ pub async fn send_as(s: &AppState, user: String, idem_key: Option<String>, b: Bo
         content_type: f.content_type,
         cid: None,
     }));
-    let auto_saves = account.str("oauth_provider").is_some_and(|p| !p.is_empty()) || {
+    // Gmail and Microsoft 365 file the sent message themselves; every other server (including
+    // OIDC-authenticated IMAP such as Dovecot) needs our APPEND, or the copy lands ~30 s later.
+    let auto_saves = matches!(account.str("oauth_provider"), Some("google" | "microsoft")) || {
         let host =
             account.str("imap_host").filter(|h| !h.is_empty()).or_else(|| account.str("smtp_host")).unwrap_or("");
         host.to_lowercase().contains("gmail")

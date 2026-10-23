@@ -1,6 +1,7 @@
-// A scheduled (not yet sent) mail in the reader pane. The toolbar reschedules it (clock),
-// opens it in the composer for editing (Save replaces Send there), or deletes it, which also
-// removes the schedule. Once the mail goes out the row disappears and the reader closes.
+// A scheduled (not yet sent) mail in the reader pane, drawn as the same card the conversation
+// reader uses (subject, sender, recipients, date, body), with a toolbar fitted to it: the clock
+// reschedules, Edit opens the composer (Save replaces Send there), Delete removes the mail and
+// its schedule. Once the mail goes out the row disappears and the reader closes.
 
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,8 +12,11 @@ import type { ComposeDraft } from '../store/index.ts';
 import { formatScheduled } from '../utils/scheduleSend.ts';
 import { toAppError } from '../utils/errors.ts';
 import { ToolbarButton } from './MessageToolbar.tsx';
+import MessageDetailContent from './MessageDetailContent.tsx';
+import { MessageAvatar, MessageDirection } from './MessagePresentation.tsx';
+import { useMobile } from '../hooks/useMobile.ts';
 import ScheduleSendDialog from './ScheduleSendDialog.tsx';
-import { ClockIcon, recipientList, type ScheduledRow } from './ScheduledSection.tsx';
+import { ClockIcon, displayName, recipientList, type ScheduledRow } from './ScheduledSection.tsx';
 
 interface ScheduledDetail extends ScheduledRow {
   body?: string | null;
@@ -55,12 +59,15 @@ function composeFromPayload(id: string, p: Record<string, unknown>): ComposeDraf
 export default function ScheduledReader({ id, onBack }: { id: string; onBack?: () => void }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage || i18n.language;
+  const isMobile = useMobile();
   const setSelectedScheduled = useStore(s => s.setSelectedScheduled);
   const openCompose = useStore(s => s.openCompose);
+  const accounts = useStore(s => s.accounts);
   const [mail, setMail] = useState<ScheduledDetail | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   const load = useCallback(() => {
     api.getScheduledMail(id)
@@ -74,6 +81,7 @@ export default function ScheduledReader({ id, onBack }: { id: string; onBack?: (
 
   useEffect(() => {
     setMail(null);
+    setExpanded(true);
     load();
     const onChange = () => load();
     window.addEventListener('inboxora:scheduled_changed', onChange);
@@ -111,81 +119,118 @@ export default function ScheduledReader({ id, onBack }: { id: string; onBack?: (
     if (full.payload) openCompose(composeFromPayload(id, full.payload));
   });
 
+  const account = accounts.find(a => a.id === mail?.account_id);
+  const accountColor = account?.color || 'var(--accent)';
+  const senderName = (typeof account?.sender_name === 'string' && account.sender_name) || account?.name || account?.email_address || '';
+  const senderEmail = account?.email_address || '';
   const failed = mail?.status === 'failed';
   const sending = mail?.status === 'sending';
-  const field = (label: string, values: string[]) => values.length ? (
-    <div style={{ display: 'flex', gap: 10, fontSize: 12.5, lineHeight: 1.5 }}>
-      <span style={{ width: 40, flexShrink: 0, color: 'var(--text-tertiary)' }}>{label}</span>
-      <span style={{ minWidth: 0, overflowWrap: 'anywhere', color: 'var(--text-secondary)' }}>{values.join(', ')}</span>
+  const locked = busy || sending;
+  const to = recipientList(mail?.to).join(', ');
+  const cc = recipientList(mail?.cc).join(', ');
+  const bcc = recipientList(mail?.bcc).join(', ');
+  const when = mail ? formatScheduled(mail.send_at, locale) : '';
+  const firstRecipient = recipientList(mail?.to)[0];
+
+  const toolbar = (
+    <div data-testid="scheduled-toolbar" onClick={e => e.stopPropagation()} style={{
+      padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0,
+    }}>
+      {onBack && (
+        <ToolbarButton onClick={onBack} title={t('common.back')}>
+          <svg {...icon}><polyline points="15 18 9 12 15 6" /></svg>
+        </ToolbarButton>
+      )}
+      <ToolbarButton onClick={() => { if (!locked) setRescheduling(true); }} title={t('scheduled.reschedule')} action="scheduled-reschedule">
+        <ClockIcon size={15} />
+      </ToolbarButton>
+      <ToolbarButton onClick={() => { if (!locked) void edit(); }} title={t('scheduled.edit')} action="scheduled-edit">
+        <svg {...icon}><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+      </ToolbarButton>
+      <ToolbarButton danger onClick={() => { if (!locked) void remove(); }} title={t('scheduled.delete')} action="scheduled-delete">
+        <svg {...icon}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2" /></svg>
+      </ToolbarButton>
+      <span style={{
+        marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500,
+        color: failed ? 'var(--red)' : 'var(--accent)', minWidth: 0,
+      }}>
+        <ClockIcon size={13} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {sending ? t('scheduled.sending') : failed ? t('scheduled.failedAt', { when }) : t('scheduled.sendsAt', { when })}
+        </span>
+      </span>
     </div>
-  ) : null;
+  );
 
   return (
-    <div data-testid="scheduled-reader" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-primary)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
-        {onBack && (
-          <ToolbarButton onClick={onBack} title={t('common.back')}>
-            <svg {...icon}><polyline points="15 18 9 12 15 6" /></svg>
-          </ToolbarButton>
-        )}
-        <ToolbarButton onClick={() => { if (!busy && !sending) setRescheduling(true); }} title={t('scheduled.reschedule')} action="scheduled-reschedule">
-          <ClockIcon size={15} /> <span>{t('scheduled.reschedule')}</span>
-        </ToolbarButton>
-        <ToolbarButton onClick={() => { if (!busy && !sending) void edit(); }} title={t('scheduled.edit')} action="scheduled-edit">
-          <svg {...icon}><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg> <span>{t('scheduled.edit')}</span>
-        </ToolbarButton>
-        <div style={{ flex: 1 }} />
-        <ToolbarButton danger onClick={() => { if (!busy && !sending) void remove(); }} title={t('scheduled.delete')} action="scheduled-delete">
-          <svg {...icon}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2" /></svg>
-        </ToolbarButton>
-      </div>
-
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px 32px' }}>
-        {error && <div role="alert" style={{ marginBottom: 12, fontSize: 12.5, color: 'var(--red)' }}>{error}</div>}
-        {!mail ? (
-          !error && <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
-        ) : (
-          <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 600, color: 'var(--text-max-contrast)', overflowWrap: 'anywhere' }}>
-              {mail.subject || t('message.noSubject')}
-            </h1>
-            <button
-              type="button"
-              onClick={() => { if (!busy && !sending) setRescheduling(true); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, border: 'none', textAlign: 'left',
-                background: failed ? 'color-mix(in srgb, var(--red) 12%, transparent)' : 'var(--accent-dim, var(--bg-tertiary))',
-                color: failed ? 'var(--red)' : 'var(--accent)', fontSize: 13, fontWeight: 500, cursor: sending ? 'default' : 'pointer',
-              }}
+    <div data-testid="scheduled-reader" style={{ flex: 1, minWidth: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg-primary)', paddingTop: isMobile ? 0 : 2 }}>
+      {error && <div role="alert" style={{ margin: isMobile ? 12 : '12px 14px 0', fontSize: 12.5, color: 'var(--red)' }}>{error}</div>}
+      {!mail ? (
+        !error && <div style={{ padding: isMobile ? 12 : '14px 16px', fontSize: 13, color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+      ) : (
+        <article data-conversation-message-state={expanded ? 'expanded' : 'collapsed'} style={{ padding: isMobile ? '12px 0 0' : '12px 14px 14px', background: 'var(--bg-primary)' }}>
+          <div className="msg-card" style={{
+            background: 'var(--bg-elevated)', borderRadius: 10, border: '1px solid var(--border-subtle)',
+            borderLeft: `3px solid ${accountColor}`, overflow: 'visible', position: 'relative',
+            boxShadow: 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
+          }}>
+            {expanded && toolbar}
+            <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={expanded}
+              onClick={() => { const sel = window.getSelection(); if (sel !== null && sel.toString()) return; setExpanded(v => !v); }}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v); } }}
+              style={{ display: 'block', width: '100%', cursor: 'pointer', textAlign: 'left', userSelect: 'text', color: 'var(--text-primary)' }}
             >
-              <ClockIcon size={15} />
-              <span style={{ flex: 1 }}>
-                {sending ? t('scheduled.sending')
-                  : failed ? `${t('scheduled.failedAt', { when: formatScheduled(mail.send_at, locale) })}${mail.last_error ? ` · ${mail.last_error}` : ''}`
-                    : t('scheduled.sendsAt', { when: formatScheduled(mail.send_at, locale) })}
+              <span style={{ display: 'block', padding: '14px 16px 12px', borderBottom: '1px solid var(--border-subtle)', fontSize: 19, fontWeight: 600, lineHeight: 1.3, fontFamily: 'var(--font-display)' }}>
+                {mail.subject || t('message.noSubject')}
               </span>
-            </button>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {field(t('compose.to'), recipientList(mail.to))}
-              {field(t('compose.cc'), recipientList(mail.cc))}
-              {field(t('compose.bcc'), recipientList(mail.bcc))}
+              <span style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
+                <MessageAvatar email={senderEmail} name={senderName} size={40} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <MessageDirection direction="outgoing" />
+                    <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{senderName}</strong>
+                    {senderEmail && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{senderEmail}</span>}
+                  </span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                    <span>{t('message.to')} </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{expanded ? to : (firstRecipient ? displayName(firstRecipient) : '')}</span>
+                  </span>
+                  {expanded && cc && <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                    <span>{t('message.cc', { defaultValue: 'Cc' })} </span><span style={{ color: 'var(--text-secondary)' }}>{cc}</span>
+                  </span>}
+                  {expanded && bcc && <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                    <span>{t('compose.bcc')} </span><span style={{ color: 'var(--text-secondary)' }}>{bcc}</span>
+                  </span>}
+                  {failed && mail.last_error && <span role="alert" style={{ display: 'block', fontSize: 12, color: 'var(--red)', marginTop: 3 }}>{mail.last_error}</span>}
+                </span>
+                <span style={{ flexShrink: 0, textAlign: 'right' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: failed ? 'var(--red)' : 'var(--accent)', whiteSpace: 'nowrap' }}>
+                    <ClockIcon size={12} />{when}
+                  </span>
+                  {account && <span style={{ fontSize: 11, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', color: 'var(--text-tertiary)' }}>
+                    <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: accountColor }} />
+                    {account.name || account.email_address}
+                  </span>}
+                </span>
+              </span>
             </div>
-            {!!mail.attachments?.length && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {mail.attachments.map((name, i) => (
-                  <span key={`${name}-${i}`} style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 6, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>{name}</span>
-                ))}
-              </div>
-            )}
-            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16, fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)', overflowWrap: 'anywhere', ...(mail.body_is_html ? {} : { whiteSpace: 'pre-wrap' as const }) }}>
-              {mail.body_is_html
-                // The user's own composed HTML, sanitised like any rendered body.
-                ? <div className="scheduled-reader-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(mail.body || '') }} />
-                : (mail.body || '')}
-            </div>
+            {expanded && <MessageDetailContent
+              message={{ id, account_id: mail.account_id, from_email: senderEmail, from_name: senderName }}
+              body={{
+                html: mail.body_is_html ? DOMPurify.sanitize(mail.body || '') : null,
+                text: mail.body_is_html ? null : (mail.body || ''),
+                attachments: (mail.attachments || []).map((filename, i) => ({ part: `scheduled-${i}`, filename })),
+              }}
+              canAccessCopy={false}
+              mobile={isMobile}
+              embedded
+            />}
           </div>
-        )}
-      </div>
+        </article>
+      )}
 
       {rescheduling && mail && (
         <ScheduleSendDialog
