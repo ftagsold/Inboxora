@@ -1,5 +1,6 @@
 // Conversation Engine v2 API client
-import { CSRF_HEADER, CSRF_VALUE } from './api.ts';
+import { CSRF_HEADER, CSRF_VALUE, isCacheableBody } from './api.ts';
+import { getBody, putBody } from './mailCache.ts';
 
 const API_BASE = '/api/mail';
 
@@ -72,15 +73,21 @@ export const conversationApi = {
 
   detail: (conversationId: string | string[]) =>apiFetch(`/conversations/${conversationId}`),
 
-  body: (conversationId: string | string[], logicalMessageId: string | null, signal: AbortSignal | undefined, copyId = null, remoteImages = false) =>{
+  body: async (conversationId: string | string[], logicalMessageId: string | null, signal: AbortSignal | undefined, copyId = null, remoteImages = false) =>{
     const qs = new URLSearchParams();
     if (copyId) qs.set('copyId', copyId);
     if (remoteImages) qs.set('remoteImages', '1');
     const query = qs.toString() ? `?${qs.toString()}` : '';
-    return apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body${query}`, {
+    // Bodies never change: serve them from the browser cache when it has them.
+    const cacheKey = `c:${conversationId}:${logicalMessageId}|${copyId || 'default'}|${remoteImages ? 'remote' : 'blocked'}`;
+    const cached = await getBody(cacheKey);
+    if (cached !== undefined) return cached;
+    const body = await apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body${query}`, {
       signal,
       headers: remoteImages ? { 'X-MailFlow-Image-Opt-In': '1' } : undefined,
     });
+    if (isCacheableBody(body)) void putBody(cacheKey, body);
+    return body;
   },
 
   // `ref` may be a selected physical UUID or a durable RFC Message-ID.

@@ -22,6 +22,7 @@ import { useUiScale, descale } from '../hooks/useUiScale.ts';
 import type { ReactNode } from 'react';
 import { toAppError } from '../utils/errors.ts';
 import { APP_NAME } from '../appName.ts';
+import { prefetchView } from '../utils/listPrefetch.ts';
 
 const ICONS = {
   inbox: (
@@ -1160,7 +1161,11 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                               ? 'inset 0 -2px var(--accent)'
                               : 'none',
                         }}
-                        onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+                        onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => {
+                          if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)';
+                          // Hovering a folder fetches its first page into the cache.
+                          if (!isFolderSelected) prefetchView(account.id, folder.path);
+                        }}
                         onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (!isFolderSelected) e.currentTarget.style.background = 'transparent'; }}
                         onClick={() => !isRenaming && setSelectedAccount(account.id, folder.path)}
                         onContextMenu={ (e: React.MouseEvent<HTMLElement>) => openFolderCtxMenu(e, account.id, folder)}

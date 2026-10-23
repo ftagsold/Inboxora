@@ -379,6 +379,17 @@ async fn update(State(s): State<AppState>, a: Auth, Path(id): Path<String>, body
         return Ok(err(400, "No valid fields to update"));
     }
     values.push(Val::from(id.as_str()));
+    let server_of = |r: &Map<String, Value>| {
+        (
+            r.get("imap_host").and_then(Value::as_str).unwrap_or_default().to_lowercase(),
+            r.get("imap_port").and_then(Value::as_i64),
+            r.get("auth_user").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        )
+    };
+    let before =
+        s.db.json_opt("SELECT imap_host, imap_port, auth_user FROM email_accounts WHERE id = $1", params![id.as_str()])
+            .await?
+            .map(|r| server_of(&r));
     let updated =
         s.db.json_opt(
             &format!("UPDATE email_accounts SET {} WHERE id = ${} RETURNING *", sets.join(", "), sets.len() + 1),
@@ -386,6 +397,15 @@ async fn update(State(s): State<AppState>, a: Auth, Path(id): Path<String>, body
         )
         .await?
         .ok_or_else(|| Error::internal("update returned nothing"))?;
+    // A different server or login has its own connection limit: forget the learned one.
+    if before.is_some_and(|b| b != server_of(&updated)) {
+        s.db.exec(
+            "UPDATE email_accounts SET imap_conn_limit = NULL, imap_conn_limit_at = NULL, imap_conn_limit_reason = NULL WHERE id = $1",
+            params![id.as_str()],
+        )
+        .await?;
+        s.mail.reload_limits(&id).await;
+    }
     let disabling = has("enabled") && !inboxora_core::json::truthy(g("enabled"));
     let needs_reconnect = !disabling
         && ["enabled", "auth_user", "auth_pass", "imap_host", "imap_port", "imap_tls", "imap_skip_tls_verify"]

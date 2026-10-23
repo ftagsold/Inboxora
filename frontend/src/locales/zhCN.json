@@ -875,6 +875,35 @@
       "empty": "尚无 DAV 服务器。",
       "refresh": "刷新日历和通讯录",
       "serverName": "服务器名称"
+    },
+    "imapLimits": {
+      "tab": "IMAP 连接",
+      "title": "IMAP 连接",
+      "help": "每个账户最多可向其邮件服务器打开起始值数量的连接。服务器拒绝连接时，账户的上限会自动降低并保存。更改邮件服务器的连接设置后，请重置该服务器，使其账户重新从起始值开始。",
+      "startLimit": "起始值",
+      "startLimitHint": "留空 = {{value}}（允许 {{min}}–{{max}}）",
+      "autoLower": "服务器拒绝时自动降低",
+      "save": "保存",
+      "saved": "已保存",
+      "resetServer": "重置已学习的上限",
+      "resetConfirm": "确认重置",
+      "resetDone": "已重置学习到的上限",
+      "cancel": "取消",
+      "resetAccount": "重置",
+      "invalid": "请输入 {{min}} 到 {{max}} 之间的整数。",
+      "accounts": "账户：{{count}}",
+      "openNow": "当前打开：{{count}}",
+      "queued": "{{count}} 个等待中",
+      "showAccounts": "显示账户",
+      "hideAccounts": "隐藏账户",
+      "colAccount": "账户",
+      "colOwner": "所有者",
+      "colLimit": "上限",
+      "colOpen": "打开 / 上限",
+      "colLastDrop": "最近降低",
+      "learned": "已学习",
+      "empty": "还没有 IMAP 账户。",
+      "loadFailed": "无法加载连接上限。"
     }
   },
   "blockList": {
@@ -1972,5 +2001,15 @@
     "bulletList": "项目符号列表",
     "orderedList": "编号列表",
     "clearFormat": "清除格式"
+  },
+  "preload": {
+    "title": "您的账户即将就绪",
+    "subtitle": "Inboxora 正在加载您的邮件，以便每个文件夹都能立即打开。只需片刻。",
+    "percent": "已加载 {{value}}%",
+    "progress": "{{done}} / {{total}} 封邮件",
+    "folder": "正在加载 {{folder}}",
+    "waiting": "正在连接邮件服务器…",
+    "done": "就绪",
+    "failed": "暂时无法加载——打开邮件时会自动加载。"
   }
 }

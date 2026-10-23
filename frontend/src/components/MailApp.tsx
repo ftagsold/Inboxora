@@ -23,6 +23,7 @@ import MessageList from './MessageList.tsx';
 import MessagePane from './MessagePane.tsx';
 import type { ConversationReplyPayload } from './ConversationReader.tsx';
 import NotificationToasts from './NotificationToasts.tsx';
+import AccountPreparing from './AccountPreparing.tsx';
 import ProfileModal from './ProfileModal.tsx';
 // CE v2 uses the native MessageList/MessagePane shells with grouped/conversation modes.
 // on the native MessageList/MessagePane — no separate import needed.
@@ -1006,6 +1007,7 @@ export default function MailApp() {
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
+      <AccountPreparing />
       <PluginRuntime />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 

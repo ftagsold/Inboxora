@@ -34,7 +34,10 @@ and no message content. It is the fastest way to describe a problem in an issue.
 4. For Microsoft 365, confirm the Azure application is configured and the account was
    reconnected after the credentials changed.
 5. If several accounts share one mail server and sync stops intermittently, the server may be
-   limiting connections. Set `IMAP_MAX_PERSISTENT_PER_HOST` to the server's limit.
+   limiting connections. Inboxora lowers an account's connection limit by itself when the server
+   refuses; an admin sees the learned limits (and resets them after changing the server) under
+   **Settings → Security → IMAP connections**. With many accounts on one server, also set
+   `IMAP_MAX_PERSISTENT_PER_HOST` to the server's limit.
 6. Enable/disable the account to force a full reconnect.
 
 Unread counts that look wrong usually follow a failed sync — sync the folder and they correct

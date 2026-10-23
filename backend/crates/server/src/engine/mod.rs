@@ -7,11 +7,13 @@ pub mod backfill;
 pub mod background;
 pub mod cache;
 pub mod connect;
+pub mod limits;
 pub mod mime;
 pub mod ops;
 pub mod parse;
 pub mod policy;
 pub mod pool;
+pub mod preload;
 pub mod search;
 pub mod sync;
 
@@ -34,6 +36,7 @@ use tokio::sync::{Notify, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use self::connect::{Account, KeyedSemaphore, connect_client, ensure_fresh_token, load_account, resolve_target};
+use self::limits::{Kind, Limiter, Permit, Prio};
 use self::policy::*;
 use self::pool::{Lease, Pool, Slot};
 use crate::services::diagnostics_ring::{record_broadcast, record_sync_signal, record_warning};
@@ -181,6 +184,8 @@ pub struct State {
     pub user_folder_sync_interval_ms: HashMap<String, u64>,
     pub flag_debounce: HashMap<String, JoinHandle<()>>,
     pub expunge_debounce: HashMap<String, JoinHandle<()>>,
+    pub preload_running: HashSet<String>,
+    pub last_warm_preload: HashMap<String, u64>,
 }
 
 pub struct Engine {
@@ -191,6 +196,10 @@ pub struct Engine {
     pub connect_sem: KeyedSemaphore,
     pub bg_sem: KeyedSemaphore,
     pools: Mutex<HashMap<String, Arc<Pool>>>,
+    limiters: Mutex<HashMap<String, Arc<Limiter>>>,
+    /// `IMAP_MAX_CONNECTIONS_PER_ACCOUNT`: the start value for servers without an admin setting.
+    default_conn_limit: usize,
+    pub preload: Mutex<HashMap<String, preload::Status>>,
     persistent_cap: Option<u32>,
     generation: AtomicU64,
     pub started: Instant,
@@ -222,6 +231,12 @@ impl Engine {
             connect_sem: KeyedSemaphore::new(CONNECT_CONCURRENCY_PER_HOST),
             bg_sem: KeyedSemaphore::new(BACKGROUND_CONN_MAX_PER_HOST),
             pools: Mutex::new(HashMap::new()),
+            limiters: Mutex::new(HashMap::new()),
+            default_conn_limit: inboxora_core::config::env("IMAP_MAX_CONNECTIONS_PER_ACCOUNT")
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|v| *v > 0)
+                .map_or(limits::DEFAULT_START_LIMIT, |v| v.clamp(limits::LIMIT_FLOOR, limits::LIMIT_MAX)),
+            preload: Mutex::new(HashMap::new()),
             persistent_cap: parse_persistent_cap(inboxora_core::config::env("IMAP_MAX_PERSISTENT_PER_HOST").as_deref()),
             generation: AtomicU64::new(1),
             started: Instant::now(),
@@ -275,16 +290,165 @@ impl Engine {
 
     // ── connections ─────────────────────────────────────────────────────────────────────
 
+    /// The account's connection budget, created from its stored limits on first use.
+    pub async fn limiter(&self, account: &Account) -> Arc<Limiter> {
+        if let Some(l) = self.limiters.lock().get(account.id()) {
+            return l.clone();
+        }
+        let cfg = self.limit_config(account).await;
+        self.limiters.lock().entry(account.id().to_owned()).or_insert_with(|| Limiter::new(cfg)).clone()
+    }
+
+    /// Start value and auto-lower from the admin's server setting, learned value from the account.
+    async fn limit_config(&self, account: &Account) -> limits::Config {
+        let learned = account
+            .map()
+            .get("imap_conn_limit")
+            .and_then(Value::as_i64)
+            .and_then(|v| usize::try_from(v).ok())
+            .filter(|v| *v > 0);
+        let port = account.map().get("imap_port").and_then(Value::as_i64).unwrap_or(993);
+        let server = self
+            .db
+            .opt(
+                "SELECT start_limit, auto_lower FROM imap_server_limits WHERE host = $1 AND port = $2",
+                params![account.host(), port as i32],
+            )
+            .await
+            .ok()
+            .flatten();
+        let start = server
+            .as_ref()
+            .and_then(|r| r.get::<_, Option<i16>>("start_limit"))
+            .and_then(|v| usize::try_from(v).ok())
+            .unwrap_or(self.default_conn_limit);
+        let auto_lower = server.as_ref().is_none_or(|r| r.get::<_, bool>("auto_lower"));
+        limits::Config { start, learned, auto_lower }
+    }
+
+    /// Re-read an account's limits after an admin change or reset (live, no reconnect).
+    pub async fn reload_limits(&self, account_id: &str) {
+        let Some(l) = self.limiters.lock().get(account_id).cloned() else { return };
+        let Ok(Some(account)) = load_account(&self.db, account_id).await else { return };
+        l.configure(self.limit_config(&account).await);
+        if let Some(p) = self.pools.lock().get(account_id) {
+            p.resize(l.pool_size());
+        }
+    }
+
+    pub fn default_conn_limit(&self) -> usize {
+        self.default_conn_limit
+    }
+
+    /// Live connection numbers of an account (diagnostics, admin).
+    pub fn limit_snapshot(&self, account_id: &str) -> Option<Value> {
+        let l = self.limiters.lock().get(account_id).cloned()?;
+        let mut v = l.snapshot();
+        if let Some(p) = self.pools.lock().get(account_id) {
+            let (idle, in_use) = p.counts();
+            v["poolIdle"] = json!(idle);
+            v["poolInUse"] = json!(in_use);
+        }
+        Some(v)
+    }
+
+    /// A slot of the account budget. At the limit an idle pooled connection is closed first;
+    /// otherwise the request queues by priority (bounded so a stuck queue surfaces as an error).
+    async fn permit(&self, account: &Account, prio: Prio, kind: Kind) -> EResult<Permit> {
+        let l = self.limiter(account).await;
+        if let Some(p) = l.try_acquire(kind) {
+            return Ok(p);
+        }
+        let pool = self.pools.lock().get(account.id()).cloned();
+        if pool.is_some_and(|p| p.drop_one_idle()) {
+            tokio::task::yield_now().await;
+        }
+        let wait = if prio == Prio::Ui { Duration::from_secs(30) } else { Duration::from_secs(300) };
+        tokio::time::timeout(wait, l.acquire(prio, kind))
+            .await
+            .map_err(|_| EngineError("IMAP connection limit reached".into()))
+    }
+
+    /// Open a counted connection: the permit lives as long as the socket.
+    async fn connect_counted(
+        &self,
+        account: &Account,
+        target: &connect::Target,
+        label: &str,
+        prio: Prio,
+        kind: Kind,
+    ) -> EResult<Client> {
+        let permit = self.permit(account, prio, kind).await?;
+        match connect_client(&self.connect_sem, account, target, Duration::from_secs(30), label).await {
+            Ok(mut c) => {
+                c.attach_guard(Box::new(permit));
+                Ok(c)
+            }
+            Err(e) => {
+                if limits::is_limit_signal(&e) {
+                    let observed = self.limiter(account).await.total();
+                    self.lower_limit(account, observed, &e).await;
+                }
+                Err(EngineError(e))
+            }
+        }
+    }
+
+    /// Step the account's limit down after a refusal seen with `observed` connections open.
+    pub async fn lower_limit(&self, account: &Account, observed: usize, reason: &str) {
+        let l = self.limiter(account).await;
+        let Some(next) = l.lower(observed, reason) else { return };
+        tracing::warn!("[imap-limit] {} limit {} → {next} ({reason})", account.log(), next + 1);
+        if let Some(p) = self.pools.lock().get(account.id()) {
+            p.resize(l.pool_size());
+        }
+        if let Err(e) = self
+            .db
+            .exec(
+                "UPDATE email_accounts SET imap_conn_limit = $1::int, imap_conn_limit_at = NOW(), imap_conn_limit_reason = $2 WHERE id = $3",
+                params![next as i32, reason.chars().take(200).collect::<String>(), account.id()],
+            )
+            .await
+        {
+            tracing::warn!("[imap-limit] could not store limit for {}: {e}", account.log());
+        }
+    }
+
+    /// A sync error on `client`: an explicit limit refusal, or a socket the server closed right
+    /// after login while other connections were open, means the account is over its limit.
+    pub async fn note_conn_failure(&self, account: &Account, client: &Client, detail: &str) {
+        if client.is_usable() {
+            return;
+        }
+        let others = self.limiter(account).await.total();
+        let early = client.age() < limits::EARLY_DROP && others >= 1;
+        if limits::is_limit_signal(detail) || early {
+            self.lower_limit(account, others + 1, detail).await;
+        }
+    }
+
     /// A fresh, unpooled connection (`connectImapClient` after token refresh and resolve).
-    pub async fn open_client(&self, account: &Account, label: &str) -> EResult<(Account, Client)> {
+    pub async fn open_client(
+        &self,
+        account: &Account,
+        label: &str,
+        prio: Prio,
+        kind: Kind,
+    ) -> EResult<(Account, Client)> {
         let fresh = ensure_fresh_token(&self.db, account.clone()).await;
         let target = resolve_target(&self.db, &fresh).await?;
-        let client = connect_client(&self.connect_sem, &fresh, &target, Duration::from_secs(30), label).await?;
+        let client = self.connect_counted(&fresh, &target, label, prio, kind).await?;
         Ok((fresh, client))
     }
 
     /// `withFreshLogin`'s connection: token refresh and resolution bounded like Node's.
-    pub async fn open_client_bounded(&self, account: &Account, label: &str) -> EResult<(Account, Client)> {
+    pub async fn open_client_bounded(
+        &self,
+        account: &Account,
+        label: &str,
+        prio: Prio,
+        kind: Kind,
+    ) -> EResult<(Account, Client)> {
         let fresh = race(15_000, &format!("{label} token refresh"), async {
             Ok(ensure_fresh_token(&self.db, account.clone()).await)
         })
@@ -293,21 +457,30 @@ impl Engine {
             resolve_target(&self.db, &fresh).await.map_err(EngineError)
         })
         .await?;
-        let client = connect_client(&self.connect_sem, &fresh, &target, Duration::from_secs(30), label).await?;
+        let client = self.connect_counted(&fresh, &target, label, prio, kind).await?;
         Ok((fresh, client))
     }
 
-    fn pool_for(&self, account_id: &str) -> Arc<Pool> {
-        self.pools.lock().entry(account_id.to_owned()).or_default().clone()
+    async fn pool_for(&self, account: &Account) -> Arc<Pool> {
+        let size = self.limiter(account).await.pool_size();
+        let pool =
+            self.pools.lock().entry(account.id().to_owned()).or_insert_with(|| Arc::new(Pool::new(size))).clone();
+        pool.resize(size);
+        pool
     }
 
-    /// `acquirePooledClient`.
+    /// `acquirePooledClient` for user-driven work.
     pub async fn lease(&self, account: &Account) -> EResult<Lease> {
-        let pool = self.pool_for(account.id());
+        self.lease_with(account, Prio::Ui).await
+    }
+
+    /// A pooled connection; new sockets queue for the account budget at `prio`.
+    pub async fn lease_with(&self, account: &Account, prio: Prio) -> EResult<Lease> {
+        let pool = self.pool_for(account).await;
         match pool.try_acquire() {
             Slot::Ready(l) => Ok(l),
             Slot::Connect(r) => {
-                let (_, client) = self.open_client(account, "IMAP pool connect").await?;
+                let (_, client) = self.open_client(account, "IMAP pool connect", prio, Kind::Pool).await?;
                 match pool.admit(r, client) {
                     Ok(l) => Ok(l),
                     Err(mut c) => {
@@ -320,7 +493,7 @@ impl Engine {
                 Ok(Ok(client)) => Ok(pool.handed(client)),
                 Ok(Err(_)) => Err("IMAP pool evicted".into()),
                 Err(_) => {
-                    let (_, client) = self.open_client(account, "IMAP temp connect").await?;
+                    let (_, client) = self.open_client(account, "IMAP temp connect", prio, Kind::Temporary).await?;
                     Ok(Lease::temporary(client))
                 }
             },
@@ -501,6 +674,7 @@ impl Engine {
                 account.log(),
                 (until - now_ms()) / 1000
             );
+            self.preload_failed(&account, "Connection refused by the mail server, retrying later");
             return false;
         }
         let Some(_connecting) = self.claim(|s| &mut s.connecting, account.id()) else {
@@ -515,9 +689,10 @@ impl Engine {
             && !self.persistent_eligible(&account, cap).await
         {
             self.start_poll_only(&account);
+            self.cold_preload(&account);
             return true;
         }
-        let (account, client) = match self.open_client(&account, "IMAP connect").await {
+        let (account, client) = match self.open_client(&account, "IMAP connect", Prio::Inbox, Kind::Persistent).await {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!("Failed to connect {}: {e}", account.log());
@@ -525,6 +700,7 @@ impl Engine {
                     self.note_connection_refusal(&account);
                 }
                 self.record_account_error(&account, &e.0).await;
+                self.preload_failed(&account, &e.0);
                 return false;
             }
         };
@@ -569,6 +745,7 @@ impl Engine {
             self.st.lock().user_sync_interval_ms.get(account.user_id()).copied().unwrap_or(DEFAULT_SYNC_INTERVAL_MS);
         self.start_sync_interval(&account, interval);
         self.st.lock().connect_cooldown.remove(account.id());
+        self.cold_preload(&account);
         tracing::info!("Connected account: {}", account.log());
         self.broadcast(json!({ "type": "account_connected", "accountId": account.id() }), Some(account.user_id()));
         true
@@ -673,7 +850,8 @@ impl Engine {
         let host = account.host();
         let _slot = connect::SlotGuard::acquire(&self.bg_sem, &host).await;
         let run = async {
-            let (fresh, mut client) = self.open_client_bounded(account, "Poll-only").await?;
+            let (fresh, mut client) =
+                self.open_client_bounded(account, "Poll-only", Prio::Inbox, Kind::Background).await?;
             let result = async {
                 if self.folder_sync_due_for(account) {
                     self.st.lock().last_folder_sync_at.insert(account.id().to_owned(), now_ms());
@@ -728,7 +906,7 @@ impl Engine {
 
     /// `_syncInboxWithFreshLogin`.
     pub async fn sync_inbox_with_fresh_login(self: &Arc<Self>, account: &Account) -> EResult<sync::SyncResult> {
-        let (_, mut client) = self.open_client_bounded(account, "Fresh sync").await?;
+        let (_, mut client) = self.open_client_bounded(account, "Fresh sync", Prio::Inbox, Kind::Background).await?;
         let r =
             race(55_000, "Fresh sync wall-clock", self.sync_messages(account, &mut client, "INBOX", 20, false, true))
                 .await;
@@ -823,12 +1001,10 @@ impl Engine {
                     self.finish_tick(&account, syncing);
                     return;
                 }
-                Ok(Some((fresh, target))) => {
-                    connect_client(&self.connect_sem, &fresh, &target, Duration::from_secs(30), "Reconnect")
-                        .await
-                        .map(|c| (fresh, c))
-                        .map_err(EngineError)
-                }
+                Ok(Some((fresh, target))) => self
+                    .connect_counted(&fresh, &target, "Reconnect", Prio::Inbox, Kind::Persistent)
+                    .await
+                    .map(|c| (fresh, c)),
                 Err(e) => Err(e),
             };
             match connected {
@@ -884,6 +1060,7 @@ impl Engine {
                         Some(account.user_id()),
                     );
                 }
+                self.warm_preload(&sync_account, r.inserted > 0);
                 *self.st.lock().sync_tick_count.entry(account.id().to_owned()).or_insert(0) += 1;
                 if self.folder_sync_due_for(&sync_account) {
                     self.st.lock().last_folder_sync_at.insert(account.id().to_owned(), now_ms());

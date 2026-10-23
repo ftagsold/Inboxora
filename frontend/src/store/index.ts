@@ -35,6 +35,7 @@ import { removeThreadCacheEntry } from '../utils/threadedArchive.ts';
 import { DEFAULT_CALENDAR_PREFERENCES, normalizeCalendarWorkDays, normalizeCalendarWorkTime } from '../utils/calendarPreferences.ts';
 import i18n from '../i18n.ts';
 import { setAuthEpoch } from '../utils/authEpoch.ts';
+import { setMailCacheUser } from '../utils/mailCache.ts';
 
 /** A message row as the store holds it. */
 /** The signed-in user as the store holds it. */
@@ -394,8 +395,14 @@ export interface StoreMessageRow {
   reply_to?: string | null;
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
   category?: string | null;
+  /** The server had no display fields cached for this row yet (fetch them via POST /mail/meta). */
+  meta_pending?: boolean;
+  change_seq?: number;
   [key: string]: unknown;
 }
+
+/** Rows per list page unless the user picked another size. */
+export const DEFAULT_PAGE_SIZE = 200;
 
 /** The store fields its own set()/get() callbacks read. */
 /**
@@ -524,6 +531,8 @@ export const useStore = create<StoreState>()((set, get) => ({
     // A first authenticated bootstrap may retain navigation only when it names this user.
     const previousUserId = get().user?.id;
     const identityChanged = previousUserId !== user?.id;
+    // The browser mail cache belongs to one user; signing out deletes it.
+    setMailCacheUser(user?.id ? String(user.id) : null);
     const isOwnedBootstrap = !previousUserId && !!user?.id
       && localStorage.getItem(NAVIGATION_OWNER_KEY) === user.id;
     const resetPrivateState = identityChanged && !isOwnedBootstrap;
@@ -820,7 +829,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
   isSidebarResizing: false,
   setIsSidebarResizing: (v: boolean) =>set({ isSidebarResizing: v }),
-  pageSize: parseInt(localStorage.getItem('mailflow_page_size') ?? '') || 50,
+  pageSize: parseInt(localStorage.getItem('mailflow_page_size') ?? '') || DEFAULT_PAGE_SIZE,
   setPageSize: (size: number) =>{
     localStorage.setItem('mailflow_page_size', String(size));
     set({ pageSize: size });
@@ -1643,7 +1652,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         set({ notificationSound: prefs.notificationSound });
       }
       if (prefs.pageSize) {
-        const n = parseInt(prefs.pageSize) || 50;
+        const n = parseInt(prefs.pageSize) || DEFAULT_PAGE_SIZE;
         localStorage.setItem('mailflow_page_size', String(n));
         set({ pageSize: n });
       }

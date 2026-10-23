@@ -20,10 +20,26 @@ export function initialConversationTarget(messages: unknown, targetLogicalMessag
   return newestId === undefined ? null : newestId;
 }
 
+/** Every message of a conversation opens expanded, the target first. */
 export function initialConversationExpansion(messages: unknown, targetLogicalMessageId: unknown): Set<string> {
   const target = initialConversationTarget(messages, targetLogicalMessageId);
   if (target === null) return new Set();
-  return new Set([target]);
+  return new Set([target, ...messageIds(messages)]);
+}
+
+/** The order expanded bodies load in: the target, then its neighbours outwards. */
+export function bodyLoadOrder(expanded: Iterable<string>, messages: unknown, targetLogicalMessageId: string | null): string[] {
+  const open = new Set(expanded);
+  const ids = messageIds(messages).filter(id => open.has(id));
+  for (const id of open) if (!ids.includes(id)) ids.push(id);
+  const at = targetLogicalMessageId ? ids.indexOf(targetLogicalMessageId) : -1;
+  if (at < 0) return ids;
+  const out = [ids[at]];
+  for (let d = 1; out.length < ids.length; d += 1) {
+    if (at + d < ids.length) out.push(ids[at + d]);
+    if (at - d >= 0) out.push(ids[at - d]);
+  }
+  return out;
 }
 
 export function toggleConversationExpansion(expanded: ReadonlySet<string>, logicalMessageId: string): Set<string> {

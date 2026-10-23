@@ -306,7 +306,7 @@ async fn register(
                     }
                 }
                 let user = tx
-                    .json_opt("INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, $3) RETURNING id, username, is_admin", params![&trimmed, &hash, first])
+                    .json_opt("INSERT INTO users (username, password_hash, is_admin, preferences) VALUES ($1, $2, $3, $4::jsonb) RETURNING id, username, is_admin", params![&trimmed, &hash, first, crate::services::auth::NEW_USER_PREFERENCES])
                     .await?
                     .ok_or_else(|| Error::internal("insert returned no row"))?;
                 let id = user.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();

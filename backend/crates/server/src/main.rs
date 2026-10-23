@@ -9,6 +9,8 @@ use inboxora_core::pg::Db;
 use inboxora_core::session::SessionStore;
 
 mod app;
+#[cfg(test)]
+mod cache_db_tests;
 mod engine;
 mod frontend;
 mod http;

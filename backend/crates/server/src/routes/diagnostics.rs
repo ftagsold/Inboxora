@@ -194,6 +194,8 @@ async fn build_report(s: &AppState, user: &str, salt: &str) -> Result<Value> {
             "folderCount": own.len(),
             "lastSyncAgeSeconds": last_sync.map(|t| ((now.timestamp_millis() - t.timestamp_millis()) as f64 / 1000.0).round() as i64),
             "syncErrorCategory": categorize_sync_error(str_of(a, "sync_error").as_deref()),
+            "imapConnections": s.mail.limit_snapshot(&id),
+            "metaPreload": s.mail.preload_status(&id),
         }));
         if unified {
             unread_total += count;

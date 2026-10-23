@@ -875,6 +875,35 @@
       "empty": "No DAV servers yet.",
       "refresh": "Refresh calendars & address books",
       "serverName": "Server name"
+    },
+    "imapLimits": {
+      "tab": "IMAP connections",
+      "title": "IMAP connections",
+      "help": "Each account may open up to the start value of connections to its mail server. When the server refuses connections, the account’s limit is lowered automatically and remembered. After you change the mail server’s connection settings, reset it so its accounts start from the start value again.",
+      "startLimit": "Start value",
+      "startLimitHint": "Empty = {{value}} (allowed {{min}}–{{max}})",
+      "autoLower": "Lower automatically when the server refuses",
+      "save": "Save",
+      "saved": "Saved",
+      "resetServer": "Reset learned limits",
+      "resetConfirm": "Confirm reset",
+      "resetDone": "Learned limits reset",
+      "cancel": "Cancel",
+      "resetAccount": "Reset",
+      "invalid": "Enter a whole number between {{min}} and {{max}}.",
+      "accounts": "Accounts: {{count}}",
+      "openNow": "open now: {{count}}",
+      "queued": "{{count}} waiting",
+      "showAccounts": "Show accounts",
+      "hideAccounts": "Hide accounts",
+      "colAccount": "Account",
+      "colOwner": "Owner",
+      "colLimit": "Limit",
+      "colOpen": "Open / limit",
+      "colLastDrop": "Last lowered",
+      "learned": "learned",
+      "empty": "No IMAP accounts yet.",
+      "loadFailed": "Could not load the connection limits."
     }
   },
   "blockList": {
@@ -1972,5 +2001,15 @@
     "bulletList": "Bullet list",
     "orderedList": "Numbered list",
     "clearFormat": "Clear formatting"
+  },
+  "preload": {
+    "title": "Your account is ready shortly",
+    "subtitle": "Inboxora is loading your mail so every folder opens instantly. This only takes a moment.",
+    "percent": "{{value}}% loaded",
+    "progress": "{{done}} of {{total}} messages",
+    "folder": "loading {{folder}}",
+    "waiting": "Connecting to your mail server…",
+    "done": "Ready",
+    "failed": "Could not be loaded now — messages load as you open them."
   }
 }

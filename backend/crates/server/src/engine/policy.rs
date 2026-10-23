@@ -32,8 +32,10 @@ pub struct ProviderProfile {
 
 const BASE: ProviderProfile = ProviderProfile {
     name: "generic",
-    batch_size: 100,
-    batch_delay_ms: 1500,
+    // Self-hosted and unknown servers: header-only batches are cheap, so a new account is
+    // indexed in seconds rather than minutes (the big providers keep their throttled profiles).
+    batch_size: 500,
+    batch_delay_ms: 200,
     error_delay_ms: 15000,
     batches_per_conn: 15,
     fetch_body: false,
@@ -280,7 +282,6 @@ pub const FLAG_PUSH_MAX_ATTEMPTS: u32 = 40;
 pub const FLAG_PUSH_PER_CYCLE: usize = 30;
 pub const CONNECT_CONCURRENCY_PER_HOST: usize = 3;
 pub const BACKGROUND_CONN_MAX_PER_HOST: usize = 2;
-pub const POOL_SIZE: usize = 2;
 
 #[cfg(test)]
 mod tests {

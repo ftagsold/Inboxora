@@ -875,6 +875,35 @@
       "empty": "Aucun serveur DAV pour l'instant.",
       "refresh": "Actualiser les calendriers et carnets d'adresses",
       "serverName": "Nom du serveur"
+    },
+    "imapLimits": {
+      "tab": "Connexions IMAP",
+      "title": "Connexions IMAP",
+      "help": "Chaque compte peut ouvrir jusqu’à la valeur de départ de connexions vers son serveur. Si le serveur refuse des connexions, la limite du compte est abaissée automatiquement et mémorisée. Après avoir modifié les paramètres de connexion du serveur, réinitialisez-le pour que ses comptes repartent de la valeur de départ.",
+      "startLimit": "Valeur de départ",
+      "startLimitHint": "Vide = {{value}} (autorisé {{min}}–{{max}})",
+      "autoLower": "Abaisser automatiquement en cas de refus",
+      "save": "Enregistrer",
+      "saved": "Enregistré",
+      "resetServer": "Réinitialiser les limites apprises",
+      "resetConfirm": "Confirmer la réinitialisation",
+      "resetDone": "Limites apprises réinitialisées",
+      "cancel": "Annuler",
+      "resetAccount": "Réinitialiser",
+      "invalid": "Saisissez un nombre entier entre {{min}} et {{max}}.",
+      "accounts": "Comptes : {{count}}",
+      "openNow": "ouvertes : {{count}}",
+      "queued": "{{count}} en attente",
+      "showAccounts": "Afficher les comptes",
+      "hideAccounts": "Masquer les comptes",
+      "colAccount": "Compte",
+      "colOwner": "Propriétaire",
+      "colLimit": "Limite",
+      "colOpen": "Ouvertes / limite",
+      "colLastDrop": "Dernière baisse",
+      "learned": "apprise",
+      "empty": "Aucun compte IMAP pour l’instant.",
+      "loadFailed": "Impossible de charger les limites de connexion."
     }
   },
   "blockList": {
@@ -1972,5 +2001,15 @@
     "bulletList": "Liste à puces",
     "orderedList": "Liste numérotée",
     "clearFormat": "Effacer la mise en forme"
+  },
+  "preload": {
+    "title": "Votre compte est bientôt prêt",
+    "subtitle": "Inboxora charge vos e-mails pour que chaque dossier s’ouvre instantanément. Cela ne prend qu’un instant.",
+    "percent": "{{value}} % chargé",
+    "progress": "{{done}} sur {{total}} messages",
+    "folder": "chargement de {{folder}}",
+    "waiting": "Connexion au serveur de messagerie…",
+    "done": "Prêt",
+    "failed": "Chargement impossible pour l’instant — les messages se chargent à l’ouverture."
   }
 }

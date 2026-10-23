@@ -875,6 +875,35 @@
       "empty": "Brak serwerów DAV.",
       "refresh": "Odśwież kalendarze i książki adresowe",
       "serverName": "Nazwa serwera"
+    },
+    "imapLimits": {
+      "tab": "Połączenia IMAP",
+      "title": "Połączenia IMAP",
+      "help": "Każde konto może otworzyć do wartości początkowej połączeń z serwerem poczty. Gdy serwer odrzuca połączenia, limit konta jest automatycznie obniżany i zapamiętywany. Po zmianie ustawień połączeń serwera zresetuj go, aby jego konta znów zaczynały od wartości początkowej.",
+      "startLimit": "Wartość początkowa",
+      "startLimitHint": "Puste = {{value}} (dozwolone {{min}}–{{max}})",
+      "autoLower": "Obniżaj automatycznie po odmowie",
+      "save": "Zapisz",
+      "saved": "Zapisano",
+      "resetServer": "Resetuj wyuczone limity",
+      "resetConfirm": "Potwierdź reset",
+      "resetDone": "Wyuczone limity zresetowane",
+      "cancel": "Anuluj",
+      "resetAccount": "Resetuj",
+      "invalid": "Podaj liczbę całkowitą od {{min}} do {{max}}.",
+      "accounts": "Konta: {{count}}",
+      "openNow": "otwarte: {{count}}",
+      "queued": "oczekujące: {{count}}",
+      "showAccounts": "Pokaż konta",
+      "hideAccounts": "Ukryj konta",
+      "colAccount": "Konto",
+      "colOwner": "Właściciel",
+      "colLimit": "Limit",
+      "colOpen": "Otwarte / limit",
+      "colLastDrop": "Ostatnie obniżenie",
+      "learned": "wyuczony",
+      "empty": "Brak kont IMAP.",
+      "loadFailed": "Nie udało się wczytać limitów połączeń."
     }
   },
   "blockList": {
@@ -1972,5 +2001,15 @@
     "bulletList": "Lista punktowana",
     "orderedList": "Lista numerowana",
     "clearFormat": "Wyczyść formatowanie"
+  },
+  "preload": {
+    "title": "Twoje konto będzie zaraz gotowe",
+    "subtitle": "Inboxora wczytuje Twoją pocztę, aby każdy folder otwierał się natychmiast. To potrwa tylko chwilę.",
+    "percent": "Wczytano {{value}}%",
+    "progress": "{{done}} z {{total}} wiadomości",
+    "folder": "wczytywanie: {{folder}}",
+    "waiting": "Łączenie z serwerem poczty…",
+    "done": "Gotowe",
+    "failed": "Nie udało się teraz wczytać — wiadomości wczytają się po otwarciu."
   }
 }

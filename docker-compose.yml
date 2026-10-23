@@ -54,6 +54,8 @@ services:
       FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
       PUSH_ALLOW_PRIVATE_ENDPOINTS: ${PUSH_ALLOW_PRIVATE_ENDPOINTS:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
+      IMAP_MAX_CONNECTIONS_PER_ACCOUNT: ${IMAP_MAX_CONNECTIONS_PER_ACCOUNT:-}
+      MAIL_BODY_TTL_SECONDS: ${MAIL_BODY_TTL_SECONDS:-}
       # ── OIDC / SSO providers (optional) ──────────────────────────────────────
       # Each OIDC_<N>_* block below declares one SSO provider without touching the admin UI.
       # Wired up to 3 slots (N=1..3) by default — copy a block and bump N to add more.
@@ -185,11 +187,13 @@ services:
     logging: *logging
     restart: unless-stopped
     user: "${PUID:-0}:${PGID:-0}"
-    # Mail content is cached here for minutes (MAIL_CACHE_TTL_SECONDS); the memory cap evicts the
-    # shortest-lived keys first, so sessions outlive cached mail.
-    command: redis-server --save 60 1 --loglevel warning --maxmemory ${REDIS_MAXMEMORY:-256mb} --maxmemory-policy volatile-ttl
-    volumes:
-      - ${REDIS_DATA:-redis_data}:/data
+    # Memory only: nothing is written to disk (no RDB, no AOF, /data is tmpfs). A Redis restart
+    # signs everyone out and empties the mail cache, which the server preloads again. Mail display
+    # fields never expire and bodies expire after MAIL_BODY_TTL_SECONDS (7 days); volatile-ttl only
+    # evicts keys with a TTL, so keep REDIS_MAXMEMORY above the cache size (the server warns at 80%).
+    command: redis-server --save "" --appendonly no --loglevel warning --maxmemory ${REDIS_MAXMEMORY:-512mb} --maxmemory-policy volatile-ttl
+    tmpfs:
+      - /data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -273,7 +277,6 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   ntfy_data:
   caddy_data:
   caddy_config:

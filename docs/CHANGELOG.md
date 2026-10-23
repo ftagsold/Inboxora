@@ -35,9 +35,35 @@ The next release is **5.0.0**: the backend is rewritten in Rust (see the release
 
 - **Mail content is no longer copied into PostgreSQL.** `messages` keeps a header index (account,
   folder, UID, date, flags, threading links and app state such as snoozes and categories).
-  Subjects, addresses, snippets, bodies and raw headers are fetched from IMAP and cached in Redis
-  for `MAIL_CACHE_TTL_SECONDS` (default 600). Threading compares 64-bit digests instead of stored
-  subjects and headers; search runs on the IMAP server (`UID SEARCH`).
+  Subjects, addresses, snippets, bodies and raw headers are fetched from IMAP and cached in Redis.
+  Threading compares 64-bit digests instead of stored subjects and headers; search runs on the
+  IMAP server (`UID SEARCH`).
+- **Mail lists load from a preloaded cache.** After every start the server loads the display
+  fields (subject, sender, snippet) of every folder of every account into Redis, where they stay
+  until the message is deleted (delete tombstones drop them; a daily sweep removes leftovers).
+  Bodies are kept for `MAIL_BODY_TTL_SECONDS` (default 7 days). While an account's cache is being
+  built, the web app shows a "your account is ready shortly" screen with progress. A list never
+  waits more than 1.5 s for IMAP: rows still loading are served as placeholders and filled by
+  `POST /api/mail/meta`. Flat lists page by keyset cursor (`before=<date>|<id>`), and a list
+  refreshes from `GET /api/mail/messages/changes?since=<seq>` instead of reloading.
+- **The browser keeps a mail cache** (IndexedDB, per user, deleted on sign-out): display fields,
+  bodies and the rows of recent list views, so folders open instantly and bodies open offline of
+  the server. Each INBOX, hovered folders, the next page and the first unread bodies are
+  prefetched.
+- **Redis runs memory-only**: no RDB snapshots, no AOF, `/data` on tmpfs (the `redis_data` volume
+  and `REDIS_DATA` are gone). A Redis restart signs users out and rebuilds the cache.
+  `REDIS_MAXMEMORY` now defaults to 512mb; the server warns when the cache reaches 80% of it.
+- **IMAP connections are budgeted per account** (`IMAP_MAX_CONNECTIONS_PER_ACCOUNT`, default 10):
+  every connection counts, and at the limit requests queue by priority (the interface, then
+  INBOX, Archive, Sent, Trash, Drafts, Junk, other folders, background preload). A server that
+  refuses connections lowers the account's limit (learned, stored, never below 2); admins set the
+  start value per server and reset learned limits under Settings → Security → IMAP connections.
+  Other folders sync in that priority order and retry on a fresh connection instead of stopping
+  at the first dropped one.
+- **Conversations open with every message expanded**, the selected one first; bodies load three
+  at a time outwards from it.
+- **New users start with conversation grouping off** ("Group messages into conversations");
+  existing users keep their setting.
 - **Read-only remote collections are served live**: iCalendar subscriptions, read-only CalDAV
   calendars and CardDAV address books are fetched on demand and cached in Redis. Two-way CalDAV
   calendars stay stored.

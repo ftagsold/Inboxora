@@ -525,7 +525,7 @@ async fn callback(
                                 None => {
                                     let count: i64 = tx.opt("SELECT COUNT(*) AS count FROM users", params![]).await?.map_or(0, |r| r.get("count"));
                                     let u = tx
-                                        .json_opt("INSERT INTO users (username, password_hash, is_admin) VALUES ($1, NULL, $2) RETURNING id, username, is_admin", params![&lower, admin == Some(true)])
+                                        .json_opt("INSERT INTO users (username, password_hash, is_admin, preferences) VALUES ($1, NULL, $2, $3::jsonb) RETURNING id, username, is_admin", params![&lower, admin == Some(true), crate::services::auth::NEW_USER_PREFERENCES])
                                         .await?
                                         .ok_or_else(|| Error::internal("insert returned no row"))?;
                                     if count == 0 {

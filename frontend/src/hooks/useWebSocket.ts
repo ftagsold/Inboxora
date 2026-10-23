@@ -162,6 +162,11 @@ export function useWebSocket() {
   const { addNotification, updateAccount, setFolders, setBackfillProgress } = useStore();
 
   const handleMessage = useCallback((data: DecodedWsMessage) => {
+    // Cache preload progress drives the blocking "account ready shortly" screen.
+    if (data.type === 'meta_preload') {
+      window.dispatchEvent(new CustomEvent('inboxora:meta_preload', { detail: data }));
+      return;
+    }
     if (!isWsIncomingMessage(data)) {
       dispatchPluginWsMessage(data);
       return;

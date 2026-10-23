@@ -207,6 +207,16 @@ body, #root {
 /* Selection */
 ::selection { background: var(--selection-bg, var(--accent-dim)); color: var(--text-primary); }
 
+/* Preload screen: indeterminate progress while the server does not know the size yet. */
+@keyframes preload-bar-slide {
+  from { left: -35%; }
+  to { left: 100%; }
+}
+.preload-bar-indeterminate { animation: preload-bar-slide 1.3s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .preload-bar-indeterminate { animation: none; left: 0; width: 100% !important; opacity: 0.5; }
+}
+
 /* Sync icon rotation */
 @keyframes spin {
   from { transform: rotate(0deg); }

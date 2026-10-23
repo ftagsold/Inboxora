@@ -875,6 +875,35 @@
       "empty": "Aún no hay servidores DAV.",
       "refresh": "Actualizar calendarios y libretas de direcciones",
       "serverName": "Nombre del servidor"
+    },
+    "imapLimits": {
+      "tab": "Conexiones IMAP",
+      "title": "Conexiones IMAP",
+      "help": "Cada cuenta puede abrir hasta el valor inicial de conexiones con su servidor de correo. Si el servidor rechaza conexiones, el límite de la cuenta se reduce automáticamente y se recuerda. Tras cambiar la configuración de conexión del servidor, restablécelo para que sus cuentas vuelvan a empezar desde el valor inicial.",
+      "startLimit": "Valor inicial",
+      "startLimitHint": "Vacío = {{value}} (permitido {{min}}–{{max}})",
+      "autoLower": "Reducir automáticamente si el servidor rechaza",
+      "save": "Guardar",
+      "saved": "Guardado",
+      "resetServer": "Restablecer límites aprendidos",
+      "resetConfirm": "Confirmar restablecimiento",
+      "resetDone": "Límites aprendidos restablecidos",
+      "cancel": "Cancelar",
+      "resetAccount": "Restablecer",
+      "invalid": "Introduce un número entero entre {{min}} y {{max}}.",
+      "accounts": "Cuentas: {{count}}",
+      "openNow": "abiertas: {{count}}",
+      "queued": "{{count}} en espera",
+      "showAccounts": "Mostrar cuentas",
+      "hideAccounts": "Ocultar cuentas",
+      "colAccount": "Cuenta",
+      "colOwner": "Propietario",
+      "colLimit": "Límite",
+      "colOpen": "Abiertas / límite",
+      "colLastDrop": "Última reducción",
+      "learned": "aprendido",
+      "empty": "Aún no hay cuentas IMAP.",
+      "loadFailed": "No se pudieron cargar los límites de conexión."
     }
   },
   "blockList": {
@@ -1972,5 +2001,15 @@
     "bulletList": "Lista con viñetas",
     "orderedList": "Lista numerada",
     "clearFormat": "Borrar formato"
+  },
+  "preload": {
+    "title": "Tu cuenta estará lista en breve",
+    "subtitle": "Inboxora está cargando tu correo para que cada carpeta se abra al instante. Solo tarda un momento.",
+    "percent": "{{value}} % cargado",
+    "progress": "{{done}} de {{total}} mensajes",
+    "folder": "cargando {{folder}}",
+    "waiting": "Conectando con tu servidor de correo…",
+    "done": "Lista",
+    "failed": "No se pudo cargar ahora: los mensajes se cargan al abrirlos."
   }
 }

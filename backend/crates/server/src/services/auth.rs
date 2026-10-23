@@ -144,6 +144,10 @@ static DAV_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 static DUMMY_HASH: LazyLock<String> =
     LazyLock::new(|| bcrypt::hash("mailflow-dav-timing-equalizer", 12).unwrap_or_default());
 
+/// Preferences a new account starts with: conversation grouping is off until the user turns it
+/// on (existing users keep whatever they had).
+pub const NEW_USER_PREFERENCES: &str = r#"{"threadedView":false}"#;
+
 pub const LABEL_ERROR: &str = "A device label between 1 and 120 characters is required";
 
 pub async fn create_app_password(

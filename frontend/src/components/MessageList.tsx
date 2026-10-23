@@ -37,6 +37,9 @@ import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/star
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
 import { toAppError } from '../utils/errors.ts';
 import { anchorRefreshedRows, hasMorePages } from '../utils/listPaging.ts';
+import { carryMeta, cursorOf, hydratePendingRows, mergeChanges, patchRows, recallView, rememberView } from '../utils/listCache.ts';
+import { forgetMessages, viewKey } from '../utils/mailCache.ts';
+import { prefetchInboxes, prefetchUnreadBodies } from '../utils/listPrefetch.ts';
 import { createSessionOperationGuard } from '../utils/sessionOperationGuard.ts';
 import { legacySignatureHtmlToText } from '../utils/legacySignatureText.ts';
 import type { ArchiveMessage } from '../utils/threadedArchive.ts';
@@ -373,6 +376,8 @@ export default function MessageList() {
     unreadOnly?: string;
     threaded?: string;
     category?: string;
+    /** Keyset cursor `<date>|<id>` of the last loaded row (flat lists). */
+    before?: string;
   }
 
   type ScRef = {
@@ -458,6 +463,45 @@ export default function MessageList() {
     setExpandedThreadId(null);
   }, [messagesRefreshToken, setExpandedThreadId]);
 
+  // The view the list shows, as the browser cache keys it; read through a ref so the cache
+  // helpers below stay stable.
+  const viewParamsRef = useRef<Record<string, unknown>>({});
+  viewParamsRef.current = {
+    account: selectedAccountId || '',
+    folder: selectedAccountId ? selectedFolder : 'INBOX',
+    unread: unreadOnly,
+    threaded: threadedView,
+    category: selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled) ? activeCategory : '',
+  };
+  const currentViewKey = useCallback(() => viewKey(viewParamsRef.current), []);
+  // Change sequence of the loaded rows (from GET /messages); 0 until the first load.
+  const viewSeqRef = useRef(0);
+  const pendingRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Rows served without display fields: fill them from the browser cache, then the server.
+  // Threaded rows show their first message's fields, so for them the view is reloaded once the
+  // server has had time to fetch the headers.
+  const fillPendingRows = useCallback((rows: StoreMessageRow[]) => {
+    const pending = rows.filter(r => r?.meta_pending === true);
+    if (!pending.length) return;
+    const flat = pending.filter(r => r.message_count == null);
+    if (flat.length < pending.length) {
+      clearTimeout(pendingRefreshTimerRef.current);
+      pendingRefreshTimerRef.current = setTimeout(() => window.dispatchEvent(new CustomEvent('inboxora:refresh')), 3000);
+    }
+    void hydratePendingRows(flat, ids => api.getMessageMeta(ids), patches => {
+      const state = useStore.getState();
+      state.setMessages(patchRows(state.messages, patches));
+    });
+  }, []);
+  useEffect(() => () => clearTimeout(pendingRefreshTimerRef.current), []);
+
+  // Freshly loaded rows: cache the view (memory and IndexedDB) and fill pending display fields.
+  const settleLoadedRows = useCallback((key: string, rows: StoreMessageRow[], total: number) => {
+    rememberView(key, rows, total, viewSeqRef.current);
+    fillPendingRows(rows);
+  }, [fillPendingRows]);
+
   // Reset and load fresh when account/folder/filter changes
   useEffect(() => {
     let cancelled = false;
@@ -480,16 +524,33 @@ export default function MessageList() {
         if (unreadOnly) params.unreadOnly = 'true';
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+        const key = currentViewKey();
+        viewSeqRef.current = 0;
+        // Show the view's cached rows at once (memory, else IndexedDB); the request below
+        // revalidates them.
+        const cached = await recallView(key);
+        if (cancelled) return;
+        if (cached?.rows.length) {
+          setMessagesTotal(cached.total);
+          setMessages(applyDeleteGuard(applyReadGuard(cached.rows)));
+          setMessagesOffset(cached.rows.length);
+        }
         const __t0 = Date.now();
         await refreshRequest.run(
           () => api.getMessages(params),
-          (data: { messages: StoreMessageRow[]; total: number }) => {
+          (data: { messages: StoreMessageRow[]; total: number; seq?: number }) => {
             if (cancelled) return;
-            console.info(`[perf] messages load ${Date.now() - __t0}ms unified=${!selectedAccountId} count=${data.messages.length} total=${data.total}`);
+            console.info(`[perf] messages load ${Date.now() - __t0}ms unified=${!selectedAccountId} count=${data.messages.length} total=${data.total} cached=${cached?.rows.length ?? 0}`);
+            const rows = carryMeta(data.messages, cached?.rows || []);
             setMessagesTotal(data.total);
-            setMessages(applyReadGuard(data.messages));
-            setMessagesOffset(data.messages.length);
-            setHasMoreMessages(hasMorePages(data.messages.length, pageSize, data.messages.length, data.total));
+            setMessages(applyReadGuard(rows));
+            setMessagesOffset(rows.length);
+            setHasMoreMessages(hasMorePages(rows.length, pageSize, rows.length, data.total));
+            viewSeqRef.current = data.seq || 0;
+            settleLoadedRows(key, rows, data.total);
+            // Warm the cache for the next clicks: unread bodies of this view, every INBOX.
+            prefetchUnreadBodies(rows);
+            prefetchInboxes();
 
             // If a specific non-INBOX folder opened empty, trigger an on-demand IMAP sync.
             // The backend will broadcast sync_complete → inboxora:refresh once done.
@@ -512,7 +573,7 @@ export default function MessageList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, currentViewKey, settleLoadedRows]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -527,18 +588,23 @@ export default function MessageList() {
         params.folder = selectedFolder;
       }
       if (unreadOnly) params.unreadOnly = 'true';
-      if (useStore.getState().threadedView) params.threaded = 'true';
+      const threaded = useStore.getState().threadedView;
+      if (threaded) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+      // Flat lists page by keyset cursor, so mail arriving on top does not shift the pages.
+      const cursor = threaded ? null : cursorOf(useStore.getState().messages);
+      if (cursor) params.before = cursor;
       const data = await api.getMessages(params);
       appendMessages(applyDeleteGuard(applyReadGuard(data.messages)));
       setMessagesOffset(currentOffset + data.messages.length);
       setHasMoreMessages(hasMorePages(data.messages.length, pageSize, currentOffset + data.messages.length, data.total));
+      fillPendingRows(data.messages);
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset, fillPendingRows]);
 
   useEffect(() => {
     if (!loadingMessages && pendingLiveRefreshRef.current) {
@@ -550,8 +616,40 @@ export default function MessageList() {
   // Listen for background refresh events from WebSocket. If a message was just
   // opened, give its body request a brief head start before reloading the full list.
   useEffect(() => {
+    // Apply the change feed since the view's last sequence; false when a full reload is needed.
+    const applyChanges = async (): Promise<boolean> => {
+      const state = useStore.getState();
+      const since = viewSeqRef.current;
+      if (!since || state.threadedView || state.scrollMode === 'paginated') return false;
+      const params: QueryParams = { since };
+      if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
+      if (unreadOnly) params.unreadOnly = 'true';
+      if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+      const key = currentViewKey();
+      const data = await api.getMessageChanges(params);
+      if (data.reset || key !== currentViewKey()) return false;
+      viewSeqRef.current = data.seq || since;
+      const changed = data.changed || [];
+      const removed = data.removed || [];
+      if (typeof data.total === 'number') setMessagesTotal(data.total);
+      if (!changed.length && !removed.length) return true;
+      const before = useStore.getState().messages;
+      let merged = applyDeleteGuard(applyReadGuard(mergeChanges(before, changed, removed)));
+      // The unread filter drops a message once read; keep the open one so it stays readable.
+      const activeId = useStore.getState().selectedMessageId;
+      if (unreadOnly && activeId && !merged.some(m => m.id === activeId)) {
+        const kept = before.find(m => m.id === activeId);
+        if (kept) merged = [kept, ...merged];
+      }
+      setMessages(merged);
+      setMessagesOffset(merged.length);
+      void forgetMessages(removed);
+      settleLoadedRows(key, merged, typeof data.total === 'number' ? data.total : useStore.getState().messagesTotal);
+      return true;
+    };
     const run = async () => {
       try {
+        if (await applyChanges().catch(() => false)) return;
         const state = useStore.getState();
         const ps = state.pageSize;
         const sm = state.scrollMode;
@@ -573,12 +671,14 @@ export default function MessageList() {
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         await refreshRequest.run(
           () => api.getMessages(params),
-          (data: { messages: StoreMessageRow[]; total: number }) => {
+          (data: { messages: StoreMessageRow[]; total: number; seq?: number }) => {
             setMessagesTotal(data.total);
+            viewSeqRef.current = data.seq || viewSeqRef.current;
             // If the unread filter is on and the currently open message was just marked
             // read, the server won't return it — preserve it so the user can keep reading.
-            const anchored = sm === 'paginated' ? data.messages
-              : previousRows.length ? anchorRefreshedRows(previousRows, data.messages) : data.messages.slice(0, ps);
+            const fresh = carryMeta(data.messages, previousRows);
+            const anchored = sm === 'paginated' ? fresh
+              : previousRows.length ? anchorRefreshedRows(previousRows, fresh) : fresh.slice(0, ps);
             let msgs = applyDeleteGuard(applyReadGuard(anchored));
             const activeId = useStore.getState().selectedMessageId;
             if (unreadOnly && activeId && !msgs.some((m: StoreMessageRow) => m.id === activeId)) {
@@ -586,6 +686,7 @@ export default function MessageList() {
               if (kept) msgs = [kept, ...msgs];
             }
             setMessages(msgs);
+            settleLoadedRows(currentViewKey(), msgs, data.total);
             if (sm === 'paginated') {
               setHasMoreMessages(false);
             } else {
@@ -615,7 +716,7 @@ export default function MessageList() {
       window.removeEventListener('inboxora:refresh', handler);
       clearTimeout(deferredRefreshTimerRef.current);
     };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, currentViewKey, settleLoadedRows]);
 
   // Search
   useEffect(() => {
@@ -716,7 +817,9 @@ export default function MessageList() {
     lastScrollTopRef.current = scrollTop;
     if (Math.abs(delta) > 4) setFabVisible(delta < 0 || scrollTop < 60);
     if (scrollMode !== 'infinite' || loadingMessages || !hasMoreMessages) return;
-    if (scrollTop + clientHeight >= scrollHeight - 300) {
+    // Fetch the next page once half of the loaded rows are scrolled past, so it is there
+    // before the end is reached.
+    if (scrollTop + clientHeight >= Math.min(scrollHeight - 300, scrollHeight * 0.5 + clientHeight)) {
       loadMore();
     }
   }, [scrollMode, loadMore, loadingMessages, hasMoreMessages]);
@@ -4837,6 +4940,28 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
     }
   };
 
+  // Display fields still loading (POST /mail/meta): a placeholder row of the same height.
+  if (message.meta_pending === true) {
+    return (
+      <div
+        data-msgid={message.id}
+        data-meta-pending="true"
+        onClick={handleClick}
+        style={{
+          display: 'flex', gap: 12, alignItems: 'center', cursor: 'pointer',
+          padding: 'var(--layout-row-py, 11px) var(--layout-row-px, 14px)',
+          borderBottom: '1px solid var(--border-subtle)', background: bg,
+        }}
+      >
+        <div className="skeleton-line" style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="skeleton-line" style={{ height: 12, width: '45%', marginBottom: 8 }} />
+          <div className="skeleton-line" style={{ height: 11, width: '75%' }} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       data-msgid={message.id}
@@ -4846,6 +4971,9 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         position: 'relative',
         overflow: 'hidden',
         borderBottom: '1px solid var(--border-subtle)',
+        // Rows off screen skip layout and paint, so long lists stay fast without windowing.
+        contentVisibility: 'auto',
+        containIntrinsicSize: 'auto 72px',
       }}
     >
       {isMobile && <SwipeBackground side="left" actionView={leftActionView} innerRef={swipeBgLeftRef} />}

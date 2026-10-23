@@ -117,7 +117,7 @@ migrations as a release, and rolling back to an older image is not supported.
 | `DOMAIN` / `ACME_EMAIL` | No | Only for the bundled Caddy profile that terminates TLS itself. |
 | `PASSWORD_LOGIN_DISABLED` | No | `true` makes sign-in SSO-only: password login, registration and password-reset requests are refused, and the admin toggle is locked. Configure a working SSO provider (with admin mapping) first. |
 | `IMAP_MAX_PERSISTENT_PER_HOST` | No | Caps always-on IMAP connections per host when one mail server limits them. |
-| `POSTGRES_DATA` / `REDIS_DATA` / `PUID` / `PGID` | No | Bind mounts and ownership for Unraid-style deployments. `PUID`/`PGID` also apply to the Inboxora container, which must be able to read (and, for a generated certificate, write) `./certs`. |
+| `POSTGRES_DATA` / `PUID` / `PGID` | No | Bind mount and ownership for Unraid-style deployments (Redis keeps nothing on disk). `PUID`/`PGID` also apply to the Inboxora container, which must be able to read (and, for a generated certificate, write) `./certs`. |
 
 `VITE_APP_NAME` (default `Inboxora`) renames the app in the sidebar, login screen, mobile header,
 browser tab and installed PWA. The server reads it when it starts, so changing it needs only a

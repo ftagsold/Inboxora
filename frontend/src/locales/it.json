@@ -875,6 +875,35 @@
       "empty": "Ancora nessun server DAV.",
       "refresh": "Aggiorna calendari e rubriche",
       "serverName": "Nome del server"
+    },
+    "imapLimits": {
+      "tab": "Connessioni IMAP",
+      "title": "Connessioni IMAP",
+      "help": "Ogni account può aprire fino al valore iniziale di connessioni verso il suo server di posta. Se il server rifiuta le connessioni, il limite dell’account viene ridotto automaticamente e memorizzato. Dopo aver modificato le impostazioni di connessione del server, reimpostalo perché i suoi account ripartano dal valore iniziale.",
+      "startLimit": "Valore iniziale",
+      "startLimitHint": "Vuoto = {{value}} (consentito {{min}}–{{max}})",
+      "autoLower": "Riduci automaticamente in caso di rifiuto",
+      "save": "Salva",
+      "saved": "Salvato",
+      "resetServer": "Reimposta limiti appresi",
+      "resetConfirm": "Conferma reimpostazione",
+      "resetDone": "Limiti appresi reimpostati",
+      "cancel": "Annulla",
+      "resetAccount": "Reimposta",
+      "invalid": "Inserisci un numero intero tra {{min}} e {{max}}.",
+      "accounts": "Account: {{count}}",
+      "openNow": "aperte ora: {{count}}",
+      "queued": "{{count}} in attesa",
+      "showAccounts": "Mostra account",
+      "hideAccounts": "Nascondi account",
+      "colAccount": "Account",
+      "colOwner": "Proprietario",
+      "colLimit": "Limite",
+      "colOpen": "Aperte / limite",
+      "colLastDrop": "Ultima riduzione",
+      "learned": "appreso",
+      "empty": "Ancora nessun account IMAP.",
+      "loadFailed": "Impossibile caricare i limiti di connessione."
     }
   },
   "blockList": {
@@ -1972,5 +2001,15 @@
     "bulletList": "Elenco puntato",
     "orderedList": "Elenco numerato",
     "clearFormat": "Rimuovi formattazione"
+  },
+  "preload": {
+    "title": "Il tuo account sarà pronto a breve",
+    "subtitle": "Inboxora sta caricando la tua posta perché ogni cartella si apra subito. Ci vuole solo un momento.",
+    "percent": "{{value}}% caricato",
+    "progress": "{{done}} di {{total}} messaggi",
+    "folder": "caricamento di {{folder}}",
+    "waiting": "Connessione al server di posta…",
+    "done": "Pronto",
+    "failed": "Impossibile caricare ora: i messaggi si caricano quando li apri."
   }
 }

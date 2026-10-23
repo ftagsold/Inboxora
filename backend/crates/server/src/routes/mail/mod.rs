@@ -2,6 +2,7 @@
 //! (port of `routes/mail.ts`).
 
 pub mod bulk;
+pub mod cache;
 pub mod compose;
 pub mod conversations;
 pub mod folders;
@@ -20,6 +21,9 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/messages", get(read::messages))
+        .route("/messages/changes", get(cache::changes))
+        .route("/meta", post(cache::meta))
+        .route("/preload/status", get(cache::preload_status))
         .route("/messages/{id}", get(read::message).delete(single::delete_message))
         .route("/resolve-message", get(read::resolve_message))
         .route("/thread/{thread_id}", get(read::thread))

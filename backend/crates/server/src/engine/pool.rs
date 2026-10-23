@@ -1,5 +1,5 @@
-//! Per-account body-fetch pool (size 2): reserved slots, FIFO waiters with a 10 s fallback to
-//! a temporary connection, eviction on error/disconnect.
+//! Per-account body-fetch pool (sized from the account's connection limit): reserved slots,
+//! FIFO waiters with a 10 s fallback to a temporary connection, eviction on error/disconnect.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -9,8 +9,6 @@ use inboxora_imap::Client;
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
 
-use super::policy::POOL_SIZE;
-
 #[derive(Default)]
 struct State {
     idle: Vec<Client>,
@@ -18,11 +16,39 @@ struct State {
     connecting: usize,
     waiters: VecDeque<oneshot::Sender<Client>>,
     evicted: bool,
+    size: usize,
 }
 
 #[derive(Default)]
 pub struct Pool {
     state: Mutex<State>,
+}
+
+impl Pool {
+    pub fn new(size: usize) -> Self {
+        Self { state: Mutex::new(State { size: size.max(1), ..Default::default() }) }
+    }
+
+    /// Follow the account's connection limit; idle connections above the new size close.
+    pub fn resize(&self, size: usize) {
+        let mut s = self.state.lock();
+        s.size = size.max(1);
+        while s.idle.len() + s.in_use + s.connecting > s.size {
+            let Some(c) = s.idle.pop() else { break };
+            close_later(c);
+        }
+    }
+
+    /// Close one idle connection to free a slot of the account budget; false when none is idle.
+    pub fn drop_one_idle(&self) -> bool {
+        let c = self.state.lock().idle.pop();
+        c.map(close_later).is_some()
+    }
+
+    pub fn counts(&self) -> (usize, usize) {
+        let s = self.state.lock();
+        (s.idle.len(), s.in_use)
+    }
 }
 
 // Returned by value once per checkout; boxing the lease would only add an allocation.
@@ -59,7 +85,7 @@ impl Pool {
                 return Slot::Ready(Lease { client: Some(c), pool: Some(self.clone()), evict: false });
             }
         }
-        if s.idle.len() + s.in_use + s.connecting < POOL_SIZE {
+        if s.idle.len() + s.in_use + s.connecting < s.size {
             s.connecting += 1;
             return Slot::Connect(Reservation { pool: self.clone(), done: false });
         }
@@ -110,6 +136,11 @@ impl Pool {
             }
         }
         s.in_use = s.in_use.saturating_sub(1);
+        if s.idle.len() + s.in_use + s.connecting >= s.size {
+            drop(s);
+            close_later(client);
+            return;
+        }
         s.idle.push(client);
     }
 }

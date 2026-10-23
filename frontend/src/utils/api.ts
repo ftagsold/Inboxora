@@ -1,6 +1,7 @@
 import type { StoreMessageRow } from '../store/index.ts';
 import type { GtdFolderMap } from './gtd.ts';
 import { getAuthEpoch, isCurrentAuthEpoch } from './authEpoch.ts';
+import { getBody, putBody } from './mailCache.ts';
 
 const BASE = '/api';
 
@@ -32,6 +33,59 @@ export type QueryParams = Record<string, string | number | boolean | null | unde
 
 export interface ThreadResponse {
   messages: StoreMessageRow[];
+}
+
+export interface MessageChanges {
+  seq: number;
+  reset?: boolean;
+  changed?: StoreMessageRow[];
+  removed?: string[];
+  total?: number;
+}
+
+export type PreloadState = 'pending' | 'running' | 'done' | 'failed';
+
+export interface PreloadAccountStatus {
+  id: string;
+  email?: string | null;
+  state: PreloadState;
+  done: number;
+  total: number;
+  folder?: string | null;
+  error?: string | null;
+}
+
+export interface PreloadStatus {
+  ready: boolean;
+  accounts: PreloadAccountStatus[];
+}
+
+export interface ImapLimitAccount {
+  id: string;
+  email?: string | null;
+  owner?: string | null;
+  enabled?: boolean;
+  learnedLimit?: number | null;
+  learnedAt?: string | null;
+  learnedReason?: string | null;
+  live?: { limit: number; open: number; queued: number; openByKind?: Record<string, number> } | null;
+}
+
+export interface ImapLimitServer {
+  host: string;
+  port: number;
+  startLimit: number | null;
+  effectiveStartLimit: number;
+  autoLower: boolean;
+  updatedAt?: string | null;
+  accounts: ImapLimitAccount[];
+}
+
+export interface ImapLimitsResponse {
+  defaultStartLimit: number;
+  min: number;
+  max: number;
+  servers: ImapLimitServer[];
 }
 
 /** Serialise query parameters, dropping absent values. */
@@ -159,6 +213,14 @@ export async function streamAiChat(messages: unknown[], { signal, onDelta }: { s
   }
 }
 
+/** Whether a body response may be kept in the browser cache: a body whose remote images were
+ * blocked depends on the user's image settings, which can change. */
+export function isCacheableBody(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false;
+  const b = body as Record<string, unknown>;
+  return !b.error && b.hasBlockedRemoteImages !== true && (b.html != null || b.text != null);
+}
+
 function getMessageBody(id: string, remoteImages = false, copyId: string | null = null) {
   const key = `${id}:${copyId || 'default'}:${remoteImages ? 'remote' : 'blocked'}`;
   const existing = messageBodyRequests.get(key);
@@ -167,7 +229,12 @@ function getMessageBody(id: string, remoteImages = false, copyId: string | null 
   if (remoteImages) query.set('remoteImages', '1');
   if (copyId) query.set('copyId', copyId);
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  const promise = request('GET', `/mail/messages/${id}/body${suffix}`)
+  const cacheKey = `${id}|${copyId || 'default'}|${remoteImages ? 'remote' : 'blocked'}`;
+  const promise = getBody(cacheKey)
+    .then(cached => cached !== undefined ? cached : request('GET', `/mail/messages/${id}/body${suffix}`).then(body => {
+      if (isCacheableBody(body)) void putBody(cacheKey, body);
+      return body;
+    }))
     .finally(() => messageBodyRequests.delete(key));
   messageBodyRequests.set(key, promise);
   return promise;
@@ -248,6 +315,13 @@ export const api = {
     testSystemEmail: () => request('POST', '/admin/system-email/test'),
     deleteSystemEmail: () => request('DELETE', '/admin/system-email'),
     getAuthEvents: (params: QueryParams) => request('GET', '/admin/auth-events?' + toSearchParams(params)),
+    imapLimits: {
+      list: (): Promise<ImapLimitsResponse> => request('GET', '/admin/imap-limits'),
+      updateServer: (host: string, port: number, data: { startLimit: number | null; autoLower: boolean }) =>
+        request('PATCH', `/admin/imap-limits/servers/${encodeURIComponent(host)}/${port}`, data),
+      resetServer: (host: string, port: number) => request('POST', `/admin/imap-limits/servers/${encodeURIComponent(host)}/${port}/reset`),
+      resetAccount: (id: string) => request('POST', `/admin/imap-limits/accounts/${id}/reset`),
+    },
     oidc: {
       getProviders: () => request('GET', '/admin/oidc'),
       createProvider: (data: unknown) => request('POST', '/admin/oidc', data),
@@ -282,6 +356,11 @@ export const api = {
     return request('GET', `/mail/messages?${qs}`);
   },
   getMessage: (id: string) => request('GET', `/mail/messages/${id}`),
+  // Display fields for rows a list served with meta_pending (max 500 ids).
+  getMessageMeta: (ids: string[]): Promise<{ messages: StoreMessageRow[] }> => request('POST', '/mail/meta', { ids }),
+  // Rows of a list view changed since `since` (a list's `seq`); `reset` asks for a reload.
+  getMessageChanges: (params: QueryParams): Promise<MessageChanges> => request('GET', `/mail/messages/changes?${toSearchParams(params)}`),
+  getPreloadStatus: (): Promise<PreloadStatus> => request('GET', '/mail/preload/status'),
   // Resolve a deep-link reference (stable Message-ID header, or a legacy UUID) to the
   // current message row — durable across folder moves (#270).
   resolveMessage: (ref: string, accountId: string | undefined = undefined) => {

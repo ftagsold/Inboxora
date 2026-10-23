@@ -1,39 +1,39 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.ts';
+import { bodyLoadOrder, initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.ts';
 
 const messages = [{ id: 'M1' }, { id: 'M2' }, { id: 'M3' }];
 
 describe('conversation expansion policy', () => {
-  it('initially expands only the selected message in a three-message conversation', () => {
+  it('initially expands every message, the selected one first', () => {
     const expanded = initialConversationExpansion(messages, 'M2');
-    assert.equal(expanded.size, 1);
-    assert.equal(expanded.has('M2'), true);
+    assert.deepEqual([...expanded], ['M2', 'M1', 'M3']);
   });
 
-  it('falls back to the newest message only when the target is stale', () => {
+  it('falls back to the newest message as target when the target is stale', () => {
     assert.equal(initialConversationTarget(messages, 'stale'), 'M3');
-    assert.deepEqual([...initialConversationExpansion(messages, 'stale')], ['M3']);
+    assert.deepEqual([...initialConversationExpansion(messages, 'stale')], ['M3', 'M1', 'M2']);
   });
 
-  it('allows a collapsed older message and the selected message to stay expanded', () => {
-    const selected = initialConversationExpansion(messages, 'M3');
-    const expanded = toggleConversationExpansion(selected, 'M1');
-    assert.deepEqual([...expanded], ['M3', 'M1']);
+  it('expands nothing for an empty conversation', () => {
+    assert.equal(initialConversationExpansion([], 'M1').size, 0);
   });
 
-  it('collapsing the selected message leaves another expanded message open', () => {
-    let expanded = initialConversationExpansion(messages, 'M3');
-    expanded = toggleConversationExpansion(expanded, 'M1');
-    expanded = toggleConversationExpansion(expanded, 'M3');
-    assert.deepEqual([...expanded], ['M1']);
+  it('collapsing one message leaves the others open', () => {
+    const expanded = toggleConversationExpansion(initialConversationExpansion(messages, 'M3'), 'M1');
+    assert.deepEqual([...expanded], ['M3', 'M2']);
   });
 
   it('allows every card to be manually collapsed', () => {
     let expanded = initialConversationExpansion(messages, 'M3');
-    expanded = toggleConversationExpansion(expanded, 'M1');
-    expanded = toggleConversationExpansion(expanded, 'M3');
-    expanded = toggleConversationExpansion(expanded, 'M1');
+    for (const id of ['M1', 'M2', 'M3']) expanded = toggleConversationExpansion(expanded, id);
     assert.equal(expanded.size, 0);
+  });
+
+  it('loads the target body first, then its neighbours', () => {
+    const five = [{ id: 'A' }, { id: 'B' }, { id: 'C' }, { id: 'D' }, { id: 'E' }];
+    assert.deepEqual(bodyLoadOrder(['A', 'B', 'C', 'D', 'E'], five, 'C'), ['C', 'D', 'B', 'E', 'A']);
+    assert.deepEqual(bodyLoadOrder(['A', 'E'], five, 'E'), ['E', 'A']);
+    assert.deepEqual(bodyLoadOrder(['A', 'B'], five, null), ['A', 'B']);
   });
 });

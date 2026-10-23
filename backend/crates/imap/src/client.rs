@@ -203,6 +203,9 @@ pub struct Client {
     port: u16,
     closed: bool,
     idling: bool,
+    /// Held for the life of the socket (a connection-budget permit); released on close.
+    guard: Option<Box<dyn std::any::Any + Send + Sync>>,
+    born: std::time::Instant,
 }
 
 /// An IMAP string: quoted when plain ASCII, else a (non-synchronising) literal.
@@ -342,6 +345,8 @@ impl Client {
             port: cfg.port,
             closed: false,
             idling: false,
+            guard: None,
+            born: std::time::Instant::now(),
         };
         c.greeting().await?;
         if c.caps.is_empty() {
@@ -431,6 +436,16 @@ impl Client {
         !self.closed && self.io.is_some()
     }
 
+    /// Keep `guard` alive until the connection closes (or the client is dropped).
+    pub fn attach_guard(&mut self, guard: Box<dyn std::any::Any + Send + Sync>) {
+        self.guard = Some(guard);
+    }
+
+    /// Time since the socket was opened.
+    pub fn age(&self) -> Duration {
+        self.born.elapsed()
+    }
+
     fn utf8(&self) -> bool {
         self.enabled.contains("UTF8=ACCEPT")
     }
@@ -457,7 +472,10 @@ impl Client {
 
     // ── framing ──────────────────────────────────────────────────────────────────────────
 
-    async fn fill(&mut self, wait: Option<Duration>) -> Result<()> {
+    /// Drop consumed bytes. Only between frames: `read_frame` holds absolute offsets into the
+    /// buffer while it assembles a frame, and shifting the data under them made it wait for
+    /// bytes past the real end of a large FETCH response (a "Socket timeout").
+    fn compact(&mut self) {
         if self.start > 0 && self.start == self.buf.len() {
             self.buf.clear();
             self.start = 0;
@@ -465,6 +483,10 @@ impl Client {
             self.buf.drain(..self.start);
             self.start = 0;
         }
+    }
+
+    /// Read more bytes into the buffer (appends only; never moves buffered data).
+    async fn fill(&mut self, wait: Option<Duration>) -> Result<()> {
         let io = self.io.as_mut().ok_or(Error::Closed)?;
         self.buf.reserve(32 * 1024);
         let wait = wait.unwrap_or(self.timeout);
@@ -480,6 +502,7 @@ impl Client {
 
     /// One complete response (with literals inlined), including its final CRLF.
     async fn read_frame(&mut self, wait: Option<Duration>) -> Result<Vec<u8>> {
+        self.compact();
         let mut scan = self.start;
         loop {
             if let Some(eol) = find_crlf(&self.buf, scan) {
@@ -611,6 +634,7 @@ impl Client {
         if !self.closed {
             self.closed = true;
             self.io = None;
+            self.guard = None;
             self.emit(Event::Closed);
         }
     }
@@ -1401,6 +1425,7 @@ impl Client {
                 if self.start < self.buf.len() && find_crlf(&self.buf, self.start).is_some() {
                     true
                 } else {
+                    self.compact();
                     tokio::select! {
                         r = self.fill(Some(wait.max(Duration::from_millis(1)))) => match r {
                             Ok(()) => true,
@@ -1522,6 +1547,59 @@ fn read_qstring(s: &str) -> Option<(String, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_client(io: BoxIo) -> Client {
+        Client {
+            io: Some(io),
+            buf: Vec::with_capacity(64 * 1024),
+            start: 0,
+            tag: 0,
+            caps: HashSet::new(),
+            enabled: HashSet::new(),
+            namespace: None,
+            selected: None,
+            events: None,
+            timeout: Duration::from_secs(2),
+            servername: "test".into(),
+            port: 993,
+            closed: false,
+            idling: false,
+            guard: None,
+            born: std::time::Instant::now(),
+        }
+    }
+
+    /// A FETCH response of several hundred KB arriving in pieces: frames with literals that
+    /// straddle the 256 KB compaction point must still be read to the end (no timeout).
+    #[tokio::test]
+    async fn large_fetch_response_reads_across_buffer_compaction() {
+        use tokio::io::AsyncWriteExt;
+        let (ours, mut theirs) = tokio::io::duplex(1 << 16);
+        let mut client = test_client(Box::new(ours));
+        let body = vec![b'x'; 3000];
+        let mut wire = Vec::new();
+        for n in 1..=300u32 {
+            wire.extend_from_slice(format!("* {n} FETCH (UID {n} BODY[1]<0> {{{}}}\r\n", body.len()).as_bytes());
+            wire.extend_from_slice(&body);
+            wire.extend_from_slice(b")\r\n");
+        }
+        wire.extend_from_slice(b"A1 OK FETCH completed\r\n");
+        let writer = tokio::spawn(async move {
+            for piece in wire.chunks(7001) {
+                theirs.write_all(piece).await.unwrap();
+                tokio::task::yield_now().await;
+            }
+            theirs
+        });
+        for n in 1..=300u32 {
+            let frame = client.read_frame(None).await.unwrap_or_else(|e| panic!("frame {n}: {e}"));
+            assert!(frame.starts_with(format!("* {n} FETCH").as_bytes()), "frame {n}");
+            assert!(frame.ends_with(b")\r\n"));
+        }
+        let done = client.read_frame(None).await.unwrap();
+        assert!(done.starts_with(b"A1 OK"));
+        drop(writer.await.unwrap());
+    }
 
     #[test]
     fn sets_and_literals() {

@@ -45,6 +45,7 @@ import { isValidForwardAddress } from '../utils/ruleActions.ts';
 import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
 import type { TFunction } from 'i18next';
+import ImapLimitsSettings from './ImapLimitsSettings.tsx';
 
 interface AdminAlias {
   id: string;
@@ -6006,10 +6007,12 @@ function AppearanceTab({ initialSubTab }: SubTabSectionProps) {
 // ─── Merged Security & Privacy Tab ────────────────────────────────────────────
 function SecurityPrivacyTab({ initialSubTab }: SubTabSectionProps) {
   const { t } = useTranslation();
+  const isAdmin = !!useStore((s: StoreState) => s.user?.isAdmin);
   return (
     <SubTabs initialTab={initialSubTab} tabs={[
       { id: 'security', label: t('admin.tabs.security'), content: <SecurityTab /> },
       { id: 'privacy',  label: t('admin.tabs.privacy'),  content: <PrivacyTab /> },
+      ...(isAdmin ? [{ id: 'imap-connections', label: t('admin.imapLimits.tab'), content: <ImapLimitsSettings /> }] : []),
     ]} />
   );
 }
@@ -8655,6 +8658,7 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     { label: t('admin.security.loginProtectionTitle'), keywords: ['login', 'attempts', 'brute force', 'lockout', 'max attempts', 'rate limit'], tab: 'security', subtab: 'security', adminOnly: true, breadcrumb: secCrumb },
     { label: t('admin.security.mailPolicyTitle'), keywords: ['server', 'tls', 'insecure', 'private ip', 'port', 'mail server', 'ssl'], tab: 'security', subtab: 'security', adminOnly: true, breadcrumb: secCrumb },
     { label: t('admin.security.activityTitle'), keywords: ['log', 'activity', 'auth events', 'history', 'login history', 'audit'], tab: 'security', subtab: 'security', adminOnly: true, breadcrumb: secCrumb },
+    { label: t('admin.imapLimits.title'), keywords: ['imap', 'connection', 'connections', 'limit', 'verbindung', 'verbindungen', 'mail server', 'too many connections'], tab: 'security', subtab: 'imap-connections', adminOnly: true, breadcrumb: `${tabLabel('security')} › ${t('admin.imapLimits.tab')}` },
     { label: t('admin.privacy.blockImages'), keywords: ['images', 'remote', 'block', 'privacy', 'tracking pixel', 'spy pixel', 'block images'], tab: 'security', subtab: 'privacy', breadcrumb: privCrumb },
     { label: t('admin.privacy.allowedSenders'), keywords: ['whitelist', 'allow', 'sender', 'trusted', 'safe', 'allowed domain', 'image whitelist'], tab: 'security', subtab: 'privacy', breadcrumb: privCrumb },
     // Notifications

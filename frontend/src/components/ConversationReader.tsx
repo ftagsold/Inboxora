@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.ts';
 import { api } from '../utils/api.ts';
 import ConversationMessage from './ConversationMessage.tsx';
-import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.ts';
+import { bodyLoadOrder, initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.ts';
 import { alignReaderHeader } from './readerScrollAlignment.ts';
 import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.ts';
 import { removePhysicalCopy } from '../utils/conversationMutations.ts';
@@ -14,6 +14,9 @@ import { useStore } from '../store/index.ts';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 import { useMobile } from '../hooks/useMobile.ts';
+
+/** Bodies of an opened conversation load at most this many at a time. */
+const BODY_LOAD_CONCURRENCY = 3;
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
 // MessagePane owns the pane geometry and ConversationMessage uses MessagePane visuals.
@@ -326,7 +329,20 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
         if (aborters.current.get(physicalCopyId) === controller) aborters.current.delete(physicalCopyId);
       });
   }, [selectedCopyFor, t]);
-  useEffect(() => { for (const id of expanded) loadBody(id); }, [expanded, loadBody]);
+  // Every message opens expanded: load the target's body first, then the rest a few at a time
+  // (outwards from the target) instead of firing every request at once.
+  useEffect(() => {
+    const queue = bodyLoadOrder(expanded, messages, initialTargetId);
+    let cancelled = false;
+    const worker = async () => {
+      while (!cancelled && queue.length) {
+        const id = queue.shift();
+        if (id) await loadBody(id);
+      }
+    };
+    for (let i = 0; i < BODY_LOAD_CONCURRENCY; i += 1) void worker();
+    return () => { cancelled = true; };
+  }, [expanded, loadBody, messages, initialTargetId]);
   // A sender or domain was just allowed: reload, with images, every loaded body in this
   // conversation from it that still has blocked images.
   // Only reloads bodies; it never changes read state.
@@ -352,7 +368,11 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     const state = navigationStateRef.current.get(navigationKey);
     if (!state || state.userInteracted || (phase === 'final' && state.final)) return;
     automaticScrollRef.current = true;
-    alignReaderHeader(reader, anchor);
+    // The first card (the newest message, newest-first) opens at the very top: aligning its
+    // header would scroll the conversation title out of view.
+    const card = anchor.closest('[data-conversation-message-state]');
+    if (card && reader.querySelector('[data-conversation-message-state]') === card) reader.scrollTop = 0;
+    else alignReaderHeader(reader, anchor);
     automaticScrollRef.current = false;
     if (phase === 'final') {
       state.final = true;

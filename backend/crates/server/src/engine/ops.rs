@@ -272,7 +272,9 @@ impl Engine {
     }
 
     async fn fetch_body_fresh(&self, account: &Account, speculative: bool, uid: u32, folder: &str) -> EResult<Body> {
-        let (_, mut c) = self.open_client(account, "IMAP fresh-login connect").await?;
+        let (_, mut c) = self
+            .open_client(account, "IMAP fresh-login connect", super::limits::Prio::Ui, super::limits::Kind::Temporary)
+            .await?;
         let r = fetch_body_with(&mut c, speculative, uid, folder).await;
         c.close();
         r

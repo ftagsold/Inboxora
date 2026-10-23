@@ -1,6 +1,10 @@
 //! Mail content is never persisted in PostgreSQL: the `messages` table is a header index (ids,
 //! folder/UID, date, flags, threading links). Display fields (subject, addresses, snippet) and
-//! bodies are fetched live from IMAP and kept in Redis for `MAIL_CACHE_TTL_SECONDS` (600).
+//! bodies are fetched live from IMAP and kept in Redis, which runs memory-only.
+//!
+//! Display fields never expire: a message's content is fixed for its row, so the key lives until
+//! the row is deleted (the tombstone janitor in `preload.rs` drops it) and every folder is
+//! preloaded. Bodies expire after `MAIL_BODY_TTL_SECONDS` (7 days).
 //!
 //! Every miss is grouped by account and folder and served with one `UID FETCH` per group;
 //! freshly synced messages are written through, so a new-mail list rarely touches IMAP.
@@ -21,27 +25,47 @@ use super::{EResult, Engine, EngineError};
 use inboxora_imap::FetchQuery;
 
 const PREFIX: &str = "ibx:mc:";
+/// Version of the cached display fields; bump when `Meta` changes shape (old keys are swept).
+pub const META_VERSION: &str = "v1";
 /// One IMAP round trip per (account, folder) group must finish within this budget; rows it
 /// could not hydrate are served without display fields rather than stalling the list.
 const HYDRATE_TIMEOUT: Duration = Duration::from_secs(15);
-/// UIDs per FETCH command.
-const FETCH_CHUNK: usize = 200;
+/// UIDs per header FETCH command. Each message needs its structure, headers and the start of
+/// its text parsed; some servers take over a second per message, so a command stays small
+/// enough to finish inside the socket timeout (each chunk is cached as it lands).
+const FETCH_CHUNK: usize = 100;
 /// Bytes of each candidate text part fetched for a snippet (a multiple of 4 keeps base64 whole).
 const SNIPPET_BYTES: u32 = 4096;
 
 /// Redis-backed, best-effort: every error is logged and treated as a miss.
 pub struct ContentCache {
     redis: Option<Pool>,
-    ttl: i64,
+    body_ttl: i64,
+    /// One header fetch per (account, folder) at a time; a second request for the same group
+    /// waits and then reads what the first one cached.
+    groups: parking_lot::Mutex<HashMap<(String, String), Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl ContentCache {
     pub fn new(redis: Option<Pool>) -> Self {
-        let ttl = inboxora_core::config::env("MAIL_CACHE_TTL_SECONDS")
+        let body_ttl = inboxora_core::config::env("MAIL_BODY_TTL_SECONDS")
             .and_then(|v| v.parse::<i64>().ok())
             .filter(|v| *v > 0)
-            .unwrap_or(600);
-        Self { redis, ttl }
+            .unwrap_or(7 * 24 * 3600);
+        Self { redis, body_ttl, groups: parking_lot::Mutex::new(HashMap::new()) }
+    }
+
+    fn group_lock(&self, account_id: &str, folder: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.groups.lock().entry((account_id.to_owned(), folder.to_owned())).or_default().clone()
+    }
+
+    pub fn redis(&self) -> Option<&Pool> {
+        self.redis.as_ref()
+    }
+
+    /// Display fields are kept until their row is deleted; everything else expires.
+    fn expiry(&self, key: &str) -> Option<Expiration> {
+        (!key.starts_with("h:")).then_some(Expiration::EX(self.body_ttl))
     }
 
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
@@ -73,9 +97,7 @@ impl ContentCache {
     pub async fn put<T: Serialize>(&self, key: &str, value: &T) {
         let Some(redis) = &self.redis else { return };
         let Ok(s) = serde_json::to_string(value) else { return };
-        if let Err(e) =
-            redis.set::<(), _, _>(format!("{PREFIX}{key}"), s, Some(Expiration::EX(self.ttl)), None, false).await
-        {
+        if let Err(e) = redis.set::<(), _, _>(format!("{PREFIX}{key}"), s, self.expiry(key), None, false).await {
             tracing::warn!("[mail-cache] set failed: {e}");
         }
     }
@@ -85,8 +107,7 @@ impl ContentCache {
         let pipe = redis.next().pipeline();
         for (k, v) in entries {
             if let Ok(s) = serde_json::to_string(v) {
-                let _: Result<(), _> =
-                    pipe.set(format!("{PREFIX}{k}"), s, Some(Expiration::EX(self.ttl)), None, false).await;
+                let _: Result<(), _> = pipe.set(format!("{PREFIX}{k}"), s, self.expiry(k), None, false).await;
             }
         }
         if let Err(e) = pipe.all::<Vec<fred::types::Value>>().await {
@@ -104,7 +125,16 @@ impl ContentCache {
 }
 
 pub fn meta_key(id: &Uuid) -> String {
-    format!("h:{id}")
+    format!("h:{META_VERSION}:{id}")
+}
+
+/// The full Redis key of a cache entry (for SCAN-based maintenance).
+pub fn full_key(key: &str) -> String {
+    format!("{PREFIX}{key}")
+}
+
+pub fn prefix() -> &'static str {
+    PREFIX
 }
 
 pub fn body_key(id: &Uuid) -> String {
@@ -255,7 +285,7 @@ impl Engine {
         let fetches = missing.into_iter().map(|((account_id, folder), locs)| {
             let engine = self.clone();
             async move {
-                let run = engine.fetch_meta_group(&account_id, &folder, &locs);
+                let run = engine.fetch_meta_group(&account_id, &folder, &locs, super::limits::Prio::Ui);
                 match tokio::time::timeout(HYDRATE_TIMEOUT, run).await {
                     Ok(Ok(found)) => found,
                     Ok(Err(e)) => {
@@ -270,43 +300,117 @@ impl Engine {
             }
         });
         let fetched: Vec<(Uuid, Meta)> = futures_util::future::join_all(fetches).await.into_iter().flatten().collect();
-        let entries: Vec<(String, Meta)> = fetched.iter().map(|(id, m)| (meta_key(id), m.clone())).collect();
-        self.cache.put_many(&entries).await;
         out.extend(fetched);
         out
     }
 
-    async fn fetch_meta_group(
+    /// `message_meta` that answers within `budget`: misses still being fetched are left out of
+    /// the map (the fetch carries on in the background and caches its result).
+    pub async fn message_meta_within(self: &Arc<Self>, rows: &[Location], budget: Duration) -> HashMap<Uuid, Meta> {
+        let keys: Vec<String> = rows.iter().map(|r| meta_key(&r.id)).collect();
+        let cached: Vec<Option<Meta>> = self.cache.get_many(&keys).await;
+        let mut out = HashMap::with_capacity(rows.len());
+        let mut missing: Vec<Location> = Vec::new();
+        for (row, hit) in rows.iter().zip(cached) {
+            match hit {
+                Some(m) => {
+                    out.insert(row.id, m);
+                }
+                None => missing.push(row.clone()),
+            }
+        }
+        if missing.is_empty() {
+            return out;
+        }
+        let engine = self.clone();
+        let task = tokio::spawn(async move { engine.message_meta(&missing).await });
+        if let Ok(Ok(found)) = tokio::time::timeout(budget, task).await {
+            out.extend(found);
+        }
+        out
+    }
+
+    /// Fill list rows from the cache within `budget`; rows still missing their display fields
+    /// carry `meta_pending: true` (the client fetches them with `POST /mail/meta`).
+    pub async fn hydrate_list_values(self: &Arc<Self>, rows: &mut [Value], budget: Duration) {
+        let locs: Vec<Location> = rows.iter().filter_map(|r| r.as_object().and_then(Location::from_row)).collect();
+        let meta = self.message_meta_within(&locs, budget).await;
+        for r in rows.iter_mut() {
+            let Some(row) = r.as_object_mut() else { continue };
+            let id = row.get("id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok());
+            match id.and_then(|id| meta.get(&id)) {
+                Some(m) => {
+                    m.apply(row);
+                    row.insert("meta_pending".into(), json!(false));
+                }
+                None => {
+                    Meta::default().apply(row);
+                    row.insert("meta_pending".into(), json!(true));
+                }
+            }
+        }
+    }
+
+    pub async fn fetch_meta_group(
         self: &Arc<Self>,
         account_id: &str,
         folder: &str,
         locs: &[&Location],
+        prio: super::limits::Prio,
     ) -> EResult<Vec<(Uuid, Meta)>> {
+        let group = self.cache.group_lock(account_id, folder);
+        let _flight = group.lock().await;
+        // Another request may have fetched part of this group while we waited.
+        let keys: Vec<String> = locs.iter().map(|l| meta_key(&l.id)).collect();
+        let cached: Vec<Option<Meta>> = self.cache.get_many(&keys).await;
+        let mut out = Vec::with_capacity(locs.len());
+        let mut todo: Vec<&Location> = Vec::new();
+        for (l, hit) in locs.iter().zip(cached) {
+            match hit {
+                Some(m) => out.push((l.id, m)),
+                None => todo.push(l),
+            }
+        }
+        if todo.is_empty() {
+            return Ok(out);
+        }
         let account =
             load_account(&self.db, account_id).await?.ok_or_else(|| EngineError("Account not found".into()))?;
         let by_uid: HashMap<u32, Uuid> =
-            locs.iter().filter_map(|l| u32::try_from(l.uid).ok().map(|u| (u, l.id))).collect();
+            todo.iter().filter_map(|l| u32::try_from(l.uid).ok().map(|u| (u, l.id))).collect();
         let mut uids: Vec<u32> = by_uid.keys().copied().collect();
         uids.sort_unstable();
         let query = meta_fetch_query();
-        let mut lease = self.lease(&account).await?;
+        let mut lease = self.lease_with(&account, prio).await?;
         let r: EResult<Vec<(Uuid, Meta)>> = async {
             let client = lease.client();
             client.select(folder).await?;
-            let mut out = Vec::with_capacity(uids.len());
+            let mut fetched = Vec::with_capacity(uids.len());
             for chunk in uids.chunks(FETCH_CHUNK) {
+                let mut batch = Vec::with_capacity(chunk.len());
                 for msg in client.fetch(&inboxora_imap::uid_set(chunk), &query, true, None).await? {
                     let Some(id) = msg.uid.and_then(|u| by_uid.get(&u)) else { continue };
-                    out.push((*id, meta_of(&account, folder, &msg)));
+                    batch.push((*id, meta_of(&account, folder, &msg)));
                 }
+                // Cache each chunk as it lands, so a waiting request (or a later page) sees it.
+                let entries: Vec<(String, Meta)> = batch.iter().map(|(id, m)| (meta_key(id), m.clone())).collect();
+                self.cache.put_many(&entries).await;
+                fetched.extend(batch);
             }
-            Ok(out)
+            Ok(fetched)
         }
         .await;
-        if r.is_err() {
-            lease.evict();
+        match r {
+            Ok(fetched) => {
+                out.extend(fetched);
+                Ok(out)
+            }
+            Err(e) => {
+                self.note_conn_failure(&account, lease.client(), &e.0).await;
+                lease.evict();
+                Err(e)
+            }
         }
-        r
     }
 
     /// `(from_email, from_name)` per row: cached headers when present, else one envelope-only

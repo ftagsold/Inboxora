@@ -875,6 +875,35 @@
       "empty": "Zatím žádné servery DAV.",
       "refresh": "Aktualizovat kalendáře a adresáře kontaktů",
       "serverName": "Název serveru"
+    },
+    "imapLimits": {
+      "tab": "Připojení IMAP",
+      "title": "Připojení IMAP",
+      "help": "Každý účet smí otevřít až počáteční počet připojení ke svému poštovnímu serveru. Když server připojení odmítne, limit účtu se automaticky sníží a uloží. Po změně nastavení připojení serveru jej resetujte, aby jeho účty znovu začínaly od počáteční hodnoty.",
+      "startLimit": "Počáteční hodnota",
+      "startLimitHint": "Prázdné = {{value}} (povoleno {{min}}–{{max}})",
+      "autoLower": "Při odmítnutí automaticky snížit",
+      "save": "Uložit",
+      "saved": "Uloženo",
+      "resetServer": "Resetovat naučené limity",
+      "resetConfirm": "Potvrdit reset",
+      "resetDone": "Naučené limity resetovány",
+      "cancel": "Zrušit",
+      "resetAccount": "Resetovat",
+      "invalid": "Zadejte celé číslo mezi {{min}} a {{max}}.",
+      "accounts": "Účty: {{count}}",
+      "openNow": "otevřeno: {{count}}",
+      "queued": "čeká: {{count}}",
+      "showAccounts": "Zobrazit účty",
+      "hideAccounts": "Skrýt účty",
+      "colAccount": "Účet",
+      "colOwner": "Vlastník",
+      "colLimit": "Limit",
+      "colOpen": "Otevřeno / limit",
+      "colLastDrop": "Naposledy sníženo",
+      "learned": "naučený",
+      "empty": "Zatím žádné účty IMAP.",
+      "loadFailed": "Limity připojení se nepodařilo načíst."
     }
   },
   "blockList": {
@@ -1972,5 +2001,15 @@
     "bulletList": "Odrážkový seznam",
     "orderedList": "Číslovaný seznam",
     "clearFormat": "Vymazat formátování"
+  },
+  "preload": {
+    "title": "Váš účet bude za chvíli připraven",
+    "subtitle": "Inboxora načítá vaši poštu, aby se každá složka otevřela okamžitě. Potrvá to jen chvilku.",
+    "percent": "Načteno {{value}} %",
+    "progress": "{{done}} z {{total}} zpráv",
+    "folder": "načítá se {{folder}}",
+    "waiting": "Připojování k poštovnímu serveru…",
+    "done": "Připraveno",
+    "failed": "Teď se nepodařilo načíst — zprávy se načtou při otevření."
   }
 }

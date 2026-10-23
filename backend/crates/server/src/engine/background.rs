@@ -51,6 +51,36 @@ impl Engine {
             })
         });
         let e = self.clone();
+        every(Duration::from_secs(30), move || {
+            let e = e.clone();
+            Box::pin(async move {
+                if let Err(err) = e.tombstone_janitor().await {
+                    tracing::warn!("[mail-cache] tombstone janitor error: {err}");
+                }
+            })
+        });
+        let e = self.clone();
+        every(Duration::from_secs(60), move || {
+            let e = e.clone();
+            Box::pin(async move {
+                e.check_cache_sentinel().await;
+                e.check_redis_memory().await;
+            })
+        });
+        let e = self.clone();
+        tokio::spawn(async move {
+            e.check_cache_sentinel().await;
+            tokio::time::sleep(Duration::from_secs(600)).await;
+            loop {
+                match e.orphan_sweep().await {
+                    Ok(n) if n > 0 => tracing::info!("[mail-cache] orphan sweep removed {n} entries"),
+                    Ok(_) => {}
+                    Err(err) => tracing::warn!("[mail-cache] orphan sweep error: {err}"),
+                }
+                tokio::time::sleep(Duration::from_secs(24 * 3600)).await;
+            }
+        });
+        let e = self.clone();
         every(Duration::from_secs(60), move || {
             let e = e.clone();
             Box::pin(async move {
@@ -162,7 +192,7 @@ impl Engine {
                     return Ok(());
                 }
                 let missed = race(25_000, "Staleness probe", async {
-                    let (_, mut probe) = self.open_client_bounded(&account, "Staleness").await?;
+                    let (_, mut probe) = self.open_client_bounded(&account, "Staleness", super::limits::Prio::Inbox, super::limits::Kind::Background).await?;
                     let r = async {
                         probe.select("INBOX").await?;
                         let above = probe.search_uids(&format!("UID {}:*", max_uid + 1)).await?;

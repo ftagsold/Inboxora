@@ -46,7 +46,9 @@ Inboxora container's port 3000; a Caddyfile that proxied `frontend:443` proxies 
 
 5.0.0 stops copying mail into PostgreSQL. The database keeps a header index (where each message
 lives, its date, flags and threading links); subjects, addresses, snippets and bodies are read
-from your IMAP server and cached in Redis for ten minutes (`MAIL_CACHE_TTL_SECONDS`). Search runs
+from your IMAP server and cached in Redis: every folder's subjects, senders and snippets are
+preloaded after each start (the web app shows a short "your account is ready shortly" screen
+meanwhile) and bodies are kept for seven days (`MAIL_BODY_TTL_SECONDS`). Search runs
 on the mail server. Calendar subscriptions, read-only CalDAV calendars and CardDAV address books
 are likewise read live; two-way CalDAV calendars and everything created in Inboxora stay stored.
 

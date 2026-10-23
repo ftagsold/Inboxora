@@ -256,7 +256,10 @@ impl Engine {
         let Some(row) = row.filter(|r| r.enabled()) else {
             return Err(EngineError("Account deleted or disabled".into()));
         };
-        Ok(self.open_client(&row, "Backfill connect").await?.1)
+        Ok(self
+            .open_client(&row, "Backfill connect", super::limits::Prio::Other, super::limits::Kind::Background)
+            .await?
+            .1)
     }
 
     /// `backfillAllFolders`: INBOX first, then every other folder the provider doesn't skip.
@@ -268,16 +271,9 @@ impl Engine {
             let _slot = SlotGuard::acquire(&self.bg_sem, &host).await;
             let profile = account.profile();
             self.backfill_messages(account, "INBOX").await;
-            let folders = self
-                .db
-                .rows(
-                    "SELECT path FROM folders WHERE account_id = $1 AND path != 'INBOX' ORDER BY path",
-                    params![account.id()],
-                )
-                .await
-                .unwrap_or_default();
-            for r in folders {
-                let path: String = r.get("path");
+            // Archive, Sent, Trash, Drafts, Junk, then the rest (smallest first).
+            let folders = self.folders_by_priority(account, false).await.unwrap_or_default();
+            for (path, _) in folders {
                 if skips_folder(profile, &path) {
                     continue;
                 }
@@ -318,7 +314,9 @@ impl Engine {
         for (folder, msgs) in by_folder {
             let run = async {
                 let Some(row) = load_account(&self.db, account.id()).await? else { return Ok::<_, EngineError>(None) };
-                let (_, mut c) = self.open_client(&row, "Flag-sync connect").await?;
+                let (_, mut c) = self
+                    .open_client(&row, "Flag-sync connect", super::limits::Prio::Other, super::limits::Kind::Background)
+                    .await?;
                 let uid_to_id: HashMap<i64, Uuid> = msgs.iter().map(|(id, uid)| (*uid, *id)).collect();
                 let r = async {
                     c.select(&folder).await?;

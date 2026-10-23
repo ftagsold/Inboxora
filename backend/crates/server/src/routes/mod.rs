@@ -17,6 +17,7 @@ pub mod dav;
 pub mod dav_credentials;
 pub mod dav_servers;
 pub mod diagnostics;
+pub mod imap_limits;
 pub mod integrations;
 pub mod mail;
 pub mod oauth;

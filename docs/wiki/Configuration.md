@@ -207,4 +207,11 @@ from `.env`/secrets rather than clicked through in the browser. See the commente
 A few values exist only in the environment or in the database:
 
 - `IMAP_MAX_PERSISTENT_PER_HOST` caps always-on IMAP connections per host.
+- `IMAP_MAX_CONNECTIONS_PER_ACCOUNT` (default 10) is the start value of every account's IMAP
+  connection budget. Admins override it per mail server, and reset limits learned from refusals,
+  under **Settings → Security → IMAP connections**.
+- `MAIL_BODY_TTL_SECONDS` (default 604800, 7 days) is how long rendered bodies stay in Redis.
+  Subjects, senders and snippets stay until the message is deleted.
+- `REDIS_MAXMEMORY` (default 512mb) caps the bundled, memory-only Redis. The server logs a warning
+  when the mail cache reaches 80% of it.
 - The conversation engine's automated-series segmentation mode is not exposed in the interface.

@@ -778,7 +778,7 @@ impl Engine {
             return;
         }
         let run = async {
-            let mut lease = self.lease(account).await?;
+            let mut lease = self.lease_with(account, super::limits::Prio::Inbox).await?;
             let r = async {
                 let c = lease.client();
                 let exists = c.select("INBOX").await?.exists;
@@ -849,27 +849,23 @@ impl Engine {
         }
     }
 
-    /// `_syncOtherFolders`: every non-INBOX selectable folder on one pooled connection.
+    /// `_syncOtherFolders`: every non-INBOX selectable folder on one pooled connection, in
+    /// priority order (Archive, Sent, Trash, Drafts, Junk, then the rest, smallest first). A
+    /// folder whose connection died goes back in the queue and is retried on a fresh lease.
     pub async fn sync_other_folders(self: &Arc<Self>, account: &Account) {
         let Some(_g) = self.claim(|s| &mut s.other_folders_syncing, account.id()) else { return };
-        let profile = account.profile();
         let run = async {
-            let rows = self
-                .db
-                .rows("SELECT path FROM folders WHERE account_id = $1 AND path != 'INBOX' AND no_select = false ORDER BY path", params![
-                    account.id()
-                ])
-                .await?;
-            let folders: Vec<String> =
-                rows.iter().map(|r| r.get::<_, String>("path")).filter(|p| !skips_folder(profile, p)).collect();
-            if folders.is_empty() {
+            let mut queue: std::collections::VecDeque<(String, super::limits::Prio)> =
+                self.folders_by_priority(account, false).await?.into_iter().collect();
+            let Some(first) = queue.front().map(|f| f.1) else {
                 return Ok::<_, EngineError>(());
-            }
+            };
             let host = account.host();
             let _slot = super::connect::SlotGuard::acquire(&self.bg_sem, &host).await;
-            let mut lease = self.lease(account).await?;
+            let mut lease = self.lease_with(account, first).await?;
             let mut synced = false;
-            for folder in folders {
+            let mut retries = 0;
+            while let Some((folder, prio)) = queue.pop_front() {
                 let key = format!("{}:{folder}", account.id());
                 let Some(_od) = self.claim(|s| &mut s.on_demand_syncing, &key) else { continue };
                 match self.sync_messages(account, lease.client(), &folder, 50, false, true).await {
@@ -877,8 +873,15 @@ impl Engine {
                     Err(e) => {
                         tracing::warn!("Periodic folder sync failed for {}/{folder}: {e}", account.log());
                         if !lease.client().is_usable() {
+                            self.note_conn_failure(account, lease.client(), &e.0).await;
                             lease.evict();
-                            break;
+                            drop(lease);
+                            retries += 1;
+                            if retries > 3 {
+                                break;
+                            }
+                            queue.push_front((folder, prio));
+                            lease = self.lease_with(account, prio).await?;
                         }
                     }
                 }
@@ -911,7 +914,7 @@ impl Engine {
         let folders: Vec<String> = rows.iter().map(|r| r.get::<_, String>("folder")).collect();
         let mut server: Vec<(String, HashSet<i64>)> = Vec::new();
         {
-            let mut lease = match self.lease(account).await {
+            let mut lease = match self.lease_with(account, super::limits::Prio::Other).await {
                 Ok(l) => l,
                 Err(e) => {
                     tracing::warn!("Reconcile connection error for {}: {e}", account.log());

@@ -147,6 +147,10 @@ pub struct Deflate {
     read_buf: Vec<u8>,
     read_pos: usize,
     read_eof: bool,
+    /// The last inflate filled the caller's buffer, so zlib may still hold decompressed output
+    /// for input it has already consumed: drain it before waiting on the socket (the server
+    /// may have sent everything and be waiting for our next command).
+    out_pending: bool,
     write_buf: Vec<u8>,
 }
 
@@ -159,6 +163,7 @@ impl Deflate {
             read_buf: Vec::with_capacity(16 * 1024),
             read_pos: 0,
             read_eof: false,
+            out_pending: false,
             write_buf: Vec::with_capacity(16 * 1024),
         }
     }
@@ -182,15 +187,20 @@ fn zerr(e: impl std::fmt::Display) -> io::Error {
 impl AsyncRead for Deflate {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, out: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let this = &mut *self;
+        if out.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
         loop {
-            if this.read_pos < this.read_buf.len() || this.read_eof {
+            if this.read_pos < this.read_buf.len() || this.read_eof || this.out_pending {
                 let input = &this.read_buf[this.read_pos..];
                 let dst = out.initialize_unfilled();
+                let room = dst.len();
                 let (before_in, before_out) = (this.inflate.total_in(), this.inflate.total_out());
                 let status = this.inflate.decompress(input, dst, FlushDecompress::Sync).map_err(zerr)?;
                 let consumed = (this.inflate.total_in() - before_in) as usize;
                 let produced = (this.inflate.total_out() - before_out) as usize;
                 this.read_pos += consumed;
+                this.out_pending = produced == room;
                 if this.read_pos == this.read_buf.len() {
                     this.read_buf.clear();
                     this.read_pos = 0;
@@ -274,6 +284,66 @@ mod tests {
             left.flush().await.unwrap();
             let mut got = vec![0u8; msg.len()];
             right.read_exact(&mut got).await.unwrap();
+            assert_eq!(got, msg);
+        }
+    }
+
+    /// A small compressed burst that inflates to far more than one read buffer: the output zlib
+    /// still holds must be drained without waiting for more input (the server has sent it all).
+    #[tokio::test]
+    async fn deflate_drains_pending_output_without_more_input() {
+        let (a, b) = duplex(1 << 16);
+        let mut left = Deflate::new(Box::new(a));
+        let mut right = Deflate::new(Box::new(b));
+        let line = b"* 1 FETCH (UID 7 BODY[1]<0> {4096}\r\n";
+        let msg: Vec<u8> = line.iter().copied().cycle().take(400_000).collect();
+        left.write_all(&msg).await.unwrap();
+        left.flush().await.unwrap();
+        let mut got = Vec::new();
+        let mut chunk = vec![0u8; 32 * 1024];
+        while got.len() < msg.len() {
+            let n = tokio::time::timeout(std::time::Duration::from_secs(2), right.read(&mut chunk))
+                .await
+                .expect("reader stalled with output pending in zlib")
+                .unwrap();
+            assert!(n > 0);
+            got.extend_from_slice(&chunk[..n]);
+        }
+        assert_eq!(got, msg);
+    }
+
+    #[tokio::test]
+    async fn deflate_fuzz_sizes_and_reads() {
+        let mut seed = 0x2545_f491_u64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for round in 0..300 {
+            let (a, b) = duplex(1 << 20);
+            let mut left = Deflate::new(Box::new(a));
+            let mut right = Deflate::new(Box::new(b));
+            let len = (rnd() % 300_000) as usize + 1;
+            let text = round % 2 == 0;
+            let msg: Vec<u8> = (0..len)
+                .map(|i| {
+                    if text { b"Received: from x by y; BODY[1.2]<0> NIL\r\n"[i % 41] } else { (rnd() % 7) as u8 + b'a' }
+                })
+                .collect();
+            left.write_all(&msg).await.unwrap();
+            left.flush().await.unwrap();
+            let cap = (rnd() % 40_000) as usize + 1;
+            let mut chunk = vec![0u8; cap];
+            let mut got = Vec::new();
+            while got.len() < msg.len() {
+                let n = tokio::time::timeout(std::time::Duration::from_secs(2), right.read(&mut chunk))
+                    .await
+                    .unwrap_or_else(|_| panic!("stalled: round {round} len {len} cap {cap} at {}", got.len()))
+                    .unwrap();
+                got.extend_from_slice(&chunk[..n]);
+            }
             assert_eq!(got, msg);
         }
     }

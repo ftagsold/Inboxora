@@ -13,6 +13,7 @@ use inboxora_core::{Result, params};
 use inboxora_mail::sanitize::{block_remote_images, has_remote_images, should_block_remote_images};
 use serde_json::{Map, Value, json};
 
+use super::cache::current_change_seq;
 use super::{account_of, attachments_of, is_uuid};
 use crate::engine::cache::Location;
 use crate::http::{Auth, Body, Qs};
@@ -31,17 +32,22 @@ fn valid_folder_name(name: &str) -> bool {
 }
 
 /// `listMessages` (`services/messageService.ts`).
-pub async fn list_messages(
+/// The accounts and row conditions of a list view (account/folder, unread filter, category).
+pub struct View {
+    pub conds: Vec<String>,
+    pub values: Vec<Val>,
+    pub scoped: Vec<String>,
+    pub resolved: Option<String>,
+}
+
+pub async fn view_of(
     s: &AppState,
     user_id: &str,
     account_id: Option<&str>,
     folder: &str,
-    limit: i64,
-    offset: i64,
     unread_only: bool,
-    threaded: bool,
     category: Option<&str>,
-) -> Result<(Vec<Value>, i64, bool, Option<String>)> {
+) -> Result<Option<View>> {
     let accounts: Vec<(String, Option<bool>)> =
         s.db.rows(
             "SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true",
@@ -53,11 +59,10 @@ pub async fn list_messages(
         .collect();
     let (scoped, resolved) = resolve_account_scope(&accounts, account_id);
     if scoped.is_empty() {
-        return Ok((vec![], 0, false, None));
+        return Ok(None);
     }
     let mut conds = vec!["m.is_deleted = false".to_owned()];
     let mut values: Vec<Val> = Vec::new();
-    let specific = resolved.is_some();
     if let Some(r) = &resolved {
         values.push(Val::from(r.as_str()));
         conds.push(format!("m.account_id = ${}", values.len()));
@@ -79,6 +84,34 @@ pub async fn list_messages(
         }
         None => {}
     }
+    Ok(Some(View { conds, values, scoped, resolved }))
+}
+
+/// A keyset cursor `<date>|<id>` (the last row of the previous page).
+pub fn parse_cursor(raw: Option<&str>) -> Option<(String, String)> {
+    let (date, id) = raw?.split_once('|')?;
+    (chrono::DateTime::parse_from_rfc3339(date).is_ok() && is_uuid(id)).then(|| (date.to_owned(), id.to_owned()))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn list_messages(
+    s: &AppState,
+    user_id: &str,
+    account_id: Option<&str>,
+    folder: &str,
+    limit: i64,
+    offset: i64,
+    unread_only: bool,
+    threaded: bool,
+    category: Option<&str>,
+    before: Option<(String, String)>,
+) -> Result<(Vec<Value>, i64, bool, Option<String>)> {
+    let Some(View { conds, mut values, scoped, resolved }) =
+        view_of(s, user_id, account_id, folder, unread_only, category).await?
+    else {
+        return Ok((vec![], 0, false, None));
+    };
+    let specific = resolved.is_some();
     let where_ = conds.join(" AND ");
     let safe_limit = if limit == 0 { 50 } else { limit.clamp(1, 500) };
     let safe_offset = offset.max(0);
@@ -171,51 +204,75 @@ pub async fn list_messages(
             .map_or(0, |r| i64::from(r.get::<_, i32>("total")));
         return Ok((rows, count, true, resolved));
     }
+    // A keyset cursor replaces the offset: rows arriving at the top no longer shift the pages.
+    let mut page_where = where_.clone();
+    let mut safe_offset = safe_offset;
+    if let Some((date, id)) = before {
+        values.push(Val::from(date));
+        values.push(Val::from(id));
+        page_where.push_str(&format!(
+            " AND (m.date, m.id) < (${}::timestamptz, ${}::uuid)",
+            values.len() - 1,
+            values.len()
+        ));
+        safe_offset = 0;
+    }
     let lp = values.len() + 1;
     values.push(Val::Int(safe_limit));
     values.push(Val::Int(safe_offset));
     let mut rows =
         s.db.json_rows(
             &format!(
-                "SELECT m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, \
-                   m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, \
-                   m.draft_in_reply_to, m.draft_references, m.draft_composition, m.date, m.is_read, \
-                   m.is_starred, m.has_attachments, m.account_id, m.category, \
-                   a.name as account_name, a.email_address as account_email, a.color as account_color \
-                 FROM messages m JOIN email_accounts a ON m.account_id = a.id \
-                 WHERE {where_} ORDER BY m.date DESC LIMIT ${lp} OFFSET ${}",
+                "SELECT {LIST_COLS} FROM messages m JOIN email_accounts a ON m.account_id = a.id \
+                 WHERE {page_where} ORDER BY m.date DESC, m.id DESC LIMIT ${lp} OFFSET ${}",
                 lp + 1
             ),
             &values,
         )
         .await?;
-    s.mail.hydrate_values(&mut rows).await;
+    s.mail.hydrate_list_values(&mut rows, LIST_META_BUDGET).await;
     mark_contact_photos(s, user_id, &mut rows, "from_email").await?;
     Ok((rows, total, false, resolved))
 }
 
+/// Columns of a (non-threaded) list row before hydration.
+const LIST_COLS: &str = "m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, \
+    m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, \
+    m.draft_in_reply_to, m.draft_references, m.draft_composition, m.date, m.is_read, \
+    m.is_starred, m.has_attachments, m.account_id, m.category, m.change_seq, \
+    a.name as account_name, a.email_address as account_email, a.color as account_color";
+
+/// How long a list waits for display fields missing from the cache before it answers with
+/// `meta_pending` rows (the fetch continues and the client asks again via `POST /mail/meta`).
+const LIST_META_BUDGET: Duration = Duration::from_millis(1500);
+
 /// Threaded rows carry their latest message; the thread's subject and sender come from its
-/// first message (`first_id`), whose headers are fetched alongside.
+/// first message (`first_id`), whose headers are fetched in the same pass.
 async fn hydrate_threads(s: &AppState, user_id: &str, rows: &mut [Value]) -> Result<()> {
-    s.mail.hydrate_values(rows).await;
     let firsts: Vec<String> = rows
         .iter()
         .filter(|r| r.get("first_id") != r.get("id"))
         .filter_map(|r| r.get("first_id").and_then(Value::as_str).map(str::to_owned))
         .collect();
-    let mut first_meta: HashMap<String, Map<String, Value>> = HashMap::new();
-    if !firsts.is_empty() {
-        let mut locs = s
-            .db
-            .json_rows("SELECT id, account_id, folder, uid FROM messages WHERE id = ANY($1::uuid[])", params![firsts])
-            .await?;
-        s.mail.hydrate_values(&mut locs).await;
-        for l in locs {
-            if let Value::Object(m) = l {
-                let id = m.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
-                first_meta.insert(id, m);
-            }
-        }
+    let locs = if firsts.is_empty() {
+        Vec::new()
+    } else {
+        s.db.json_rows("SELECT id, account_id, folder, uid FROM messages WHERE id = ANY($1::uuid[])", params![firsts])
+            .await?
+    };
+    let n = rows.len();
+    let mut all: Vec<Value> = rows.iter().cloned().chain(locs).collect();
+    s.mail.hydrate_list_values(&mut all, LIST_META_BUDGET).await;
+    let first_meta: HashMap<String, Map<String, Value>> = all
+        .split_off(n)
+        .into_iter()
+        .filter_map(|l| match l {
+            Value::Object(m) => Some((m.get("id").and_then(Value::as_str).unwrap_or_default().to_owned(), m)),
+            _ => None,
+        })
+        .collect();
+    for (slot, hydrated) in rows.iter_mut().zip(all) {
+        *slot = hydrated;
     }
     for r in rows.iter_mut() {
         let Some(row) = r.as_object_mut() else { continue };
@@ -225,6 +282,9 @@ async fn hydrate_threads(s: &AppState, user_id: &str, rows: &mut [Value]) -> Res
         if let Some(f) = first {
             for k in ["subject", "from_name", "from_email"] {
                 row.insert(k.into(), f.get(k).cloned().unwrap_or(Value::Null));
+            }
+            if f.get("meta_pending") == Some(&Value::Bool(true)) {
+                row.insert("meta_pending".into(), Value::Bool(true));
             }
         }
         row.remove("first_id");
@@ -284,6 +344,7 @@ pub async fn messages(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Respo
         query_string(&q, "unreadOnly").as_deref() == Some("true"),
         query_string(&q, "threaded").as_deref() == Some("true"),
         category.as_deref(),
+        parse_cursor(query_string(&q, "before").as_deref()),
     )
     .await?;
     tracing::info!(
@@ -297,7 +358,8 @@ pub async fn messages(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Respo
         let ghosts = messages
             .iter()
             .filter(|m| {
-                m.get("message_id").is_none_or(Value::is_null)
+                m.get("meta_pending") != Some(&Value::Bool(true))
+                    && m.get("message_id").is_none_or(Value::is_null)
                     && m.get("subject").and_then(Value::as_str).is_none_or(|s| s.is_empty() || s == "(no subject)")
                     && m.get("snippet").and_then(Value::as_str).is_none_or(str::is_empty)
             })
@@ -306,7 +368,8 @@ pub async fn messages(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Respo
             record_sync_signal("ghost_rows_served", Some(acc), Some(ghosts as f64));
         }
     }
-    let mut body = json!({ "messages": messages, "total": total });
+    let seq = current_change_seq(&s).await;
+    let mut body = json!({ "messages": messages, "total": total, "seq": seq });
     if threaded {
         body["threaded"] = json!(true);
     }
