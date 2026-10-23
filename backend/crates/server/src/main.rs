@@ -16,6 +16,8 @@ mod routes;
 mod services;
 mod state;
 mod tls;
+#[cfg(test)]
+mod upgrade_tests;
 mod ws;
 
 #[global_allocator]
@@ -76,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
         Some("verify") => inboxora_core::migrations::verify(&db, &migrations_dir).await?,
         _ => {
             inboxora_core::migrations::run(&db, &migrations_dir).await?;
+            services::compaction::run_once(&db).await;
             // The Node migration runner finishes with this backfill.
             let n = services::contact_backfill::backfill_rich_fields(&db).await?;
             if n > 0 {
@@ -110,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
     services::credentials::encrypt_existing(&db).await?;
     // OAuth app credentials configured in the admin UI override the environment.
     routes::integrations::load_integration_configs(&db).await;
-    services::auth::start_auth_event_pruning(db.clone());
+    services::retention::start(db.clone());
     // Remote DAV/iCalendar sync. During a side-by-side rollout only one backend should run
     // these schedulers: `BACKGROUND_SYNC=off` leaves them to the other process.
     if inboxora_core::config::env("BACKGROUND_SYNC").as_deref() != Some("off") {
@@ -121,7 +124,8 @@ async fn main() -> anyhow::Result<()> {
             tracing::warn!("External calendar scheduler start failed: {e}");
         }
     }
-    let mail = engine::Engine::new(db.clone(), events.clone());
+    let mail = engine::Engine::new(db.clone(), events.clone(), Some(redis.clone()));
+    services::remote_dav::init(redis.clone());
     let state = state::AppState {
         sessions: SessionStore::new(redis.clone(), &cfg.session_secret),
         cfg: cfg.clone(),
@@ -145,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
         mail: mail.clone(),
     };
     std::sync::LazyLock::force(&crate::routes::diagnostics::STARTED);
-    crate::services::conversation_ops::start_ingest_retry(state.db.clone());
+    crate::services::conversation_ops::start_ingest_retry(state.mail.clone());
     crate::services::calendar_invite::start_outbox_worker(state.db.clone());
     if inboxora_core::config::env("BACKGROUND_SYNC").as_deref() != Some("off") {
         mail.start();

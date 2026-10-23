@@ -18,6 +18,7 @@ use serde_json::{Map, Value, json};
 use crate::http::query::parse_int;
 use crate::http::{Auth, Body, Qs};
 use crate::routes::util::{empty, err, fail, json, ok, send_image};
+use crate::services::remote_dav;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -207,6 +208,16 @@ async fn list_books(State(s): State<AppState>, auth: Auth) -> Result<Response> {
         )
         .await
         .map_err(fail("Address book list error", "Failed to fetch address books"))?;
+    // CardDAV books are not stored; count their live contacts.
+    let mut rows = rows;
+    if rows.iter().any(|r| r.get("source").and_then(Value::as_str) == Some("carddav")) {
+        let live = remote_dav::contact_rows(&s.db, &auth.user_id, None).await;
+        for r in rows.iter_mut().filter(|r| r.get("source").and_then(Value::as_str) == Some("carddav")) {
+            let id = r.get("id").cloned();
+            let n = live.iter().filter(|c| c.get("address_book_id") == id.as_ref()).count();
+            r["contact_count"] = json!(n);
+        }
+    }
     Ok(ok(json!({ "addressBooks": rows })))
 }
 
@@ -319,6 +330,8 @@ async fn list(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response> 
         None => conditions.push("ab.visible = true".into()),
     }
     let where_ = conditions.join(" AND ");
+    let (relation, live) = remote_dav::contacts_relation(&s.db, &auth.user_id, p.len() + 1).await;
+    p.push(live);
     let n = p.len();
     let sql = format!(
         "SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name, c.primary_email, c.emails, c.phones, c.organization, \
@@ -326,7 +339,7 @@ async fn list(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response> 
          c.urls, c.addresses, c.instant_messages AS \"instantMessages\", c.categories, \
          c.address_book_id, ab.name AS address_book_name, c.is_auto, c.send_count, c.last_sent, \
          c.etag, c.created_at, c.updated_at, (c.photo_data IS NOT NULL) AS has_contact_photo, (ab.source = 'carddav') AS read_only \
-         FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id WHERE {where_} \
+         FROM {relation} c JOIN address_books ab ON ab.id = c.address_book_id WHERE {where_} \
          ORDER BY c.is_auto ASC, c.send_count DESC, lower(coalesce(c.display_name, c.primary_email, '')) ASC LIMIT ${} OFFSET ${}",
         n + 1,
         n + 2
@@ -339,7 +352,7 @@ async fn list(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response> 
         let total =
             s.db.opt(
                 &format!(
-                    "SELECT COUNT(*) FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id WHERE {where_}"
+                    "SELECT COUNT(*) FROM {relation} c JOIN address_books ab ON ab.id = c.address_book_id WHERE {where_}"
                 ),
                 &p,
             )
@@ -381,7 +394,10 @@ async fn photo(State(s): State<AppState>, auth: Auth, q: Qs) -> Response {
         .await;
     match row {
         Ok(Some(r)) => photo_response(&r.get::<_, String>(0)),
-        Ok(None) => empty(404),
+        Ok(None) => match remote_dav::contact_photo(&s.db, &auth.user_id, &email).await {
+            Some(p) => photo_response(&p),
+            None => empty(404),
+        },
         Err(e) => {
             tracing::error!("Contact photo error: {e}");
             empty(500)
@@ -485,12 +501,15 @@ async fn export_book(State(s): State<AppState>, auth: Auth, Path(id): Path<Strin
             return Ok(err(404, "Address book not found"));
         };
         let book_id = book["id"].as_str().unwrap_or("").to_owned();
+        let (relation, live) = remote_dav::contacts_relation(&s.db, &auth.user_id, 2).await;
         let rows = s
             .db
             .json_rows(
-                "SELECT uid, display_name, first_name, last_name, emails, phones, organization, title, notes FROM contacts \
-                 WHERE address_book_id = $1 ORDER BY lower(coalesce(display_name, primary_email, ''))",
-                params![&book_id],
+                &format!(
+                    "SELECT uid, display_name, first_name, last_name, emails, phones, organization, title, notes FROM {relation} c \
+                     WHERE address_book_id = $1 ORDER BY lower(coalesce(display_name, primary_email, ''))"
+                ),
+                &[Val::from(&book_id), live],
             )
             .await?;
         static NON_FILE: LazyLock<regex::Regex> =
@@ -617,6 +636,55 @@ fn empty_or_null(v: Option<&Value>) -> bool {
     }
 }
 
+/// A contact of a live CardDAV book in `get_one`'s shape (with its photo and vCard).
+async fn live_contact_detail(s: &AppState, user: &str, id: &str) -> Option<Map<String, Value>> {
+    let row = remote_dav::contact_rows(&s.db, user, None)
+        .await
+        .into_iter()
+        .find(|m| m.get("id").and_then(Value::as_str) == Some(id))?;
+    let g = |k: &str| row.get(k).cloned().unwrap_or(Value::Null);
+    let photo = match row.get("primary_email").and_then(Value::as_str) {
+        Some(email) if !g("photo_data").is_null() => remote_dav::contact_photo(&s.db, user, email).await,
+        _ => None,
+    };
+    let mut m = Map::new();
+    for k in [
+        "id",
+        "uid",
+        "display_name",
+        "first_name",
+        "last_name",
+        "primary_email",
+        "emails",
+        "phones",
+        "organization",
+        "notes",
+        "birthday",
+        "anniversary",
+        "title",
+        "role",
+        "nickname",
+        "urls",
+        "addresses",
+        "categories",
+        "is_auto",
+        "send_count",
+        "etag",
+        "vcard",
+    ] {
+        m.insert(k.into(), g(k));
+    }
+    m.insert("contactDates".into(), g("contact_dates"));
+    m.insert("instantMessages".into(), g("instant_messages"));
+    m.insert("googleFields".into(), Value::Null);
+    m.insert("photo_data".into(), json!(photo));
+    m.insert("last_sent".into(), Value::Null);
+    m.insert("created_at".into(), Value::Null);
+    m.insert("updated_at".into(), Value::Null);
+    m.insert("read_only".into(), json!(true));
+    Some(m)
+}
+
 async fn get_one(State(s): State<AppState>, auth: Auth, Path(id): Path<String>) -> Result<Response> {
     let run = async {
         let row = s
@@ -631,6 +699,10 @@ async fn get_one(State(s): State<AppState>, auth: Auth, Path(id): Path<String>) 
                 params![&id, &auth.user_id],
             )
             .await?;
+        let row = match row {
+            Some(r) => Some(r),
+            None => live_contact_detail(&s, &auth.user_id, &id).await,
+        };
         let Some(mut contact) = row else { return Ok(err(404, "Contact not found")) };
         if let Some(card) = contact.get("vcard").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned) {
             let parsed = serde_json::to_value(vcard::parse(&card)).unwrap_or(Value::Null);
@@ -824,7 +896,12 @@ async fn update(State(s): State<AppState>, auth: Auth, Path(id): Path<String>, b
                 params![&id, &auth.user_id],
             )
             .await?;
-        let Some(c) = cur else { return Ok(err(404, "Contact not found")) };
+        let Some(c) = cur else {
+            if remote_dav::is_live_contact(&s.db, &auth.user_id, &id).await {
+                return Ok(err(403, "This contact is synced from CardDAV and is read-only"));
+            }
+            return Ok(err(404, "Contact not found"));
+        };
         if c.get("book_source").and_then(Value::as_str) == Some("carddav") {
             return Ok(err(403, "This contact is synced from CardDAV and is read-only"));
         }
@@ -995,7 +1072,12 @@ async fn remove(State(s): State<AppState>, auth: Auth, Path(id): Path<String>) -
                 params![&id, &auth.user_id],
             )
             .await?;
-        let Some(owner) = owner else { return Ok(err(404, "Contact not found")) };
+        let Some(owner) = owner else {
+            if remote_dav::is_live_contact(&s.db, &auth.user_id, &id).await {
+                return Ok(err(403, "This contact is synced from CardDAV and is read-only"));
+            }
+            return Ok(err(404, "Contact not found"));
+        };
         if owner.get("source").and_then(Value::as_str) == Some("carddav") {
             return Ok(err(403, "This contact is synced from CardDAV and is read-only"));
         }

@@ -1,5 +1,5 @@
 //! Background catch-up: per-folder backfill on a dedicated connection, bulk-flag refresh,
-//! auto-learned contacts, the snippet indexer and body prefetch.
+//! auto-learned contacts and body cache warming.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -13,10 +13,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::connect::{Account, SlotGuard, load_account};
-use super::parse::{clean, parse_message};
+
 use super::policy::*;
 use super::sync::{Ingested, ingest_query, recount_folder};
-use super::{EResult, Engine, EngineError, now_ms};
+use super::{EResult, Engine, EngineError};
 
 async fn sleep_ms(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
@@ -288,8 +288,6 @@ impl Engine {
         self.broadcast(json!({ "type": "backfill_all_complete", "accountId": account.id() }), Some(account.user_id()));
         let (e, a) = (self.clone(), account.clone());
         tokio::spawn(async move { e.refresh_bulk_flags(&a).await });
-        let (e, a) = (self.clone(), account.clone());
-        tokio::spawn(async move { e.start_snippet_indexer(&a).await });
     }
 
     /// `refreshBulkFlags`: evaluate list headers for rows whose `is_bulk` is still unknown.
@@ -414,272 +412,18 @@ impl Engine {
         }
     }
 
-    /// `startSnippetIndexer`: fill missing snippets from body parts, newest first, with a
-    /// host-level circuit breaker.
-    pub async fn start_snippet_indexer(self: &Arc<Self>, account: &Account) {
-        let cfg = account.profile();
-        if !cfg.snippet_index {
-            return;
-        }
-        let host = account.host();
-        if self.st.lock().snippet_backoff.get(&host).is_some_and(|(_, until)| now_ms() < *until) {
-            return;
-        }
-        let Some(_running) = self.claim(|s| &mut s.snippet_running, account.id()) else { return };
-        const BATCH: i64 = 50;
-        const MAX_BATCHES: usize = 200;
-        let batch_delay = cfg.batch_delay_ms.max(2000);
-        let mut batches = 0usize;
-        let mut failed = false;
-        let mut refused = false;
-        let mut client: Option<Client> = None;
-        let mut slot: Option<SlotGuard<'_>> = None;
-        let run: EResult<()> = async {
-            let missing: i64 = self
-                .db
-                .opt(
-                    "SELECT count(*) AS count FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
-                    params![account.id()],
-                )
-                .await?
-                .map_or(0, |r| r.get("count"));
-            if missing == 0 {
-                return Ok(());
-            }
-            tracing::debug!("Snippet indexer: {} has {missing} messages without snippets", account.log());
-            slot = Some(SlotGuard::acquire(&self.bg_sem, &host).await);
-            client = Some(self.open_snippet_client(account).await?);
-            let folders = self
-                .db
-                .rows(
-                    "SELECT folder, count(*) AS cnt FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL \
-                     GROUP BY folder ORDER BY cnt DESC",
-                    params![account.id()],
-                )
-                .await?;
-            let mut consecutive_errors = 0u32;
-            for f in folders {
-                let folder: String = f.get("folder");
-                loop {
-                    if self.db.opt("SELECT id FROM email_accounts WHERE id = $1", params![account.id()]).await?.is_none() {
-                        return Ok(());
-                    }
-                    if batches > 0 && batches.is_multiple_of(20) {
-                        if let Some(mut c) = client.take() {
-                            c.logout().await;
-                        }
-                        match self.open_snippet_client(account).await {
-                            Ok(c) => client = Some(c),
-                            Err(e) => tracing::error!("Snippet indexer reconnect failed: {e}"),
-                        }
-                    }
-                    if batches >= MAX_BATCHES {
-                        let remaining: i64 = self
-                            .db
-                            .opt(
-                                "SELECT count(*) AS count FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
-                                params![account.id()],
-                            )
-                            .await?
-                            .map_or(0, |r| r.get("count"));
-                        tracing::info!(
-                            "Snippet indexer paused for {} after {batches} batches — {remaining} remaining, will resume on next startup",
-                            account.log()
-                        );
-                        return Ok(());
-                    }
-                    let uids: Vec<i64> = self
-                        .db
-                        .rows(
-                            "SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL \
-                             ORDER BY date DESC LIMIT $3",
-                            params![account.id(), &folder, BATCH],
-                        )
-                        .await?
-                        .iter()
-                        .map(|r| r.get::<_, i64>("uid"))
-                        .collect();
-                    if uids.is_empty() {
-                        break;
-                    }
-                    let attempt: EResult<()> = async {
-                        let c = client.as_mut().ok_or_else(|| EngineError("Snippet indexer client is not connected".into()))?;
-                        c.select(&folder).await?;
-                        let set = uids.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
-                        let q = FetchQuery {
-                            uid: true,
-                            envelope: true,
-                            body_structure: true,
-                            body_parts: BODY_PREFETCH_PARTS.iter().map(|s| (*s).to_owned()).collect(),
-                            ..Default::default()
-                        };
-                        for msg in c.fetch(&set, &q, true, None).await? {
-                            let parsed = parse_message(&msg);
-                            if !parsed.snippet.is_empty() {
-                                let _ = self
-                                    .db
-                                    .exec(
-                                        "UPDATE messages SET snippet = $1 WHERE account_id = $2 AND uid = $3 AND folder = $4 AND (snippet IS NULL OR snippet = '')",
-                                        params![clean(&parsed.snippet), account.id(), i64::from(parsed.uid), &folder],
-                                    )
-                                    .await;
-                            }
-                        }
-                        self.db
-                            .exec(
-                                "UPDATE messages SET snippet_attempted_at = NOW() WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[]) \
-                                 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
-                                params![account.id(), &folder, uids.clone()],
-                            )
-                            .await?;
-                        Ok(())
-                    }
-                    .await;
-                    match attempt {
-                        Ok(()) => {
-                            batches += 1;
-                            consecutive_errors = 0;
-                        }
-                        Err(e) => {
-                            consecutive_errors += 1;
-                            tracing::error!("Snippet indexer batch error {}/{folder}: {e}", account.log());
-                            if is_connection_refusal(&e.0) {
-                                failed = true;
-                                refused = true;
-                                tracing::info!("Snippet indexer backing off {} — provider refusing connections (at limit)", account.log());
-                                return Ok(());
-                            }
-                            sleep_ms(cfg.error_delay_ms).await;
-                            if consecutive_errors >= 3 {
-                                failed = true;
-                                tracing::info!(
-                                    "Snippet indexer aborting for {} after {consecutive_errors} consecutive errors — will resume on next startup",
-                                    account.log()
-                                );
-                                return Ok(());
-                            }
-                            if let Some(mut c) = client.take() {
-                                c.close();
-                            }
-                            client = Some(self.open_snippet_client(account).await?);
-                        }
-                    }
-                    let quiet = now_ms().saturating_sub(self.st.lock().last_user_activity.get(account.id()).copied().unwrap_or(0));
-                    let extra = QUIET_WINDOW_MS.saturating_sub(quiet);
-                    sleep_ms(batch_delay + extra).await;
-                }
-            }
-            tracing::info!("Snippet indexer complete for {} ({batches} batches)", account.log());
-            Ok(())
-        }
-        .await;
-        if let Err(e) = run {
-            failed = true;
-            tracing::error!("Snippet indexer error {}: {e}", account.log());
-        }
-        if let Some(mut c) = client {
-            c.logout().await;
-        }
-        drop(slot);
-        let mut st = self.st.lock();
-        if refused || (failed && batches == 0) {
-            let failures = st.snippet_backoff.get(&host).map_or(0, |b| b.0) + 1;
-            let delay = (SNIPPET_BACKOFF_BASE_MS * 2u64.pow((failures - 1).min(10))).min(SNIPPET_BACKOFF_MAX_MS);
-            st.snippet_backoff.insert(host, (failures, now_ms() + delay));
-            tracing::info!(
-                "Snippet indexer backing off {} for {}m (failure #{failures})",
-                account.log(),
-                delay / 60_000
-            );
-        } else {
-            st.snippet_backoff.remove(&host);
-        }
-    }
-
-    async fn open_snippet_client(&self, account: &Account) -> EResult<Client> {
-        let row = load_account(&self.db, account.id()).await?.ok_or_else(|| EngineError("Account deleted".into()))?;
-        Ok(self.open_client(&row, "Snippet indexer connect").await?.1)
-    }
-
-    /// Cache a fetched body for a message row (shared by both prefetch paths).
-    async fn store_prefetched_body(
-        self: &Arc<Self>,
-        account: &Account,
-        id: Uuid,
-        uid: i64,
-        folder: &str,
-    ) -> EResult<()> {
-        if self
-            .db
-            .opt(
-                "SELECT id FROM messages WHERE id = $1 AND (body_html IS NOT NULL OR body_text IS NOT NULL)",
-                params![id],
-            )
-            .await?
-            .is_some()
-        {
-            return Ok(());
-        }
-        let body = self.fetch_message_body(account, uid, folder).await?;
-        let safe = body.html.as_deref().map(inboxora_mail::sanitize::sanitize_email).filter(|s| !s.is_empty());
-        if safe.is_some() || body.text.is_some() {
-            let source = body.text.clone().or_else(|| safe.clone()).unwrap_or_default();
-            let fallback =
-                if body.text.is_none() { body.html.clone() } else { safe.clone().or_else(|| body.html.clone()) };
-            let snip = inboxora_mail::snippet::snippet_from_body(&source, fallback.as_deref());
-            self.db
-                .exec(
-                    "UPDATE messages SET body_html = $1, body_text = $2, attachments = $3, snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END WHERE id = $4",
-                    params![
-                        safe.as_deref().map(clean),
-                        body.text.as_deref().map(clean),
-                        serde_json::Value::Array(body.attachments.iter().map(super::mime::AttachmentRef::to_json).collect()).to_string(),
-                        id,
-                        clean(&snip)
-                    ],
-                )
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// `prefetchNewMessageBodies`.
+    /// `prefetchNewMessageBodies`: warm the body cache for just-arrived mail, so opening it (or a
+    /// notification) doesn't wait on IMAP.
     pub async fn prefetch_new_message_bodies(self: &Arc<Self>, account: &Account, messages: &[(Uuid, i64, String)]) {
         for (id, uid, folder) in messages {
-            if let Err(e) = self.store_prefetched_body(account, *id, *uid, folder).await {
+            let loc = super::cache::Location {
+                id: *id,
+                account_id: account.id().to_owned(),
+                folder: folder.clone(),
+                uid: *uid,
+            };
+            if let Err(e) = self.message_body(&loc).await {
                 tracing::warn!("Body prefetch failed for uid {uid}: {e}");
-            }
-        }
-    }
-
-    /// `prefetchFolderBodies`: warm bodies of listed messages, yielding to user activity.
-    pub async fn prefetch_folder_bodies(self: &Arc<Self>, account_id: &str, ids: &[String]) {
-        if ids.is_empty() {
-            return;
-        }
-        let Ok(Some(account)) = load_account(&self.db, account_id).await else { return };
-        if !account.profile().snippet_index {
-            return;
-        }
-        let Ok(rows) = self
-            .db
-            .rows(
-                "SELECT id, uid, folder FROM messages WHERE id = ANY($1::uuid[]) AND body_html IS NULL AND body_text IS NULL",
-                params![ids.to_vec()],
-            )
-            .await
-        else {
-            return;
-        };
-        for r in rows {
-            let quiet =
-                now_ms().saturating_sub(self.st.lock().last_user_activity.get(account_id).copied().unwrap_or(0));
-            if quiet < QUIET_WINDOW_MS {
-                sleep_ms(QUIET_WINDOW_MS - quiet).await;
-            }
-            let (id, uid, folder): (Uuid, i64, String) = (r.get("id"), r.get("uid"), r.get("folder"));
-            if let Err(e) = self.store_prefetched_body(&account, id, uid, &folder).await {
-                tracing::warn!("Folder body prefetch failed for uid {uid}: {e}");
             }
         }
     }

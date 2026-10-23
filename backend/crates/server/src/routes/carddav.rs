@@ -53,6 +53,10 @@ struct Book {
     name: Option<String>,
     sync_token: Option<String>,
     sync_version: i64,
+    sync_floor: i64,
+    source: Option<String>,
+    /// A CardDAV-synced book's cards, served live (never stored).
+    live: Option<Vec<Card>>,
 }
 
 impl Book {
@@ -62,19 +66,60 @@ impl Book {
             name: r.get("name"),
             sync_token: r.get("sync_token"),
             sync_version: r.try_get::<_, i64>("sync_version").unwrap_or(0),
+            sync_floor: r.try_get::<_, i64>("sync_floor").unwrap_or(0),
+            source: r.try_get::<_, Option<String>>("source").ok().flatten(),
+            live: None,
         }
     }
 
+    /// Fill in the live cards of a CardDAV-synced book.
+    async fn with_live(mut self, s: &AppState, user_id: &str) -> Self {
+        if self.source.as_deref() == Some("carddav") {
+            let id = self.id.to_string();
+            let cards = crate::services::remote_dav::contact_cards(&s.db, user_id, Some(&id)).await;
+            self.live = Some(
+                cards
+                    .iter()
+                    .map(|(_, c)| {
+                        let f = crate::services::dav_sync::contact_fields(&c.vcard, &c.href);
+                        let name = UP_TO_SLASH.replace(js_trim(&c.href), "");
+                        Card {
+                            uid: f.get("uid").and_then(serde_json::Value::as_str).map(str::to_owned),
+                            dav_filename: dav::decode_uri_component(&name).filter(|n| !n.is_empty()),
+                            etag: Some(c.etag.replace('"', "")).filter(|e| !e.is_empty()),
+                            vcard: Some(c.vcard.clone()),
+                            deleted: false,
+                        }
+                    })
+                    .collect(),
+            );
+        }
+        self
+    }
+
+    /// A live book's version: changes with any card's etag (or the set of cards).
+    fn live_version(&self) -> Option<String> {
+        let cards = self.live.as_ref()?;
+        let mut parts: Vec<String> =
+            cards.iter().map(|c| format!("{}:{}", c.filename(), c.etag.as_deref().unwrap_or(""))).collect();
+        parts.sort();
+        Some(format!("live-{}", &inboxora_core::crypto::sha256_hex(parts.join("\n"))[..16]))
+    }
+
     fn token(&self) -> String {
-        format!("urn:inboxora:carddav:{}:{}", self.id, self.sync_version)
+        match self.live_version() {
+            Some(v) => format!("urn:inboxora:carddav:{}:{v}", self.id),
+            None => format!("urn:inboxora:carddav:{}:{}", self.id, self.sync_version),
+        }
     }
 
     fn props(&self) -> Vec<String> {
+        let ctag = self.live_version().or_else(|| self.sync_token.clone());
         vec![
             "<D:resourcetype><D:collection/><C:addressbook/></D:resourcetype>".into(),
             format!("<D:displayname>{}</D:displayname>", xml_escape(self.name.as_deref())),
             format!("<D:sync-token>{}</D:sync-token>", xml_escape(Some(&self.token()))),
-            format!("<CS:getctag>{}</CS:getctag>", xml_escape(self.sync_token.as_deref())),
+            format!("<CS:getctag>{}</CS:getctag>", xml_escape(ctag.as_deref())),
         ]
     }
 }
@@ -97,6 +142,7 @@ fn propstat(props: &[String], status: &str) -> String {
 const NOT_FOUND_STATUS: &str = "<D:status>HTTP/1.1 404 Not Found</D:status>";
 
 /// A card row from any of the listing queries (columns a query lacks read as absent).
+#[derive(Clone)]
 struct Card {
     uid: Option<String>,
     dav_filename: Option<String>,
@@ -207,7 +253,7 @@ async fn propfind_user(s: &AppState, user_id: &str, param: &str, headers: &Heade
     let principal_path = format!("/carddav/{user_id}/");
     let rows =
         s.db.rows(
-            "SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at",
+            "SELECT id, name, sync_token, sync_version, source FROM address_books WHERE user_id = $1 ORDER BY created_at",
             params![user_id],
         )
         .await?;
@@ -227,6 +273,7 @@ async fn propfind_user(s: &AppState, user_id: &str, param: &str, headers: &Heade
     )];
     if !depth_is_zero(headers) {
         for book in rows.iter().map(Book::from_row) {
+            let book = book.with_live(s, user_id).await;
             out.push(response(&format!("/carddav/{user_id}/{}/", book.id), &[propstat(&book.props(), "200 OK")]));
         }
     }
@@ -235,7 +282,10 @@ async fn propfind_user(s: &AppState, user_id: &str, param: &str, headers: &Heade
 
 async fn load_book(s: &AppState, book_id: &str, user_id: &str) -> Result<Option<Book>> {
     let row = s.db.opt("SELECT * FROM address_books WHERE id = $1 AND user_id = $2", params![book_id, user_id]).await?;
-    Ok(row.as_ref().map(Book::from_row))
+    Ok(match row.as_ref().map(Book::from_row) {
+        Some(b) => Some(b.with_live(s, user_id).await),
+        None => None,
+    })
 }
 
 fn card_props(c: &Card, with_data: bool) -> Vec<String> {
@@ -258,12 +308,19 @@ async fn propfind_book(s: &AppState, user_id: &str, u: &str, b: &str, headers: &
     let book_path = format!("/carddav/{user_id}/{}/", book.id);
     let mut out = vec![response(&book_path, &[propstat(&book.props(), "200 OK")])];
     if !depth_is_zero(headers) {
-        let rows =
-            s.db.rows("SELECT uid, dav_filename, etag FROM contacts WHERE address_book_id = $1", params![book.id])
-                .await?;
-        for c in rows.iter().map(Card::from_row) {
+        let cards: Vec<Card> = match &book.live {
+            Some(live) => live.clone(),
+            None => {
+                s.db.rows("SELECT uid, dav_filename, etag FROM contacts WHERE address_book_id = $1", params![book.id])
+                    .await?
+                    .iter()
+                    .map(Card::from_row)
+                    .collect()
+            }
+        };
+        for c in &cards {
             let href = format!("{book_path}{}", encode_uri_component(&c.filename()));
-            out.push(response(&href, &[propstat(&card_props(&c, false), "200 OK")]));
+            out.push(response(&href, &[propstat(&card_props(c, false), "200 OK")]));
         }
     }
     Ok(send_xml(207, multistatus(&out)))
@@ -299,17 +356,28 @@ async fn report(s: &AppState, user_id: &str, u: &str, b: &str, req: Request) -> 
     }
     let mut cards: Option<Vec<Card>> = None;
     let mut filenames: Vec<String> = Vec::new();
-    if is_sync {
+    if is_sync && book.live.is_some() {
+        // No stored history for a live book: an outdated token means a full resync.
+        let token = SYNC_TOKEN.captures(&body).map(|c| js_trim(c.get(1).map_or("", |m| m.as_str())).to_owned());
+        match token.filter(|t| !t.is_empty()) {
+            Some(t) if t == book.token() => cards = Some(Vec::new()),
+            Some(_) => return Ok(invalid_sync_token()),
+            None => {}
+        }
+    } else if is_sync {
         let token = SYNC_TOKEN.captures(&body).map(|c| js_trim(c.get(1).map_or("", |m| m.as_str())).to_owned());
         if let Some(token) = token.filter(|t| !t.is_empty()) {
             let prefix = format!("urn:inboxora:carddav:{}:", book.id);
             let version = token.strip_prefix(&prefix).and_then(safe_version);
-            let Some(version) = version.filter(|v| *v <= book.sync_version) else { return Ok(invalid_sync_token()) };
+            let Some(version) = version.filter(|v| *v <= book.sync_version && *v >= book.sync_floor) else {
+                return Ok(invalid_sync_token());
+            };
             let rows =
                 s.db.rows(
-                    "SELECT DISTINCT ON (filename) filename AS dav_filename, etag, vcard, deleted \
-                     FROM contact_sync_changes WHERE address_book_id = $1 AND version > $2 AND version <= $3 \
-                     ORDER BY filename, version DESC",
+                    "SELECT ch.filename AS dav_filename, c.uid, c.etag, c.vcard, (ch.deleted OR c.id IS NULL) AS deleted \
+                     FROM contact_sync_changes ch LEFT JOIN contacts c \
+                       ON c.address_book_id = ch.address_book_id AND COALESCE(c.dav_filename, c.uid || '.vcf') = ch.filename \
+                     WHERE ch.address_book_id = $1 AND ch.version > $2 AND ch.version <= $3 ORDER BY ch.filename",
                     params![book.id, version, book.sync_version],
                 )
                 .await?;
@@ -328,18 +396,24 @@ async fn report(s: &AppState, user_id: &str, u: &str, b: &str, req: Request) -> 
         if filenames.is_empty() {
             return Ok(empty(400));
         }
-        let rows = s
-            .db
-            .rows(
-                "SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = ANY($2)",
-                &[Val::from(book.id), Val::from(filenames.clone())],
-            )
-            .await?;
-        cards = Some(rows.iter().map(Card::from_row).collect());
+        cards = Some(match &book.live {
+            Some(live) => live.iter().filter(|c| filenames.contains(&c.filename())).cloned().collect(),
+            None => s
+                .db
+                .rows(
+                    "SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = ANY($2)",
+                    &[Val::from(book.id), Val::from(filenames.clone())],
+                )
+                .await?
+                .iter()
+                .map(Card::from_row)
+                .collect(),
+        });
     }
-    let cards = match cards {
-        Some(c) => c,
-        None => s
+    let cards = match (cards, &book.live) {
+        (Some(c), _) => c,
+        (None, Some(live)) => live.clone(),
+        (None, None) => s
             .db
             .rows("SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1", params![book.id])
             .await?
@@ -386,7 +460,16 @@ async fn get_card(s: &AppState, user_id: &str, u: &str, b: &str, filename: &str)
             params![b, user_id, filename],
         )
         .await?;
-    let Some(row) = row else { return Ok(empty(404)) };
+    let Some(row) = row else {
+        let live = match load_book(s, b, user_id).await? {
+            Some(book) => book.live.unwrap_or_default(),
+            None => Vec::new(),
+        };
+        return Ok(match live.iter().find(|c| c.filename() == filename) {
+            Some(c) => send_with_etag("text/vcard; charset=utf-8", c.etag.as_deref(), c.vcard.clone()),
+            None => empty(404),
+        });
+    };
     let etag: Option<String> = row.get("etag");
     Ok(send_with_etag("text/vcard; charset=utf-8", etag.as_deref(), row.get("vcard")))
 }

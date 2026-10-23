@@ -212,9 +212,9 @@ async fn recategorize(State(s): State<AppState>, auth: Auth, Path(account_id): P
     if row.is_none() {
         return Ok(err(404, "Account not found or categorization not enabled"));
     }
-    let (db, user) = (s.db.clone(), auth.user_id.clone());
+    let (engine, user) = (s.mail.clone(), auth.user_id.clone());
     tokio::spawn(async move {
-        match categorizer::backfill_categories(&db, &account_id, &user).await {
+        match categorizer::backfill_categories(&engine, &account_id, &user).await {
             Ok(n) => tracing::info!("Re-categorization complete: {n} messages for account {account_id}"),
             Err(e) => tracing::error!("Re-categorization error for account {account_id}: {e}"),
         }
@@ -228,12 +228,13 @@ async fn ai_classify(State(s): State<AppState>, auth: Auth, Path(message_id): Pa
     }
     let row =
         s.db.json_opt(
-            "SELECT m.subject, m.from_email, m.snippet FROM messages m JOIN email_accounts a ON m.account_id = a.id \
+            "SELECT m.id, m.account_id, m.folder, m.uid FROM messages m JOIN email_accounts a ON m.account_id = a.id \
              WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false",
             params![&message_id, &auth.user_id],
         )
         .await?;
-    let Some(msg) = row else { return Ok(err(404, "Message not found")) };
+    let Some(mut msg) = row else { return Ok(err(404, "Message not found")) };
+    s.mail.hydrate_rows(std::slice::from_mut(&mut msg)).await;
     let category = crate::services::ai::classify_message(&s, &msg).await;
     let Some(category) = category else { return Ok(err(503, "AI classification unavailable or failed")) };
     s.db.exec(

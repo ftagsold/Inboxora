@@ -166,26 +166,38 @@ pub fn classify_message(headers: &Headers, from_email: Option<&str>, social: &Ha
 }
 
 /// `backfillCategories`: social/newsletter categories for uncategorised messages.
-pub async fn backfill_categories(db: &Db, account_id: &str, user_id: &str) -> Result<u64> {
+pub async fn backfill_categories(engine: &crate::engine::EngineRef, account_id: &str, user_id: &str) -> Result<u64> {
+    let db = &engine.db;
     let social = load_social_domains(db, user_id).await?;
     const BATCH: i64 = 500;
-    let mut offset = 0;
+    // Keyset paging: rows that get a category leave the `category IS NULL` set, so an OFFSET
+    // would skip the rows behind them.
+    let mut after: Option<(String, String)> = None;
     let mut processed = 0u64;
     loop {
         let rows = db
-            .rows(
-                "SELECT id, from_email, is_bulk FROM messages WHERE account_id = $1 AND category IS NULL AND is_deleted = false \
-                 ORDER BY date DESC LIMIT $2 OFFSET $3",
-                params![account_id, BATCH, offset],
+            .json_rows(
+                "SELECT id, account_id, folder, uid, is_bulk, date::text AS sort_date FROM messages \
+                 WHERE account_id = $1 AND category IS NULL AND is_deleted = false \
+                   AND ($3::timestamptz IS NULL OR (date, id) < ($3::timestamptz, $4::uuid)) \
+                 ORDER BY date DESC, id DESC LIMIT $2",
+                params![account_id, BATCH, after.as_ref().map(|a| a.0.clone()), after.as_ref().map(|a| a.1.clone())],
             )
             .await?;
         if rows.is_empty() {
             break;
         }
+        after = rows
+            .last()
+            .and_then(|r| Some((r.get("sort_date")?.as_str()?.to_owned(), r.get("id")?.as_str()?.to_owned())));
+        let locs: Vec<crate::engine::cache::Location> =
+            rows.iter().filter_map(|r| r.as_object().and_then(crate::engine::cache::Location::from_row)).collect();
+        // Only the social check needs the sender; skip the fetch when there are no social domains.
+        let senders = if social.is_empty() { Default::default() } else { engine.message_senders(&locs).await };
         let (mut ids, mut cats): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
-        for r in &rows {
-            let from: Option<String> = r.get(1);
-            let bulk: Option<bool> = r.get(2);
+        for (r, loc) in rows.iter().zip(&locs) {
+            let from: Option<String> = senders.get(&loc.id).map(|(e, _)| e.clone());
+            let bulk: Option<bool> = r.get("is_bulk").and_then(serde_json::Value::as_bool);
             let mut category = "primary";
             if let Some(f) = from.filter(|f| !f.is_empty())
                 && !social.is_empty()
@@ -199,7 +211,7 @@ pub async fn backfill_categories(db: &Db, account_id: &str, user_id: &str) -> Re
                 category = "newsletter";
             }
             if category != "primary" {
-                ids.push(r.get::<_, uuid::Uuid>(0).to_string());
+                ids.push(loc.id.to_string());
                 cats.push(category.to_owned());
             }
         }
@@ -211,8 +223,7 @@ pub async fn backfill_categories(db: &Db, account_id: &str, user_id: &str) -> Re
             .await?;
         }
         processed += rows.len() as u64;
-        offset += BATCH;
-        if (rows.len() as i64) < BATCH {
+        if (rows.len() as i64) < BATCH || after.is_none() {
             break;
         }
     }

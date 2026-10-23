@@ -9,12 +9,14 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use inboxora_core::pg::{Q, Val};
 use inboxora_core::{Error, Result, params};
-use inboxora_mail::sanitize::{block_remote_images, has_remote_images, sanitize_email, should_block_remote_images};
+use inboxora_mail::sanitize::{block_remote_images, has_remote_images, should_block_remote_images};
 use inboxora_mail::util::normalize_message_id;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::is_uuid;
+use crate::engine::cache::Location;
+use crate::engine::search::FolderScope;
 use crate::http::{Auth, Body, Qs};
 use crate::routes::util::{err, json as respond, ok};
 use crate::services::conversation::resolve_alias;
@@ -110,11 +112,25 @@ pub async fn list(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response>
         entry.push(format!("COALESCE(m_entry.category, 'primary') = ${}", values.len()));
     }
     if let Some(term) = q.str("search").map(str::trim).filter(|t| !t.is_empty()) {
-        values.push(format!("%{term}%").into());
-        let n = values.len();
-        entry.push(format!(
-            "(m_entry.subject ILIKE ${n} OR m_entry.snippet ILIKE ${n} OR m_entry.from_email ILIKE ${n})"
-        ));
+        let accounts: Vec<String> = match account {
+            Some(acc) => vec![acc.to_owned()],
+            None => {
+                s.db.rows("SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true", params![user])
+                    .await?
+                    .iter()
+                    .map(|r| r.get::<_, Uuid>(0).to_string())
+                    .collect()
+            }
+        };
+        let scope = match folder {
+            Some(f) => FolderScope::Exact(f.to_owned()),
+            None => FolderScope::AllButTrash,
+        };
+        let criteria = format!("TEXT {}", inboxora_imap::quote(term));
+        let ids: Vec<String> =
+            s.mail.search_ids(&accounts, &scope, &criteria, 1000).await.iter().map(Uuid::to_string).collect();
+        values.push(ids.into());
+        entry.push(format!("m_entry.id = ANY(${}::uuid[])", values.len()));
     }
     let mut cursor_filter = String::new();
     if let Some((date, id)) = cursor {
@@ -134,7 +150,7 @@ pub async fn list(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response>
         None => "CASE WHEN m_copy.folder = 'INBOX' THEN 0 WHEN LOWER(m_copy.folder) = 'sent' THEN 1 ELSE 2 END,".into(),
     };
     let sql = format!(
-        "SELECT c.id AS conversation_id, c.account_id, c.kind, c.canonical_subject,
+        "SELECT c.id AS conversation_id, c.account_id, c.kind,
            COUNT(*) OVER()::int AS total_count,
            MIN(m.date) AS first_message_at, MAX(m.date) AS last_message_at,
            COUNT(DISTINCT m.logical_message_id)::int AS logical_message_count,
@@ -148,17 +164,14 @@ pub async fn list(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response>
            top_latest.direction IN ('outgoing', 'self') AS latest_message_is_mine,
            COALESCE(preview.logical_messages, '[]'::jsonb) AS logical_messages,
            top_latest.id AS latest_copy_id,
-           top_latest.folder AS folder, top_latest.date AS date,
-           top_latest.subject AS subject, top_latest.snippet AS snippet,
-           top_latest.from_name AS from_name, top_latest.from_email AS from_email,
+           top_latest.folder AS folder, top_latest.date AS date, top_latest.uid AS latest_uid,
            top_latest.is_read AS is_read, top_latest.is_starred AS latest_copy_is_starred,
            top_latest.has_attachments AS latest_copy_has_attachments
       FROM conversations c
       JOIN email_accounts a ON a.id = c.account_id AND a.user_id = $1
       JOIN messages m ON m.conversation_id = c.id AND m.account_id = c.account_id AND m.is_deleted = false
       LEFT JOIN LATERAL (
-        SELECT m_copy.id, m_copy.folder, m_copy.date, m_copy.subject, m_copy.snippet,
-               m_copy.from_name, m_copy.from_email, m_copy.is_read, m_copy.is_starred,
+        SELECT m_copy.id, m_copy.folder, m_copy.uid, m_copy.date, m_copy.is_read, m_copy.is_starred,
                m_copy.has_attachments, lm.direction
           FROM logical_messages lm
           JOIN messages m_copy ON m_copy.logical_message_id = lm.id
@@ -170,26 +183,22 @@ pub async fn list(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response>
       ) top_latest ON true
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(jsonb_build_object(
-          'id', logical_preview.id, 'subject', logical_preview.subject,
-          'canonicalSubject', logical_preview.canonical_subject,
+          'id', logical_preview.id,
           'direction', logical_preview.direction, 'messageDate', logical_preview.message_date,
-          'snippet', logical_preview.snippet, 'fromName', logical_preview.from_name,
-          'fromEmail', logical_preview.from_email, 'unread', logical_preview.unread,
+          'uid', logical_preview.uid, 'unread', logical_preview.unread,
           'accountId', logical_preview.account_id,
           'hasAttachments', logical_preview.has_attachments,
           'latestCopyId', logical_preview.copy_id, 'folder', logical_preview.folder,
           'isLatest', logical_preview.id = top_latest_logical.id
         ) ORDER BY logical_preview.message_date ASC NULLS LAST, logical_preview.id) AS logical_messages
         FROM (
-          SELECT lm.id, lm.subject, lm.canonical_subject, lm.direction, lm.message_date,
-                 preferred_copy.id AS copy_id, preferred_copy.folder, preferred_copy.snippet,
-                 preferred_copy.from_name, preferred_copy.from_email, preferred_copy.account_id,
+          SELECT lm.id, lm.direction, lm.message_date,
+                 preferred_copy.id AS copy_id, preferred_copy.folder, preferred_copy.uid, preferred_copy.account_id,
                  COALESCE(preferred_copy.has_attachments, false) AS has_attachments,
                  COALESCE(NOT preferred_copy.is_read, false) AS unread
             FROM logical_messages lm
             LEFT JOIN LATERAL (
-              SELECT m_copy.id, m_copy.folder, m_copy.snippet, m_copy.from_name,
-                     m_copy.from_email, m_copy.account_id, m_copy.has_attachments, m_copy.is_read
+              SELECT m_copy.id, m_copy.folder, m_copy.uid, m_copy.account_id, m_copy.has_attachments, m_copy.is_read
                 FROM messages m_copy
                WHERE m_copy.logical_message_id = lm.id
                  AND m_copy.conversation_id = c.id
@@ -213,8 +222,7 @@ pub async fn list(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response>
        AND EXISTS (SELECT 1 FROM messages m_entry WHERE {entry})
        AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.account_id = c.account_id AND ca.alias_conversation_id = c.id)
        {cursor_filter}
-     GROUP BY c.id, top_latest.id, top_latest.folder, top_latest.date, top_latest.subject,
-              top_latest.snippet, top_latest.from_name, top_latest.from_email,
+     GROUP BY c.id, top_latest.id, top_latest.folder, top_latest.date, top_latest.uid,
               top_latest.is_read, top_latest.is_starred, top_latest.has_attachments,
               top_latest.direction, preview.logical_messages
      ORDER BY COALESCE(MAX(m.date), c.created_at) DESC, c.id DESC
@@ -223,6 +231,7 @@ pub async fn list(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response>
         entry = entry.join(" AND "),
     );
     let mut rows = s.db.json_rows(&sql, &values).await?;
+    hydrate_conversation_rows(&s, &mut rows).await;
     for row in &mut rows {
         if let Value::Object(m) = row {
             let latest = m.get("latest_copy_id").cloned().unwrap_or(Value::Null);
@@ -252,22 +261,18 @@ pub async fn detail(State(s): State<AppState>, a: Auth, Path(id): Path<String>) 
     let Some((account, canonical)) = owned(&s, &a.user_id, &id).await? else {
         return Ok(err(404, "Conversation not found"));
     };
-    let rows = s
+    let mut rows = s
         .db
         .json_rows(
-            "SELECT c.*, lm.id AS logical_id, lm.canonical_message_id, lm.subject,
+            "SELECT c.*, lm.id AS logical_id, lm.canonical_message_id,
                     lm.direction, lm.message_date, lm.threading_reason, lm.threading_confidence,
                     COALESCE(jsonb_agg(jsonb_build_object(
-                      'id', m.id, 'accountId', m.account_id, 'folder', m.folder,
+                      'id', m.id, 'accountId', m.account_id, 'folder', m.folder, 'uid', m.uid,
                       'messageId', m.message_id, 'canonicalMessageId', m.canonical_message_id,
-                      'subject', m.subject, 'fromName', m.from_name, 'fromEmail', m.from_email,
-                      'to', m.to_addresses, 'cc', m.cc_addresses, 'date', m.date,
-                      'snippet', m.snippet, 'replyTo', m.reply_to, 'inReplyTo', m.in_reply_to, 'references', m.thread_references, 'attachments', m.attachments,
-                      'listUnsubscribe', m.list_unsubscribe, 'listUnsubscribePost', m.list_unsubscribe_post, 'unsubscribedAt', m.unsubscribed_at,
+                      'date', m.date, 'unsubscribedAt', m.unsubscribed_at,
                       'isRead', m.is_read, 'isStarred', m.is_starred,
                       'providerMessageId', m.provider_message_id, 'providerThreadId', m.provider_thread_id,
-                      'providerNamespace', m.provider_namespace, 'threadKey', m.thread_key,
-                      'deliveryAddresses', m.delivery_addresses
+                      'providerNamespace', m.provider_namespace, 'threadKey', m.thread_key
                     ) ORDER BY m.date ASC NULLS LAST, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS copies
                FROM conversations c
                LEFT JOIN logical_messages lm ON lm.conversation_id = c.id AND lm.account_id = c.account_id
@@ -278,6 +283,7 @@ pub async fn detail(State(s): State<AppState>, a: Auth, Path(id): Path<String>) 
             params![canonical, &a.user_id, &account],
         )
         .await?;
+    hydrate_detail_copies(&s, &mut rows).await;
     let Some(Value::Object(first)) = rows.first() else {
         return Ok(err(404, "Conversation not found"));
     };
@@ -316,17 +322,16 @@ pub async fn logical_body(
         return Ok(err(404, "Logical message body not found"));
     };
     let copy: Option<String> = q.str("copyId").filter(|v| !v.is_empty()).map(str::to_owned);
-    let Some(mut row) = s
-        .db
-        .json_opt(
-            "SELECT lm.id, m.body_text, m.body_html, m.attachments, m.id AS physical_copy_id, m.account_id, m.folder, u.preferences, m.from_email
+    let Some(mut row) =
+        s.db.json_opt(
+            "SELECT lm.id, m.id AS physical_copy_id, m.account_id, m.folder, m.uid, u.preferences
                FROM logical_messages lm
                JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = $3 AND m.is_deleted = false
                JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $2
                JOIN users u ON u.id = a.user_id
               WHERE lm.id = $1 AND lm.user_id = $2 AND lm.account_id = $5 AND lm.conversation_id = $3
               AND ($4::uuid IS NULL OR m.id = $4::uuid)
-              ORDER BY (m.body_html IS NOT NULL OR m.body_text IS NOT NULL) DESC, m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
+              ORDER BY m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
               LIMIT 1",
             params![&logical, &a.user_id, canonical, copy, &account],
         )
@@ -334,22 +339,145 @@ pub async fn logical_body(
     else {
         return Ok(err(404, "Logical message body not found"));
     };
+    let loc = Location {
+        id: row.get("physical_copy_id").and_then(Value::as_str).and_then(|v| v.parse().ok()).unwrap_or_default(),
+        account_id: row.get("account_id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        folder: row.get("folder").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        uid: inboxora_core::json::int(row.get("uid")).unwrap_or(0),
+    };
+    let (meta, body) = tokio::join!(s.mail.message_meta(std::slice::from_ref(&loc)), s.mail.message_body(&loc));
+    let body = match body {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("Logical message body fetch error: {e}");
+            return Ok(err(502, "Could not load the message from the mail server"));
+        }
+    };
+    let from_email = meta.get(&loc.id).map(|m| m.from_email.clone());
     let requested = q.str("remoteImages") == Some("1");
     let opt_in = headers.get("x-mailflow-image-opt-in").and_then(|v| v.to_str().ok()) == Some("1");
     let prefs = row.get("preferences").cloned().unwrap_or(Value::Null);
-    let blocks = should_block_remote_images(&prefs, row.get("from_email").and_then(Value::as_str));
+    let blocks = should_block_remote_images(&prefs, from_email.as_deref());
     let remote = requested && opt_in && !blocks;
-    let raw = row.get("body_html").and_then(Value::as_str).filter(|h| !h.is_empty()).map(str::to_owned);
-    let html = raw.as_deref().map(|h| {
-        if !remote && has_remote_images(h) { block_remote_images(&sanitize_email(h)) } else { sanitize_email(h) }
-    });
-    let blocked = matches!((&raw, &html), (Some(r), Some(h)) if r != h);
-    if let Some(h) = html {
-        row.insert("body_html".into(), json!(h));
-    }
+    let html = body
+        .html
+        .as_deref()
+        .map(|h| if !remote && has_remote_images(h) { block_remote_images(h) } else { h.to_owned() });
+    let blocked = matches!((&body.html, &html), (Some(r), Some(h)) if r != h);
+    row.remove("uid");
+    row.insert("from_email".into(), json!(from_email));
+    row.insert("body_html".into(), json!(html));
+    row.insert("body_text".into(), json!(body.text));
+    row.insert("attachments".into(), body.attachments);
     row.insert("remoteImages".into(), json!(remote));
     row.insert("hasBlockedRemoteImages".into(), json!(blocked));
     Ok(ok(Value::Object(row)))
+}
+
+/// Display fields for conversation list rows (from the latest copy) and their logical-message
+/// previews (from each preferred copy).
+async fn hydrate_conversation_rows(s: &AppState, rows: &mut [Value]) {
+    let loc = |id: Option<&Value>, account: Option<&Value>, folder: Option<&Value>, uid: Option<&Value>| {
+        Some(Location {
+            id: id?.as_str()?.parse().ok()?,
+            account_id: account?.as_str()?.to_owned(),
+            folder: folder?.as_str()?.to_owned(),
+            uid: inboxora_core::json::int(uid)?,
+        })
+    };
+    let mut locs = Vec::new();
+    for r in rows.iter() {
+        locs.extend(loc(r.get("latest_copy_id"), r.get("account_id"), r.get("folder"), r.get("latest_uid")));
+        for p in r.get("logical_messages").and_then(Value::as_array).into_iter().flatten() {
+            locs.extend(loc(p.get("latestCopyId"), p.get("accountId"), p.get("folder"), p.get("uid")));
+        }
+    }
+    let meta = s.mail.message_meta(&locs).await;
+    let meta_of = |id: Option<&Value>| {
+        id.and_then(Value::as_str).and_then(|v| v.parse::<Uuid>().ok()).and_then(|id| meta.get(&id))
+    };
+    for r in rows.iter_mut() {
+        let Some(row) = r.as_object_mut() else { continue };
+        let latest = meta_of(row.get("latest_copy_id")).cloned().unwrap_or_default();
+        row.insert("subject".into(), json!(latest.subject));
+        row.insert("snippet".into(), json!(latest.snippet));
+        row.insert("from_name".into(), json!(latest.from_name));
+        row.insert("from_email".into(), json!(latest.from_email));
+        row.remove("latest_uid");
+        let mut first_subject: Option<String> = None;
+        if let Some(Value::Array(previews)) = row.get_mut("logical_messages") {
+            for p in previews.iter_mut() {
+                let Some(p) = p.as_object_mut() else { continue };
+                let m = meta_of(p.get("latestCopyId")).cloned().unwrap_or_default();
+                if first_subject.is_none() {
+                    first_subject = Some(m.subject.clone());
+                }
+                p.insert("canonicalSubject".into(), json!(inboxora_mail::conversation::canonical_subject(&m.subject)));
+                p.insert("subject".into(), json!(m.subject));
+                p.insert("snippet".into(), json!(m.snippet));
+                p.insert("fromName".into(), json!(m.from_name));
+                p.insert("fromEmail".into(), json!(m.from_email));
+                p.remove("uid");
+            }
+        }
+        let canonical =
+            inboxora_mail::conversation::canonical_subject(first_subject.as_deref().unwrap_or(&latest.subject));
+        row.insert("canonical_subject".into(), json!(canonical));
+    }
+}
+
+/// Display fields for the copies of a conversation detail, and each logical message's subject.
+async fn hydrate_detail_copies(s: &AppState, rows: &mut [Value]) {
+    let mut locs = Vec::new();
+    for r in rows.iter() {
+        for c in r.get("copies").and_then(Value::as_array).into_iter().flatten() {
+            let l = (|| {
+                Some(Location {
+                    id: c.get("id")?.as_str()?.parse().ok()?,
+                    account_id: c.get("accountId")?.as_str()?.to_owned(),
+                    folder: c.get("folder")?.as_str()?.to_owned(),
+                    uid: inboxora_core::json::int(c.get("uid"))?,
+                })
+            })();
+            locs.extend(l);
+        }
+    }
+    let meta = s.mail.message_meta(&locs).await;
+    // Attachments are known once a body has been opened (and cached); no fetch for the list.
+    let body_keys: Vec<String> = locs.iter().map(|l| crate::engine::cache::body_key(&l.id)).collect();
+    let bodies: Vec<Option<crate::engine::cache::CachedBody>> = s.mail.cache.get_many(&body_keys).await;
+    let attachments: std::collections::HashMap<Uuid, Value> =
+        locs.iter().zip(bodies).filter_map(|(l, b)| Some((l.id, b?.attachments))).collect();
+    for r in rows.iter_mut() {
+        let Some(row) = r.as_object_mut() else { continue };
+        let mut subject: Option<String> = None;
+        if let Some(Value::Array(copies)) = row.get_mut("copies") {
+            for c in copies.iter_mut() {
+                let Some(c) = c.as_object_mut() else { continue };
+                let id = c.get("id").and_then(Value::as_str).and_then(|v| v.parse::<Uuid>().ok());
+                let m = id.and_then(|id| meta.get(&id)).cloned().unwrap_or_default();
+                subject.get_or_insert_with(|| m.subject.clone());
+                c.insert("subject".into(), json!(m.subject));
+                c.insert("fromName".into(), json!(m.from_name));
+                c.insert("fromEmail".into(), json!(m.from_email));
+                c.insert("to".into(), json!(m.to));
+                c.insert("cc".into(), json!(m.cc));
+                c.insert("snippet".into(), json!(m.snippet));
+                c.insert("replyTo".into(), json!(m.reply_to));
+                c.insert("inReplyTo".into(), json!(m.in_reply_to));
+                c.insert("references".into(), json!(m.references));
+                c.insert("listUnsubscribe".into(), json!(m.list_unsubscribe));
+                c.insert("listUnsubscribePost".into(), json!(m.list_unsubscribe_post));
+                c.insert("deliveryAddresses".into(), json!(m.delivery_addresses));
+                c.insert(
+                    "attachments".into(),
+                    id.and_then(|id| attachments.get(&id)).cloned().unwrap_or_else(|| json!([])),
+                );
+                c.remove("uid");
+            }
+        }
+        row.insert("subject".into(), json!(subject));
+    }
 }
 
 pub async fn message_conversation(
@@ -682,10 +810,9 @@ pub async fn diagnostics(State(s): State<AppState>, a: Auth, Path(id): Path<Stri
     let Some((account, canonical)) = owned(&s, &a.user_id, &id).await? else {
         return Ok(err(404, "Conversation not found"));
     };
-    let Some(conversation) = s
-        .db
-        .json_opt(
-            "SELECT id, kind, canonical_subject, threading_confidence, manually_locked, logical_message_count, unread_count, copy_count \
+    let Some(mut conversation) =
+        s.db.json_opt(
+            "SELECT id, kind, threading_confidence, manually_locked, logical_message_count, unread_count, copy_count \
              FROM conversations WHERE id = $1 AND user_id = $2 AND account_id = $3",
             params![canonical, &a.user_id, &account],
         )
@@ -695,9 +822,9 @@ pub async fn diagnostics(State(s): State<AppState>, a: Auth, Path(id): Path<Stri
     };
     let mut logical =
         s.db.json_rows(
-            "SELECT lm.id, lm.canonical_message_id, lm.subject, lm.direction, lm.message_date,
+            "SELECT lm.id, lm.canonical_message_id, lm.direction, lm.message_date,
                     lm.threading_reason, lm.threading_confidence, lm.parent_logical_message_id,
-                    COUNT(m.id)::int AS copy_count
+                    COUNT(m.id)::int AS copy_count, (ARRAY_AGG(m.id ORDER BY m.date ASC NULLS LAST, m.id))[1] AS copy_id
                FROM logical_messages lm
                LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.is_deleted = false
               WHERE lm.conversation_id = $1 AND lm.user_id = $2
@@ -706,11 +833,27 @@ pub async fn diagnostics(State(s): State<AppState>, a: Auth, Path(id): Path<Stri
             params![canonical, &a.user_id],
         )
         .await?;
+    let copy_ids: Vec<String> =
+        logical.iter().filter_map(|r| r.get("copy_id").and_then(Value::as_str).map(str::to_owned)).collect();
+    let mut copies = s
+        .db
+        .json_rows("SELECT id, account_id, folder, uid FROM messages WHERE id = ANY($1::uuid[])", params![copy_ids])
+        .await?;
+    s.mail.hydrate_values(&mut copies).await;
+    let subject_of = |id: Option<&Value>| {
+        copies.iter().find(|c| c.get("id") == id).and_then(|c| c.get("subject")).cloned().unwrap_or(Value::Null)
+    };
     for row in &mut logical {
         if let Value::Object(m) = row {
+            let subject = subject_of(m.get("copy_id"));
+            m.insert("subject".into(), subject);
+            m.remove("copy_id");
             m.insert("providerMessageId".into(), Value::Null);
         }
     }
+    let first_subject = logical.first().and_then(|l| l.get("subject")).and_then(Value::as_str).unwrap_or("");
+    conversation
+        .insert("canonical_subject".into(), json!(inboxora_mail::conversation::canonical_subject(first_subject)));
     let overrides =
         s.db.json_rows(
             "SELECT * FROM conversation_overrides WHERE conversation_id = $1 AND user_id = $2 ORDER BY created_at DESC",
@@ -794,7 +937,7 @@ pub async fn rebuild(State(s): State<AppState>, a: Auth, b: Body) -> Result<Resp
     };
     let dry_run = b.get("dryRun") != Some(&Value::Bool(false));
     let force = b.get("force") == Some(&Value::Bool(true));
-    let job = start_rebuild_job(&s.db, user, account.clone(), limit, dry_run, force);
+    let job = start_rebuild_job(&s.mail, user, account.clone(), limit, dry_run, force);
     record_rebuild_audit(
         &s.db,
         user,

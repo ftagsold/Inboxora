@@ -323,11 +323,11 @@ pub fn parse_inbound_invitation(raw: &str) -> Option<Invitation> {
 
 pub async fn persist_inbound(db: &impl Q, message_id: Uuid, inv: &Invitation) -> inboxora_core::Result<()> {
     db.exec(
-        "INSERT INTO inbound_calendar_invitations (message_id, method, state, uid, recurrence_id, sequence, summary, organizer, starts_at, ends_at, all_day, timezone, raw_ical) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
+        "INSERT INTO inbound_calendar_invitations (message_id, method, state, uid, recurrence_id, sequence, starts_at, ends_at, all_day, timezone) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
          ON CONFLICT (message_id) DO UPDATE SET method = EXCLUDED.method, state = EXCLUDED.state, uid = EXCLUDED.uid, recurrence_id = EXCLUDED.recurrence_id, \
-           sequence = EXCLUDED.sequence, summary = EXCLUDED.summary, organizer = EXCLUDED.organizer, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, \
-           all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, raw_ical = EXCLUDED.raw_ical, parsed_at = NOW(), updated_at = NOW()",
+           sequence = EXCLUDED.sequence, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, \
+           all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, parsed_at = NOW(), updated_at = NOW()",
         params![
             message_id,
             &inv.method,
@@ -335,13 +335,10 @@ pub async fn persist_inbound(db: &impl Q, message_id: Uuid, inv: &Invitation) ->
             &inv.uid,
             &inv.recurrence_id,
             inv.sequence,
-            &inv.summary,
-            &inv.organizer,
             inv.starts_at,
             inv.ends_at,
             inv.all_day,
-            &inv.time_zone,
-            &inv.raw
+            &inv.time_zone
         ],
     )
     .await?;

@@ -15,6 +15,7 @@ use inboxora_mail::sanitize::encode_uri_component;
 use inboxora_mail::text::js_trim;
 use inboxora_pim::ical::{parse_calendar_event, parse_utc};
 use regex::Regex;
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::dav::{self, Buckets, present, send_with_etag, send_xml, tagged, with_etag, xml_escape};
@@ -174,6 +175,10 @@ async fn propfind_calendar(s: &AppState, user_id: &str, u: &str, c: &str) -> Res
         return Ok(empty(404));
     };
     let id: Uuid = cal.get("id");
+    let token = match live_resources(s, user_id, c).await {
+        Some(live) => Some(live_token(&live)),
+        None => cal.get::<_, Option<String>>("sync_token"),
+    };
     Ok(send_xml(
         207,
         multistatus(&[response(
@@ -181,7 +186,7 @@ async fn propfind_calendar(s: &AppState, user_id: &str, u: &str, c: &str) -> Res
             &[
                 "<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>".into(),
                 format!("<D:displayname>{}</D:displayname>", xml_escape(cal.get::<_, Option<&str>>("name"))),
-                format!("<D:sync-token>{}</D:sync-token>", xml_escape(cal.get::<_, Option<&str>>("sync_token"))),
+                format!("<D:sync-token>{}</D:sync-token>", xml_escape(token.as_deref())),
             ],
             "200 OK",
         )]),
@@ -224,19 +229,63 @@ impl EventRow {
     }
 }
 
+/// The resources of a read-only remote calendar (served live), or `None` for a stored one.
+async fn live_resources(s: &AppState, user_id: &str, c: &str) -> Option<Vec<EventRow>> {
+    if !inboxora_mail::util::is_uuid(c) {
+        return None;
+    }
+    let ids = [c.to_owned()];
+    if crate::services::remote_dav::live_calendars(&s.db, user_id, Some(&ids)).await.is_empty() {
+        return None;
+    }
+    let rows = crate::services::remote_dav::event_rows(&s.db, user_id, Some(&ids)).await;
+    let text = |r: &Map<String, Value>, k: &str| r.get(k).and_then(Value::as_str).map(str::to_owned);
+    Some(
+        rows.iter()
+            .map(|r| EventRow {
+                uid: text(r, "uid"),
+                etag: text(r, "etag"),
+                deleted: false,
+                raw_ical: text(r, "raw_ical"),
+                dav_filename: text(r, "remote_href").and_then(|h| uid_from_href(&h)),
+            })
+            .collect(),
+    )
+}
+
+/// A live calendar's sync token: changes with any resource's etag (or the set of resources).
+fn live_token(rows: &[EventRow]) -> String {
+    let mut parts: Vec<String> = rows
+        .iter()
+        .map(|r| format!("{}:{}", r.uid.as_deref().unwrap_or(""), r.etag.as_deref().unwrap_or("")))
+        .collect();
+    parts.sort();
+    format!("live-{}", &inboxora_core::crypto::sha256_hex(parts.join("\n"))[..16])
+}
+
+fn live_filename(e: &EventRow) -> String {
+    e.dav_filename
+        .clone()
+        .filter(|f| !f.is_empty())
+        .unwrap_or_else(|| format!("{}.ics", e.uid.as_deref().unwrap_or("undefined")))
+}
+
 async fn report(s: &AppState, user_id: &str, u: &str, c: &str, req: Request) -> Result<Response> {
     if u != user_id {
         return Ok(empty(403));
     }
-    let Some(cal) = s
-        .db
-        .opt("SELECT id, sync_token, sync_version FROM calendars WHERE id = $1 AND user_id = $2", params![c, user_id])
+    let Some(cal) =
+        s.db.opt(
+            "SELECT id, sync_token, sync_version, sync_floor FROM calendars WHERE id = $1 AND user_id = $2",
+            params![c, user_id],
+        )
         .await?
     else {
         return Ok(empty(404));
     };
     let cal_id: Uuid = cal.get("id");
     let sync_version: i64 = cal.get("sync_version");
+    let sync_floor: i64 = cal.get("sync_floor");
     let sync_token: Option<String> = cal.get("sync_token");
     let body = match dav::raw_body(req).await {
         Ok(b) => b,
@@ -249,6 +298,9 @@ async fn report(s: &AppState, user_id: &str, u: &str, c: &str, req: Request) -> 
         return Ok(empty(400));
     }
     let base = format!("/caldav/{user_id}/{cal_id}/");
+    if let Some(live) = live_resources(s, user_id, c).await {
+        return Ok(live_report(&base, &body, live, is_sync, is_multiget));
+    }
     let rows = if is_sync {
         let token = SYNC_TOKEN.captures(&body).map(|m| js_trim(m.get(1).map_or("", |x| x.as_str())).to_owned());
         match token.filter(|t| !t.is_empty()) {
@@ -259,16 +311,18 @@ async fn report(s: &AppState, user_id: &str, u: &str, c: &str, req: Request) -> 
                     .and_then(|d| d.parse::<f64>().ok())
                     .filter(|v| *v <= 9_007_199_254_740_991.0)
                     .map(|v| v as i64);
-                let Some(version) = version.filter(|v| *v <= sync_version) else {
+                let Some(version) = version.filter(|v| *v <= sync_version && *v >= sync_floor) else {
                     return Ok(send_xml(
                         409,
                         format!("{XML_HEADER}<D:error xmlns:D=\"{DAV_NS}\"><D:valid-sync-token/></D:error>"),
                     ));
                 };
                 s.db.rows(
-                    "SELECT DISTINCT ON (uid, recurrence_id) uid, recurrence_id, etag, deleted, raw_ical, dav_filename \
-                     FROM calendar_sync_changes WHERE calendar_id = $1 AND version > $2 \
-                     ORDER BY uid, recurrence_id, version DESC",
+                    "SELECT ch.uid, ch.recurrence_id, e.etag, (ch.deleted OR e.id IS NULL) AS deleted, e.raw_ical, \
+                       COALESCE(e.dav_filename, ch.dav_filename) AS dav_filename \
+                     FROM calendar_sync_changes ch LEFT JOIN calendar_events e \
+                       ON e.calendar_id = ch.calendar_id AND e.uid = ch.uid AND e.recurrence_id = ch.recurrence_id \
+                     WHERE ch.calendar_id = $1 AND ch.version > $2 ORDER BY ch.uid, ch.recurrence_id",
                     params![cal_id, version],
                 )
                 .await?
@@ -349,6 +403,65 @@ async fn report(s: &AppState, user_id: &str, u: &str, c: &str, req: Request) -> 
     Ok(send_xml(207, xml))
 }
 
+/// A REPORT on a live calendar. Without stored change history, a sync-collection with an
+/// outdated token is answered with valid-sync-token (the client then resyncs fully).
+fn live_report(base: &str, body: &str, rows: Vec<EventRow>, is_sync: bool, is_multiget: bool) -> Response {
+    let token = live_token(&rows);
+    let mut selected: Vec<&EventRow> = rows.iter().collect();
+    if is_sync {
+        let sent = SYNC_TOKEN.captures(body).map(|m| js_trim(m.get(1).map_or("", |x| x.as_str())).to_owned());
+        match sent.filter(|t| !t.is_empty()) {
+            Some(t) if t == token => selected.clear(),
+            Some(_) => {
+                return send_xml(
+                    409,
+                    format!("{XML_HEADER}<D:error xmlns:D=\"{DAV_NS}\"><D:valid-sync-token/></D:error>"),
+                );
+            }
+            None => {}
+        }
+    } else if is_multiget {
+        let wanted: Vec<String> = HREF.captures_iter(body).filter_map(|m| uid_from_href(&m[1])).collect();
+        if wanted.is_empty() {
+            return empty(400);
+        }
+        selected.retain(|e| wanted.contains(&live_filename(e)));
+    } else if let Some(m) = TIME_RANGE.captures(body) {
+        let (Some(start), Some(end)) = (parse_utc(&m[1]), parse_utc(&m[2])) else { return empty(400) };
+        if end <= start {
+            return empty(400);
+        }
+        selected.retain(|e| {
+            let raw = e.raw_ical.as_deref().unwrap_or("");
+            match inboxora_pim::ical::parse_calendar_event(raw) {
+                Some(p) => (p.starts_at < end && p.ends_at > start) || raw.to_uppercase().contains("RRULE"),
+                None => false,
+            }
+        });
+    }
+    let responses: Vec<String> = selected
+        .iter()
+        .map(|e| {
+            response(
+                &format!("{base}{}", encode_uri_component(&live_filename(e))),
+                &[
+                    "<D:resourcetype/>".into(),
+                    format!("<D:getetag>\"{}\"</D:getetag>", xml_escape(e.etag.as_deref())),
+                    "<D:getcontenttype>text/calendar;charset=utf-8</D:getcontenttype>".into(),
+                    format!("<C:calendar-data>{}</C:calendar-data>", xml_escape(e.raw_ical.as_deref())),
+                ],
+                "200 OK",
+            )
+        })
+        .collect();
+    let xml = multistatus(&responses).replacen(
+        "</D:multistatus>",
+        &format!("<D:sync-token>{}</D:sync-token></D:multistatus>", xml_escape(Some(&token))),
+        1,
+    );
+    send_xml(207, xml)
+}
+
 async fn get_event(s: &AppState, user_id: &str, u: &str, c: &str, filename: &str) -> Result<Response> {
     if u != user_id {
         return Ok(empty(403));
@@ -360,7 +473,13 @@ async fn get_event(s: &AppState, user_id: &str, u: &str, c: &str, filename: &str
             params![c, user_id, filename],
         )
         .await?;
-    let Some(row) = row else { return Ok(empty(404)) };
+    let Some(row) = row else {
+        let live = live_resources(s, user_id, c).await.unwrap_or_default();
+        return Ok(match live.iter().find(|e| live_filename(e) == filename) {
+            Some(e) => send_with_etag("text/calendar; charset=utf-8", e.etag.as_deref(), e.raw_ical.clone()),
+            None => empty(404),
+        });
+    };
     let etag: Option<String> = row.get("etag");
     Ok(send_with_etag("text/calendar; charset=utf-8", etag.as_deref(), row.get("raw_ical")))
 }

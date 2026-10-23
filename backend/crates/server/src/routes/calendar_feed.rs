@@ -189,7 +189,7 @@ async fn serve_feed(s: &AppState, token: &str, headers: &axum::http::HeaderMap) 
     let rows = s
         .db
         .rows(
-            "SELECT f.calendar_ids, c.id AS calendar_id, c.name AS calendar_name, e.id, e.uid, e.summary, e.description, \
+            "SELECT f.calendar_ids, f.owner_user_id, c.id AS calendar_id, c.name AS calendar_name, e.id, e.uid, e.summary, e.description, \
              e.location, e.url, e.starts_at, e.ends_at, e.all_day, e.created_at, e.updated_at \
              FROM calendar_secret_feeds f \
              JOIN calendars c ON c.id = ANY(f.calendar_ids) AND c.owner_user_id = f.owner_user_id \
@@ -225,6 +225,45 @@ async fn serve_feed(s: &AppState, token: &str, headers: &axum::http::HeaderMap) 
             })
         })
         .collect();
+    // Read-only remote calendars are not stored: add their events from the live snapshot.
+    if let Some(owner) = rows.first().map(|r| r.get::<_, Uuid>("owner_user_id").to_string()) {
+        let mut ids: Vec<String> = rows.iter().map(|r| r.get::<_, Uuid>("calendar_id").to_string()).collect();
+        ids.sort();
+        ids.dedup();
+        let time = |m: &serde_json::Map<String, serde_json::Value>, k: &str| {
+            m.get(k)
+                .and_then(serde_json::Value::as_str)
+                .and_then(|v| DateTime::parse_from_rfc3339(v).ok())
+                .map(|d| d.with_timezone(&Utc))
+        };
+        let text = |m: &serde_json::Map<String, serde_json::Value>, k: &str| {
+            m.get(k).and_then(serde_json::Value::as_str).map(str::to_owned)
+        };
+        for m in crate::services::remote_dav::event_rows(&s.db, &owner, Some(&ids)).await {
+            let (Some(id), Some(calendar_id), Some(starts_at), Some(ends_at)) = (
+                text(&m, "id").and_then(|v| v.parse().ok()),
+                text(&m, "calendar_id").and_then(|v| v.parse().ok()),
+                time(&m, "starts_at"),
+                time(&m, "ends_at"),
+            ) else {
+                continue;
+            };
+            events.push(FeedEvent {
+                calendar_id,
+                id,
+                uid: text(&m, "uid"),
+                summary: text(&m, "summary"),
+                description: text(&m, "description"),
+                location: text(&m, "location"),
+                url: text(&m, "url"),
+                starts_at,
+                ends_at,
+                all_day: m.get("all_day").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                created_at: None,
+                updated_at: None,
+            });
+        }
+    }
     // Node re-sorts by `String(value)`, which for dates is `Date#toString()` (weekday first).
     // Reproduced so both backends serve byte-identical feeds (and the same ETags).
     events.sort_by(|a, b| {

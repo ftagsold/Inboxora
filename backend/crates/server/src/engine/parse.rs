@@ -8,7 +8,7 @@ use inboxora_mail::headers::{Headers, decode_mime_words, detect_bulk, parse_deli
 use inboxora_mail::snippet::{build_snippet_from_html, snippet_from_body};
 use serde_json::{Map, Value, json};
 
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Addr {
     pub name: String,
     pub email: String,

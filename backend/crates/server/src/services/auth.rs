@@ -2,20 +2,19 @@
 //! application passwords (ports of rateLimiter.ts, authLimiter.ts, authEvents.ts,
 //! davAppPasswords.ts, davCredentials.ts).
 
-use std::collections::HashMap;
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use fred::prelude::*;
 use inboxora_core::pg::{Db, Q};
 use inboxora_core::{Error, Result, crypto, params};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use regex::Regex;
 use serde_json::{Map, Value};
 
 // ── rate limiting (Redis `rl:<key>`, in-memory fallback) ─────────────────────────────
 
-static MEMORY: LazyLock<Mutex<HashMap<String, (u64, Instant)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static MEMORY: LazyLock<crate::http::limit::Windows> = LazyLock::new(|| crate::http::limit::Windows::new(50_000));
 
 /// `consume(key, max, windowMs)` → (limited, reset ms).
 pub async fn rate_consume(redis: &Pool, key: &str, max: u64, window: Duration) -> (bool, u64) {
@@ -37,28 +36,15 @@ pub async fn rate_consume(redis: &Pool, key: &str, max: u64, window: Duration) -
     match remote.await {
         Ok(r) => r,
         Err(_) => {
-            let now = Instant::now();
-            let mut m = MEMORY.lock();
-            if m.len() > 50_000 {
-                m.retain(|_, (_, reset)| *reset > now);
-            }
-            match m.get_mut(key) {
-                Some((count, reset)) if now <= *reset => {
-                    *count += 1;
-                    (*count > max, (*reset - now).as_millis() as u64)
-                }
-                _ => {
-                    m.insert(key.to_owned(), (1, now + window));
-                    (max < 1, window_ms)
-                }
-            }
+            let (hits, left) = MEMORY.hit(key, window);
+            (hits > max, left.as_millis() as u64)
         }
     }
 }
 
 pub async fn rate_reset(redis: &Pool, key: &str) {
     let _: std::result::Result<i64, _> = redis.del(format!("rl:{key}")).await;
-    MEMORY.lock().remove(key);
+    MEMORY.reset(key);
 }
 
 // ── auth settings ────────────────────────────────────────────────────────────────────
@@ -131,22 +117,6 @@ pub fn log_auth_event(
             .await
         {
             tracing::error!("[auth] Failed to log event: {e}");
-        }
-    });
-}
-
-/// Hourly pruning of auth events older than 90 days.
-pub fn start_auth_event_pruning(db: Db) {
-    tokio::spawn(async move {
-        let mut i = tokio::time::interval(Duration::from_secs(3600));
-        i.tick().await;
-        loop {
-            i.tick().await;
-            if let Err(e) =
-                db.exec("DELETE FROM auth_events WHERE created_at < NOW() - INTERVAL '90 days'", params![]).await
-            {
-                tracing::error!("[auth] Failed to prune auth events: {e}");
-            }
         }
     });
 }

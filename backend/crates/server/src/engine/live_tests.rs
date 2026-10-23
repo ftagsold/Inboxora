@@ -92,9 +92,11 @@ async fn wait_for(db: &Db, sql: &str, p: &[inboxora_core::pg::Val], want: i64) -
 async fn engine_end_to_end() {
     let Some(i) = imap() else { return };
     let Some(db) = fresh_db("engine_live_test").await else { return };
+    let _ = tracing_subscriber::fmt().with_env_filter("warn,inboxora_server=info").with_test_writer().try_init();
     eprintln!("engine_end_to_end: running against {}:{}", i.host, i.port);
     let _ = inboxora_core::crypto::init_key(&"ab".repeat(32));
-    let user_mail = format!("e2e{}@example.test", std::process::id());
+    let user_mail =
+        std::env::var("IMAP_TEST_USER").unwrap_or_else(|_| format!("e2e{}@example.test", std::process::id()));
     db.batch(
         "INSERT INTO system_settings (key, value) VALUES ('allow_private_hosts', 'true'), ('allow_insecure_tls', 'true') \
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
@@ -127,7 +129,11 @@ async fn engine_end_to_end() {
     other.append("INBOX", &[], None, msg("solo", "Other", None).as_bytes()).await.unwrap();
     other.create(&["Archive"]).await.unwrap();
 
-    let engine = Engine::new(db.clone(), Events::new(None));
+    let redis = match std::env::var("TEST_REDIS_URL") {
+        Ok(url) => Some(inboxora_core::redis::connect(&url, 2).await.expect("redis")),
+        Err(_) => None,
+    };
+    let engine = Engine::new(db.clone(), Events::new(None), redis);
     let account = load_account(&db, &account_id).await.unwrap().unwrap();
     assert!(engine.connect_account(account.clone()).await, "connect");
     assert!(engine.is_connected(&account_id));
@@ -144,6 +150,55 @@ async fn engine_end_to_end() {
         .unwrap()
         .get::<_, i64>(0);
     assert_eq!(convs, 2, "the reply joins its root's conversation");
+
+    // Display fields are not stored; they come from the server (through the cache).
+    let mut rows = db
+        .json_rows(
+            "SELECT id, account_id, folder, uid FROM messages WHERE account_id = $1::uuid AND folder = 'INBOX' ORDER BY uid",
+            params![&account_id],
+        )
+        .await
+        .unwrap();
+    engine.hydrate_values(&mut rows).await;
+    let subjects: Vec<&str> = rows.iter().map(|r| r["subject"].as_str().unwrap_or("")).collect();
+    assert_eq!(subjects, ["Plan", "Re: Plan", "Other"], "{rows:?}");
+    assert_eq!(rows[0]["from_email"], "alice@example.test");
+    assert_eq!(rows[0]["from_name"], "Alice Example");
+    assert_eq!(rows[1]["in_reply_to"], "<root@example.test>");
+    assert_eq!(rows[0]["to_addresses"][0]["email"], "bob@example.test");
+    assert!(rows[0]["snippet"].as_str().is_some_and(|s| s.contains("Hello plain")), "{rows:?}");
+    let reply_loc = super::cache::Location::from_row(rows[1].as_object().unwrap()).unwrap();
+    let cached = engine.message_body(&reply_loc).await.unwrap();
+    assert!(cached.html.as_deref().is_some_and(|h| h.contains("<b>html</b>")), "{cached:?}");
+    assert_eq!(cached.text.as_deref().map(str::trim), Some("Hello plain"));
+    let hits = engine
+        .search_ids(
+            std::slice::from_ref(&account_id),
+            &super::search::FolderScope::AllButTrash,
+            "SUBJECT \"plan\"",
+            100,
+        )
+        .await;
+    assert_eq!(hits.len(), 2, "server-side subject search");
+    let text_hits = engine
+        .search_ids(
+            std::slice::from_ref(&account_id),
+            &super::search::FolderScope::Exact("INBOX".into()),
+            "TEXT \"other\"",
+            100,
+        )
+        .await;
+    assert_eq!(text_hits.len(), 1, "server-side text search");
+    let stored = db
+        .opt(
+            "SELECT COUNT(*)::bigint FROM logical_messages WHERE account_id = $1::uuid AND subject_hash IS NOT NULL",
+            params![&account_id],
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .get::<_, i64>(0);
+    assert_eq!(stored, 3, "threading keeps subject hashes, not subjects");
     let folders: Vec<String> = db
         .rows("SELECT path FROM folders WHERE account_id = $1::uuid ORDER BY path", params![&account_id])
         .await

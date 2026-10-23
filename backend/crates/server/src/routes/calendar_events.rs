@@ -942,13 +942,27 @@ static ICS_TYPE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(text/calendar|application/(ics|ical|calendar))$").expect("regex"));
 static ICS_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\.ics$").expect("regex"));
 
+/// The message's location and attachment list (from its cached body, fetched when needed).
 async fn message_row(s: &AppState, message: &str, user: &str) -> Result<Option<Map<String, Value>>> {
-    s.db.json_opt(
-        "SELECT i.raw_ical, m.account_id, m.uid, m.folder, m.attachments FROM messages m JOIN email_accounts a ON a.id = m.account_id \
-         LEFT JOIN inbound_calendar_invitations i ON i.message_id = m.id WHERE m.id = $1 AND a.user_id = $2",
-        params![message, user],
-    )
-    .await
+    let Some(mut row) =
+        s.db.json_opt(
+            "SELECT m.id, m.account_id, m.uid, m.folder FROM messages m JOIN email_accounts a ON a.id = m.account_id \
+             WHERE m.id = $1 AND a.user_id = $2",
+            params![message, user],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    if let Some(loc) = crate::engine::cache::Location::from_row(&row) {
+        match s.mail.message_body(&loc).await {
+            Ok(b) => {
+                row.insert("attachments".into(), b.attachments);
+            }
+            Err(e) => tracing::warn!("Invitation attachment list fetch failed: {e}"),
+        }
+    }
+    Ok(Some(row))
 }
 
 /// `fetchInvitationAttachment`: the single .ics part of a message, read over IMAP.

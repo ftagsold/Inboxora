@@ -9,7 +9,6 @@ use chrono::{DateTime, Utc};
 use inboxora_core::params;
 use inboxora_core::pg::{Db, Q};
 use inboxora_imap::{Client, FetchQuery, Message};
-use inboxora_mail::headers::decode_mime_words;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -18,7 +17,7 @@ use super::mime;
 use super::parse::{EnrichContext, Parsed, clean, clean_opt, enrich, parse_message, safe_date};
 use super::policy::*;
 use super::{EResult, Engine, EngineError};
-use crate::services::conversation::{RawCopy, persist_copy_for_row};
+use crate::services::conversation::{CopyFacts, RawCopy, persist_copy_for_row};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SyncResult {
@@ -51,50 +50,27 @@ fn invalid_messageset(e: &EngineError) -> bool {
 
 /// `RELOCATE_MESSAGE_SQL` with the (empty, plugin-less) exempt guard and RETURNING.
 const RELOCATE_SQL: &str = "UPDATE messages SET \
-    folder = $1::text, uid = $2::bigint, is_deleted = false, \
-    subject = CASE WHEN $5::text IS NOT NULL AND $5::text <> '' AND $5::text <> '(no subject)' THEN $5::text ELSE messages.subject END, \
-    from_name = COALESCE(NULLIF($6::text, ''), messages.from_name), \
-    from_email = COALESCE(NULLIF($7::text, ''), messages.from_email), \
-    to_addresses = CASE WHEN $8::jsonb::text IS NOT NULL AND $8::jsonb::text <> '[]' THEN $8::jsonb ELSE messages.to_addresses END, \
-    cc_addresses = CASE WHEN $9::jsonb::text IS NOT NULL AND $9::jsonb::text <> '[]' THEN $9::jsonb ELSE messages.cc_addresses END, \
-    reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), $10::text)::jsonb, \
-    date = $11::timestamptz \
+    folder = $1::text, uid = $2::bigint, is_deleted = false, date = $5::timestamptz \
   WHERE account_id = $3::uuid AND message_id = $4::text AND (folder != $1::text OR uid != $2::bigint) \
     AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3::uuid AND message_id = $4::text) \
     AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3::uuid AND path = $1::text), '') NOT IN ('\\All', '\\Important') \
   RETURNING id";
 
-/// The ingest upsert shared by sync and backfill (`INSERT … ON CONFLICT … DO UPDATE`).
+/// The ingest upsert shared by sync and backfill (`INSERT … ON CONFLICT … DO UPDATE`). Only the
+/// header index is stored; display fields go to the Redis cache.
 const UPSERT_SQL: &str = "INSERT INTO messages ( \
-    account_id, uid, folder, message_id, subject, from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to, \
-    date, snippet, is_read, is_starred, has_attachments, flags, body_html, body_text, attachments, \
-    thread_references, thread_id, is_bulk, category, list_unsubscribe, list_unsubscribe_post, delivery_addresses, sender_name, sender_email \
-  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) \
+    account_id, uid, folder, message_id, date, is_read, is_starred, has_attachments, flags, thread_id, is_bulk, category \
+  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) \
   ON CONFLICT (account_id, uid, folder) DO UPDATE SET \
-    subject = CASE WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject != '' AND EXCLUDED.subject != '(no subject)' THEN EXCLUDED.subject ELSE messages.subject END, \
-    from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name), \
-    from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email), \
-    to_addresses = CASE WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]' THEN EXCLUDED.to_addresses ELSE messages.to_addresses END, \
-    cc_addresses = CASE WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]' THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END, \
-    reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb, \
-    in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to), \
-    snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet ELSE messages.snippet END, \
     is_read = CASE WHEN messages.read_changed_at IS NOT NULL AND NOW() - messages.read_changed_at < interval '30 seconds' THEN messages.is_read ELSE EXCLUDED.is_read END, \
     is_starred = CASE WHEN messages.star_changed_at IS NOT NULL AND NOW() - messages.star_changed_at < interval '30 seconds' THEN messages.is_starred ELSE EXCLUDED.is_starred END, \
     flags = EXCLUDED.flags, \
-    body_html = COALESCE(messages.body_html, EXCLUDED.body_html), \
-    body_text = COALESCE(messages.body_text, EXCLUDED.body_text), \
-    attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb, \
-    thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references), \
     thread_id = CASE WHEN messages.thread_id = messages.message_id AND EXCLUDED.thread_id IS NOT NULL AND EXCLUDED.thread_id <> messages.message_id \
                      THEN EXCLUDED.thread_id ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id) END, \
     is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk), \
-    category = COALESCE(messages.category, EXCLUDED.category), \
-    list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe), \
-    list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post), \
-    delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses), \
-    sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name), \
-    sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email) \
+    category = COALESCE(messages.category, EXCLUDED.category) \
+  WHERE (messages.is_read, messages.is_starred, messages.flags, messages.thread_id, messages.is_bulk, messages.category) \
+    IS DISTINCT FROM (EXCLUDED.is_read, EXCLUDED.is_starred, EXCLUDED.flags, EXCLUDED.thread_id, EXCLUDED.is_bulk, EXCLUDED.category) \
   RETURNING id, (xmax = 0) AS is_new";
 
 /// `computeThreadId`: the legacy list thread id from References/In-Reply-To.
@@ -138,10 +114,6 @@ pub async fn compute_thread_id(
         }
     }
     Ok(Some(candidates[0].clone()))
-}
-
-fn addrs_json(v: &[super::parse::Addr]) -> String {
-    serde_json::to_string(v).unwrap_or_else(|_| "[]".into())
 }
 
 /// The fetch query for sync/backfill (`providerFetchQuery`).
@@ -193,46 +165,31 @@ impl Engine {
             tracing::warn!("Message sync skipped: IMAP FETCH returned no UID for {}/{folder}", account.log());
             return Ok(None);
         }
-        let (mut html, mut text, mut atts) = (None, None, Vec::new());
+        let mut body: Option<super::cache::CachedBody> = None;
         if with_body {
             let (h, t, a) = mime::extract_body(msg.body_structure.as_ref(), &msg.body_parts);
-            html = h.map(|h| inboxora_mail::sanitize::sanitize_email(&h));
-            text = t;
-            atts = a;
+            body = Some(super::cache::CachedBody {
+                html: h.as_deref().and_then(super::cache::prepare_html),
+                text: t.as_deref().map(clean).filter(|t| !t.is_empty()),
+                attachments: Value::Array(a.iter().map(mime::AttachmentRef::to_json).collect()),
+            });
         }
         let msg_id = clean_opt(parsed.message_id.as_deref());
         let in_reply_to = clean_opt(parsed.in_reply_to.as_deref());
         let refs = clean_opt(parsed.references.as_deref());
         let thread_id = compute_thread_id(&self.db, account.id(), &msg_id, &in_reply_to, &refs).await?;
         let date = safe_date(parsed.date);
+        let has_snippet_parts = !msg.body_parts.is_empty();
         if !msg_id.is_empty() {
-            let relocated = self
-                .db
-                .rows(
-                    RELOCATE_SQL,
-                    params![
-                        folder,
-                        i64::from(parsed.uid),
-                        account.id(),
-                        &msg_id,
-                        clean(&parsed.subject),
-                        clean(&parsed.from_name),
-                        clean(&parsed.from_email),
-                        addrs_json(&parsed.to),
-                        addrs_json(&parsed.cc),
-                        addrs_json(&parsed.reply_to),
-                        date
-                    ],
-                )
-                .await?;
-            if !relocated.is_empty() {
+            let relocated =
+                self.db.rows(RELOCATE_SQL, params![folder, i64::from(parsed.uid), account.id(), &msg_id, date]).await?;
+            if let Some(r) = relocated.first() {
+                self.remember_meta(r.get("id"), &parsed, has_snippet_parts).await;
                 return Ok(Some((Ingested::Relocated, parsed)));
             }
         }
         let category = self.categorize(account, &parsed).await;
-        let opt = |s: &str| if s.is_empty() { None } else { Some(s.to_owned()) };
-        let header = |k: &str| parsed.headers.get(k).map(|v| clean(&decode_mime_words(v)));
-        let row = self
+        let upserted = self
             .db
             .opt(
                 UPSERT_SQL,
@@ -241,37 +198,38 @@ impl Engine {
                     i64::from(parsed.uid),
                     folder,
                     msg_id.clone(),
-                    clean(&parsed.subject),
-                    clean(&parsed.from_name),
-                    clean(&parsed.from_email),
-                    addrs_json(&parsed.to),
-                    addrs_json(&parsed.cc),
-                    addrs_json(&parsed.reply_to),
-                    in_reply_to,
                     date,
-                    clean(&parsed.snippet),
                     parsed.is_read,
                     parsed.is_starred,
                     parsed.has_attachments,
                     serde_json::to_string(&parsed.flags).unwrap_or_else(|_| "[]".into()),
-                    html.as_deref().map(clean),
-                    text.as_deref().map(clean),
-                    Value::Array(atts.iter().map(mime::AttachmentRef::to_json).collect()).to_string(),
-                    opt(&refs),
                     thread_id.clone(),
                     parsed.is_bulk,
-                    category,
-                    header("list-unsubscribe"),
-                    header("list-unsubscribe-post"),
-                    serde_json::to_string(&parsed.delivery_addresses).unwrap_or_else(|_| "[]".into()),
-                    parsed.sender_name.as_deref().map(clean),
-                    parsed.sender_email.as_deref().map(clean)
+                    category
                 ],
             )
-            .await?
-            .ok_or_else(|| EngineError("upsert returned no row".into()))?;
-        let id: Uuid = row.get("id");
-        let is_new: bool = row.get::<_, Option<bool>>("is_new").unwrap_or(false);
+            .await?;
+        let (id, is_new): (Uuid, bool) = match upserted {
+            Some(row) => (row.get("id"), row.get::<_, Option<bool>>("is_new").unwrap_or(false)),
+            // Nothing changed, so the conditional upsert returned no row.
+            None => (
+                self.db
+                    .opt(
+                        "SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3",
+                        params![account.id(), i64::from(parsed.uid), folder],
+                    )
+                    .await?
+                    .ok_or_else(|| EngineError("upsert returned no row".into()))?
+                    .get("id"),
+                false,
+            ),
+        };
+        self.remember_meta(id, &parsed, has_snippet_parts).await;
+        if let Some(b) = &body {
+            self.cache.put(&super::cache::body_key(&id), b).await;
+        }
+        let mut facts = CopyFacts::from_parsed(&parsed);
+        facts.body_text = body.as_ref().and_then(|b| b.text.clone());
         persist_copy_for_row(
             &self.db,
             id,
@@ -284,6 +242,7 @@ impl Engine {
                 thread_id: msg.thread_id.as_deref(),
                 message_id: parsed.message_id.as_deref(),
             },
+            &facts,
         )
         .await;
         if let Some(t) = thread_id

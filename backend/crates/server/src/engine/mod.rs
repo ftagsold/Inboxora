@@ -1,16 +1,18 @@
 //! The IMAP mail engine (port of `imapManager.ts`): one persistent IDLE connection per
 //! account for push and the periodic INBOX sync, a small per-account pool for user-driven
-//! fetches and mutations, background backfill / snippet indexing on a per-host budget, and
+//! fetches and mutations, background backfill on a per-host budget, and
 //! the recovery timers (health check, staleness probe, flag-push reconciler, snooze).
 
 pub mod backfill;
 pub mod background;
+pub mod cache;
 pub mod connect;
 pub mod mime;
 pub mod ops;
 pub mod parse;
 pub mod policy;
 pub mod pool;
+pub mod search;
 pub mod sync;
 
 #[cfg(test)]
@@ -170,11 +172,8 @@ pub struct State {
     pub on_demand_syncing: HashSet<String>,
     pub other_folders_syncing: HashSet<String>,
     pub reconciling: HashSet<String>,
-    pub snippet_running: HashSet<String>,
-    pub snippet_backoff: HashMap<String, (u32, u64)>,
     pub last_sync_ok_at: HashMap<String, u64>,
     pub last_folder_sync_at: HashMap<String, u64>,
-    pub last_user_activity: HashMap<String, u64>,
     pub sync_started_at: HashMap<String, u64>,
     pub sync_tick_count: HashMap<String, u64>,
     pub throttle_skips: HashMap<String, u32>,
@@ -187,6 +186,7 @@ pub struct State {
 pub struct Engine {
     pub db: Db,
     pub events: Events,
+    pub cache: cache::ContentCache,
     pub st: Mutex<State>,
     pub connect_sem: KeyedSemaphore,
     pub bg_sem: KeyedSemaphore,
@@ -213,10 +213,11 @@ impl Drop for SetGuard {
 }
 
 impl Engine {
-    pub fn new(db: Db, events: Events) -> EngineRef {
+    pub fn new(db: Db, events: Events, redis: Option<fred::prelude::Pool>) -> EngineRef {
         Arc::new(Self {
             db,
             events,
+            cache: cache::ContentCache::new(redis),
             st: Mutex::new(State::default()),
             connect_sem: KeyedSemaphore::new(CONNECT_CONCURRENCY_PER_HOST),
             bg_sem: KeyedSemaphore::new(BACKGROUND_CONN_MAX_PER_HOST),
@@ -249,10 +250,6 @@ impl Engine {
 
     pub fn persistent(&self, account_id: &str) -> Option<Arc<Persistent>> {
         self.st.lock().connections.get(account_id).cloned()
-    }
-
-    pub fn note_user_activity(&self, account_id: &str) {
-        self.st.lock().last_user_activity.insert(account_id.to_owned(), now_ms());
     }
 
     // ── move guards ─────────────────────────────────────────────────────────────────────
@@ -598,6 +595,9 @@ impl Engine {
             st.last_sync_ok_at.remove(account_id);
             st.sync_error_state.remove(account_id);
             st.pending_flag_sync.remove(account_id);
+            st.connect_cooldown.remove(account_id);
+            st.last_folder_sync_at.remove(account_id);
+            st.sync_started_at.remove(account_id);
             let timers = [
                 st.sync_timers.remove(account_id),
                 st.flag_debounce.remove(account_id),

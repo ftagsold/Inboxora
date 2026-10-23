@@ -1,4 +1,4 @@
-//! Recovery and maintenance timers: health check, snippet scheduler, staleness probe,
+//! Recovery and maintenance timers: health check, staleness probe,
 //! durable flag-push reconciler, snooze wake-up and startup auto-connect.
 
 use std::collections::HashSet;
@@ -35,11 +35,6 @@ impl Engine {
         every(Duration::from_secs(90), move || {
             let e = e.clone();
             Box::pin(async move { e.health_check().await })
-        });
-        let e = self.clone();
-        every(Duration::from_secs(600), move || {
-            let e = e.clone();
-            Box::pin(async move { e.snippet_scheduler().await })
         });
         let e = self.clone();
         every(Duration::from_millis(STALENESS_CHECK_MS), move || {
@@ -142,31 +137,6 @@ impl Engine {
                     (now_ms() - last) / 60_000
                 );
             }
-        }
-    }
-
-    async fn snippet_scheduler(self: &Arc<Self>) {
-        let ids: Vec<String> = self.st.lock().connections.keys().cloned().collect();
-        for id in ids {
-            if self.st.lock().snippet_running.contains(&id) {
-                continue;
-            }
-            let backlog = self
-                .db
-                .opt(
-                    "SELECT 1 FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL LIMIT 1",
-                    params![&id],
-                )
-                .await;
-            if !matches!(backlog, Ok(Some(_))) {
-                continue;
-            }
-            let Ok(Some(account)) = load_account(&self.db, &id).await else { continue };
-            if self.st.lock().snippet_backoff.get(&account.host()).is_some_and(|(_, until)| now_ms() < *until) {
-                continue;
-            }
-            let e = self.clone();
-            tokio::spawn(async move { e.start_snippet_indexer(&account).await });
         }
     }
 
@@ -503,7 +473,6 @@ impl Engine {
             "connecting": st.connecting.len(),
             "syncing": st.syncing.len(),
             "backfillRunning": st.backfill_running.len(),
-            "snippetIndexerRunning": st.snippet_running.len(),
             "pendingFlagPushes": st.pending_flag_push.values().map(|m| m.len()).sum::<usize>(),
         })
     }

@@ -31,6 +31,33 @@ The next release is **5.0.0**: the backend is rewritten in Rust (see the release
   The compose `frontend` service, `frontend/Dockerfile` and `frontend/nginx.conf` are removed;
   Caddy proxies to `backend:3000`.
 
+### Changed (storage)
+
+- **Mail content is no longer copied into PostgreSQL.** `messages` keeps a header index (account,
+  folder, UID, date, flags, threading links and app state such as snoozes and categories).
+  Subjects, addresses, snippets, bodies and raw headers are fetched from IMAP and cached in Redis
+  for `MAIL_CACHE_TTL_SECONDS` (default 600). Threading compares 64-bit digests instead of stored
+  subjects and headers; search runs on the IMAP server (`UID SEARCH`).
+- **Read-only remote collections are served live**: iCalendar subscriptions, read-only CalDAV
+  calendars and CardDAV address books are fetched on demand and cached in Redis. Two-way CalDAV
+  calendars stay stored.
+- **DAV change logs keep one payload-free row per resource**, and no-op refreshes no longer
+  write. Tombstones older than 30 days are pruned; a client holding an older sync token resyncs.
+- **Retention** for append-only tables (auth events, spam-training log, rebuild audit, resolved
+  ingest failures, send idempotency, delivered invitations, expired tokens).
+- **One-time compaction:** the first start after upgrading rewrites the affected tables
+  (`VACUUM FULL`) to return the freed space to the disk.
+- Index audit: unused and duplicate indexes dropped; every foreign key has an index its checks
+  can use.
+- Compose: container logs rotate (`LOG_MAX_SIZE`, `LOG_MAX_FILES`); Redis is capped at
+  `REDIS_MAXMEMORY` (default 256mb) and evicts the shortest-lived keys first.
+
+### Fixed (storage)
+
+- BIGINT UIDs read from JSON rows were treated as 0, which broke bulk moves, archiving,
+  deleting, snoozing, headers and attachment downloads.
+- In-memory rate limiters and the calendar projection cache could grow without bound.
+
 ### Removed (backend rewrite)
 
 - **The Node backend** and the Node↔Rust differential harnesses. The recorded Node outputs stay in

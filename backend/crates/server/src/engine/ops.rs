@@ -20,7 +20,7 @@ use super::parse::{clean, safe_date};
 use super::policy::{BODY_PREFETCH_PARTS, classify_move_by_search};
 use super::sync::compute_thread_id;
 use super::{EResult, Engine, EngineError, FlagOp};
-use crate::services::conversation::{RawCopy, persist_copy_for_row};
+use crate::services::conversation::{CopyFacts, RawCopy, persist_copy_for_row};
 use crate::services::mail_utils::adjust_folder_counts;
 
 /// Run `$body` with a pooled client bound to `$c`; the connection is evicted on error.
@@ -82,6 +82,24 @@ pub struct RecordFields {
     pub alias_id: Option<String>,
     pub composition: Option<Value>,
     pub uid_validity: Option<i64>,
+}
+
+/// The display fields of a message this server just wrote (Sent copy or draft).
+fn record_meta(f: &RecordFields) -> super::cache::Meta {
+    let addrs = |v: &Value| -> Vec<super::parse::Addr> { serde_json::from_value(v.clone()).unwrap_or_default() };
+    let nonempty = |v: Option<&str>| v.filter(|s| !s.is_empty()).map(clean);
+    super::cache::Meta {
+        message_id: nonempty(Some(&f.message_id)),
+        subject: clean(f.subject.as_deref().filter(|s| !s.is_empty()).unwrap_or("(no subject)")),
+        from_name: clean(f.from_name.as_deref().unwrap_or("")),
+        from_email: clean(f.from_email.as_deref().unwrap_or("")),
+        to: addrs(&f.to),
+        cc: addrs(&f.cc),
+        in_reply_to: nonempty(f.in_reply_to.as_deref()),
+        references: nonempty(f.references.as_deref()),
+        snippet: clean(&f.snippet),
+        ..Default::default()
+    }
 }
 
 fn arr(v: &Value) -> String {
@@ -814,47 +832,23 @@ impl Engine {
             )
             .await?
         };
-        let nonempty = |v: Option<&str>| v.filter(|s| !s.is_empty()).map(clean);
         self.db
             .exec(
-                "INSERT INTO messages (account_id, uid, folder, message_id, subject, from_name, from_email, to_addresses, cc_addresses, \
-                   in_reply_to, thread_references, date, snippet, is_read, is_starred, has_attachments, flags, thread_id) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,true,false,false,'[]',$14) \
+                "INSERT INTO messages (account_id, uid, folder, message_id, date, is_read, is_starred, has_attachments, flags, thread_id) \
+                 VALUES ($1,$2,$3,$4,$5,true,false,false,'[]',$6) \
                  ON CONFLICT (account_id, uid, folder) DO UPDATE SET \
                    message_id = COALESCE(EXCLUDED.message_id, messages.message_id), \
-                   subject = CASE WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)' THEN EXCLUDED.subject ELSE messages.subject END, \
-                   from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name), \
-                   from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email), \
-                   to_addresses = CASE WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]' THEN EXCLUDED.to_addresses ELSE messages.to_addresses END, \
-                   cc_addresses = CASE WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]' THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END, \
-                   in_reply_to = COALESCE(EXCLUDED.in_reply_to, messages.in_reply_to), \
-                   thread_references = COALESCE(EXCLUDED.thread_references, messages.thread_references), \
                    date = EXCLUDED.date, \
-                   snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END, \
                    is_read = true, \
                    thread_id = CASE WHEN messages.thread_id = messages.message_id AND EXCLUDED.thread_id IS NOT NULL AND EXCLUDED.thread_id <> messages.message_id \
                                     THEN EXCLUDED.thread_id ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id) END",
-                params![
-                    account.id(),
-                    uid,
-                    folder,
-                    mid.clone(),
-                    clean(f.subject.as_deref().filter(|s| !s.is_empty()).unwrap_or("(no subject)")),
-                    clean(f.from_name.as_deref().unwrap_or("")),
-                    clean(f.from_email.as_deref().unwrap_or("")),
-                    arr(&f.to),
-                    arr(&f.cc),
-                    nonempty(f.in_reply_to.as_deref()).unwrap_or_default(),
-                    nonempty(f.references.as_deref()).unwrap_or_default(),
-                    safe_date(f.date),
-                    clean(&f.snippet),
-                    thread
-                ],
+                params![account.id(), uid, folder, mid.clone(), safe_date(f.date), thread],
             )
             .await?;
         self.persist_record_copy(account, folder, uid, f).await
     }
 
+    /// Cache what the client wrote (it is the message) and attach the copy to its conversation.
     async fn persist_record_copy(&self, account: &Account, folder: &str, uid: i64, f: &RecordFields) -> EResult<()> {
         let row = self
             .db
@@ -864,20 +858,34 @@ impl Engine {
             )
             .await?;
         if let Some(r) = row {
+            let id: Uuid = r.get("id");
+            let meta = record_meta(f);
+            self.cache.put(&super::cache::meta_key(&id), &meta).await;
+            if f.body_html.is_some() || f.body_text.is_some() {
+                let body = super::cache::CachedBody {
+                    html: f.body_html.as_deref().and_then(super::cache::prepare_html),
+                    text: f.body_text.as_deref().map(clean).filter(|t| !t.is_empty()),
+                    attachments: Value::Array(vec![]),
+                };
+                self.cache.put(&super::cache::body_key(&id), &body).await;
+            }
+            let mut facts = CopyFacts::from_meta(&meta);
+            facts.body_text = f.body_text.clone();
             persist_copy_for_row(
                 &self.db,
-                r.get("id"),
+                id,
                 account.id(),
                 account.user_id(),
                 &account.host(),
                 &RawCopy { message_id: Some(&f.message_id), ..Default::default() },
+                &facts,
             )
             .await;
         }
         Ok(())
     }
 
-    /// `upsertDraftMessageRecord`: an authoritative snapshot of the appended draft.
+    /// `upsertDraftMessageRecord`: the appended draft's index row and composition state.
     pub async fn upsert_draft_record(
         &self,
         account: &Account,
@@ -891,14 +899,11 @@ impl Engine {
         let mid = clean(&f.message_id);
         self.db
             .exec(
-                "INSERT INTO messages (account_id, uid, folder, message_id, subject, from_name, from_email, to_addresses, cc_addresses, \
-                   in_reply_to, date, snippet, is_read, is_starred, has_attachments, flags, body_html, body_text, thread_id, draft_uid_validity, \
-                   draft_bcc_addresses, draft_alias_id, draft_in_reply_to, draft_references, draft_composition) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16,$17,$18::jsonb,$19,$20,$21,$22::jsonb) \
+                "INSERT INTO messages (account_id, uid, folder, message_id, date, is_read, is_starred, has_attachments, flags, thread_id, \
+                   draft_uid_validity, draft_bcc_addresses, draft_alias_id, draft_in_reply_to, draft_references, draft_composition) \
+                 VALUES ($1,$2,$3,$4,$5,true,false,false,$6::jsonb,$7,$8,$9::jsonb,$10,$11,$12,$13::jsonb) \
                  ON CONFLICT (account_id, uid, folder) DO UPDATE SET \
-                   message_id = EXCLUDED.message_id, subject = EXCLUDED.subject, from_name = EXCLUDED.from_name, from_email = EXCLUDED.from_email, \
-                   to_addresses = EXCLUDED.to_addresses, cc_addresses = EXCLUDED.cc_addresses, in_reply_to = EXCLUDED.in_reply_to, date = EXCLUDED.date, \
-                   snippet = EXCLUDED.snippet, flags = EXCLUDED.flags, body_html = EXCLUDED.body_html, body_text = EXCLUDED.body_text, \
+                   message_id = EXCLUDED.message_id, date = EXCLUDED.date, flags = EXCLUDED.flags, \
                    draft_uid_validity = EXCLUDED.draft_uid_validity, draft_bcc_addresses = EXCLUDED.draft_bcc_addresses, \
                    draft_alias_id = EXCLUDED.draft_alias_id, draft_in_reply_to = EXCLUDED.draft_in_reply_to, \
                    draft_references = EXCLUDED.draft_references, draft_composition = EXCLUDED.draft_composition \
@@ -908,17 +913,8 @@ impl Engine {
                     uid,
                     folder,
                     mid.clone(),
-                    clean(f.subject.as_deref().filter(|s| !s.is_empty()).unwrap_or("(no subject)")),
-                    clean(f.from_name.as_deref().unwrap_or("")),
-                    clean(f.from_email.as_deref().unwrap_or("")),
-                    arr(&f.to),
-                    arr(&f.cc),
-                    f.in_reply_to.clone().filter(|s| !s.is_empty()),
                     safe_date(f.date),
-                    clean(&f.snippet),
                     json!(["\\Draft", "\\Seen"]).to_string(),
-                    f.body_html.as_deref().map(clean),
-                    f.body_text.as_deref().map(clean),
                     Some(mid).filter(|m| !m.is_empty()),
                     f.uid_validity.filter(|v| *v > 0),
                     arr(&f.bcc),

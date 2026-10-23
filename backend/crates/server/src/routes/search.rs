@@ -1,8 +1,7 @@
 //! `/api/search` (port of routes/search.ts).
 
-use std::collections::HashMap;
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::State;
@@ -12,10 +11,12 @@ use axum::routing::get;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use inboxora_core::pg::{Q, Val};
 use inboxora_core::{Result, params};
-use parking_lot::Mutex;
 use regex::Regex;
 use serde_json::json;
+use uuid::Uuid;
 
+use crate::engine::search::FolderScope;
+use crate::http::limit::Windows;
 use crate::http::{Auth, Qs};
 use crate::routes::contacts::{query_int, query_string};
 use crate::routes::util::{err, fail, json, ok};
@@ -26,32 +27,17 @@ pub fn router() -> Router<AppState> {
 }
 
 /// 20 searches per minute per user (shared by both endpoints, in-memory like Node).
-static BUCKETS: LazyLock<Mutex<HashMap<String, (u32, Instant)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static BUCKETS: LazyLock<Windows> = LazyLock::new(|| Windows::new(10_000));
 
 fn limited(user_id: &str) -> Option<Response> {
-    let now = Instant::now();
-    let mut b = BUCKETS.lock();
-    if b.len() > 10_000 {
-        b.retain(|_, (_, reset)| *reset > now);
-    }
-    match b.get_mut(user_id) {
-        Some((count, reset)) if now <= *reset => {
-            if *count >= 20 {
-                let secs = (*reset - now).as_secs_f64().ceil() as u64;
-                let mut r = json(429, json!({ "error": "Too many search requests. Try again shortly." }));
-                if let Ok(v) = HeaderValue::from_str(&secs.to_string()) {
-                    r.headers_mut().insert("retry-after", v);
-                }
-                return Some(r);
-            }
-            *count += 1;
-            None
+    let (hits, left) = BUCKETS.hit(user_id, Duration::from_secs(60));
+    (hits > 20).then(|| {
+        let mut r = json(429, json!({ "error": "Too many search requests. Try again shortly." }));
+        if let Ok(v) = HeaderValue::from_str(&left.as_secs_f64().ceil().to_string()) {
+            r.headers_mut().insert("retry-after", v);
         }
-        _ => {
-            b.insert(user_id.to_owned(), (1, now + Duration::from_secs(60)));
-            None
-        }
-    }
+        r
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -127,22 +113,38 @@ pub fn js_date_parse(v: &str) -> Option<DateTime<Utc>> {
     None
 }
 
-const FTS_BODY_CHAR_CAP: usize = 600_000;
-
 fn negate_cond(sql: &str) -> String {
     format!("NOT COALESCE(({sql}), false)")
 }
 
-fn free_text_condition(like: usize, fts: usize) -> String {
-    format!(
-        "(m.from_name ILIKE ${like} OR m.from_email ILIKE ${like} OR m.subject ILIKE ${like} \
-         OR m.search_vector @@ plainto_tsquery('english', ${fts}) \
-         OR to_tsvector('english', LEFT(coalesce(m.body_text,''), {FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', ${fts}))"
-    )
-}
-
 const TRASH_EXCLUSION: &str = "NOT EXISTS (SELECT 1 FROM folders f WHERE f.account_id = m.account_id AND f.path = m.folder \
     AND (f.special_use = '\\Trash' OR lower(f.name) LIKE '%trash%' OR lower(f.name) LIKE '%deleted%'))";
+
+/// Newest server hits kept per folder before the result page is cut.
+const HITS_PER_FOLDER: usize = 1000;
+
+/// IMAP `SEARCH` keys for the text parts of a query (sender, recipients, subject, free text).
+pub fn imap_criteria(filters: &[Filter], terms: &[Term]) -> Vec<String> {
+    use inboxora_imap::quote;
+    let key = |negate: bool, k: String| if negate { format!("NOT ({k})") } else { k };
+    let mut out = Vec::new();
+    for f in filters {
+        let k = match f.key.as_str() {
+            "from" => format!("FROM {}", quote(&f.value)),
+            "subject" => format!("SUBJECT {}", quote(&f.value)),
+            "to" => format!("OR TO {q} CC {q}", q = quote(&f.value)),
+            _ => continue,
+        };
+        out.push(key(f.negate, k));
+    }
+    for t in terms.iter().take(10) {
+        if inboxora_mail::text::js_len(&t.value) < 2 {
+            continue;
+        }
+        out.push(key(t.negate, format!("TEXT {}", quote(&t.value))));
+    }
+    out
+}
 
 /// `resolveAccountScope`: one owned account, or every account in the unified inbox.
 pub fn resolve_account_scope(
@@ -188,26 +190,10 @@ async fn search(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response
     let cap = limit.clamp(1, 200);
     let (filters, terms) = parse_search_query(&trimmed);
     let mut conditions: Vec<String> = Vec::new();
-    let mut p: Vec<Val> = vec![Val::from(target_ids)];
+    let mut p: Vec<Val> = vec![Val::from(target_ids.clone())];
     let next = |p: &Vec<Val>| p.len() + 1;
     for f in &filters {
         let cond = match f.key.as_str() {
-            "in" => None,
-            "from" => {
-                let n = next(&p);
-                p.push(Val::from(format!("%{}%", f.value)));
-                Some(format!("(m.from_email ILIKE ${n} OR m.from_name ILIKE ${n})"))
-            }
-            "subject" => {
-                let n = next(&p);
-                p.push(Val::from(format!("%{}%", f.value)));
-                Some(format!("m.subject ILIKE ${n}"))
-            }
-            "to" => {
-                let n = next(&p);
-                p.push(Val::from(format!("%{}%", f.value)));
-                Some(format!("(m.to_addresses::text ILIKE ${n} OR m.cc_addresses::text ILIKE ${n})"))
-            }
             "has" if f.value == "attachment" || f.value == "attachments" => Some("m.has_attachments = true".into()),
             "is" => match f.value.as_str() {
                 "unread" => Some("m.is_read = false".into()),
@@ -215,7 +201,6 @@ async fn search(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response
                 "starred" => Some("m.is_starred = true".into()),
                 _ => None,
             },
-            // Node built `m.date >= 3` (missing `$`), so these failed with 500; fixed here.
             "after" | "before" => js_date_parse(&f.value).map(|d| {
                 let n = next(&p);
                 p.push(Val::Time(d));
@@ -227,64 +212,58 @@ async fn search(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response
             conditions.push(if f.negate { negate_cond(&c) } else { c });
         }
     }
-    for t in terms.iter().take(10) {
-        if inboxora_mail::text::js_len(&t.value) < 2 {
-            continue;
-        }
-        let like = next(&p);
-        p.push(Val::from(format!("%{}%", t.value)));
-        let fts = next(&p);
-        p.push(Val::from(t.value.clone()));
-        let c = free_text_condition(like, fts);
-        conditions.push(if t.negate { negate_cond(&c) } else { c });
-    }
-    if conditions.is_empty() {
+    let criteria = imap_criteria(&filters, &terms);
+    if conditions.is_empty() && criteria.is_empty() {
         return Ok(ok(json!({ "messages": [], "query": raw })));
     }
     // `in:` wins over the folder param; `in:all` searches every folder.
-    let mut scope: Option<Option<String>> = None;
-    let mut fuzzy = false;
+    let mut scope: Option<FolderScope> = None;
     for f in filters.iter().filter(|f| f.key == "in") {
-        if f.value == "all" {
-            scope = Some(None);
-        } else {
-            scope = Some(Some(f.value.clone()));
-            fuzzy = true;
-        }
+        scope = Some(if f.value == "all" { FolderScope::AllButTrash } else { FolderScope::Named(f.value.clone()) });
     }
-    let scope = match scope {
-        Some(s) => s,
-        None => {
-            fuzzy = false;
-            query_string(&q, "folder").map(|f| f.trim().to_owned()).filter(|f| !f.is_empty())
+    let scope = scope.unwrap_or_else(|| {
+        match query_string(&q, "folder").map(|f| f.trim().to_owned()).filter(|f| !f.is_empty()) {
+            Some(f) => FolderScope::Exact(f),
+            None => FolderScope::AllButTrash,
         }
-    };
-    match scope {
-        Some(folder) if fuzzy => {
-            let n = next(&p);
-            p.push(Val::from(folder.clone()));
-            p.push(Val::from(format!("%/{folder}")));
-            conditions.push(format!("(m.folder ILIKE ${n} OR m.folder ILIKE ${})", n + 1));
+    });
+    if criteria.is_empty() {
+        match &scope {
+            FolderScope::Named(folder) => {
+                let n = next(&p);
+                p.push(Val::from(folder.clone()));
+                p.push(Val::from(format!("%/{folder}")));
+                conditions.push(format!("(m.folder ILIKE ${n} OR m.folder ILIKE ${})", n + 1));
+            }
+            FolderScope::Exact(folder) => {
+                let n = next(&p);
+                p.push(Val::from(folder.clone()));
+                conditions.push(format!("m.folder = ${n}"));
+            }
+            FolderScope::AllButTrash => conditions.push(TRASH_EXCLUSION.into()),
         }
-        Some(folder) => {
-            let n = next(&p);
-            p.push(Val::from(folder));
-            conditions.push(format!("m.folder = ${n}"));
+    } else {
+        let ids = s.mail.search_ids(&target_ids, &scope, &criteria.join(" "), HITS_PER_FOLDER).await;
+        if ids.is_empty() {
+            return Ok(ok(json!({ "messages": [], "query": raw })));
         }
-        None => conditions.push(TRASH_EXCLUSION.into()),
+        let n = next(&p);
+        p.push(Val::from(ids.iter().map(Uuid::to_string).collect::<Vec<_>>()));
+        conditions.push(format!("m.id = ANY(${n}::uuid[])"));
     }
     let n = next(&p);
     p.push(Val::Int(cap));
     p.push(Val::Int(offset.max(0)));
     let sql = format!(
-        "SELECT m.id, m.uid, m.folder, m.subject, m.from_name, m.from_email, m.date, m.snippet, m.is_read, m.is_starred, \
+        "SELECT m.id, m.uid, m.folder, m.date, m.is_read, m.is_starred, \
          m.has_attachments, m.account_id, a.name as account_name, a.email_address as account_email, a.color as account_color \
          FROM messages m JOIN email_accounts a ON m.account_id = a.id WHERE m.account_id = ANY($1) AND m.is_deleted = false \
          AND {} ORDER BY m.date DESC LIMIT ${n} OFFSET ${}",
         conditions.join(" AND "),
         n + 1
     );
-    let rows = s.db.json_rows(&sql, &p).await.map_err(fail("Search error", "Search failed"))?;
+    let mut rows = s.db.json_rows(&sql, &p).await.map_err(fail("Search error", "Search failed"))?;
+    s.mail.hydrate_values(&mut rows).await;
     Ok(ok(json!({ "messages": rows, "query": raw })))
 }
 
@@ -301,33 +280,23 @@ async fn suggest_contacts(State(s): State<AppState>, auth: Auth, q: Qs) -> Resul
     if len > 100 {
         return Ok(err(400, "Query too long"));
     }
-    let accounts: Vec<String> =
-        s.db.rows("SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true", params![&auth.user_id])
-            .await?
-            .iter()
-            .map(|r| r.get::<_, uuid::Uuid>(0).to_string())
-            .collect();
-    if accounts.is_empty() {
-        return Ok(ok(json!({ "contacts": [] })));
-    }
+    // Senders of incoming mail are learned into auto contacts as it arrives, so the contacts
+    // table is the whole suggestion source.
+    let (relation, live) = crate::services::remote_dav::contacts_relation(&s.db, &auth.user_id, 3).await;
     let rows = s
         .db
         .json_rows(
-            "WITH known AS (SELECT primary_email AS email, display_name AS name, send_count, last_sent FROM contacts \
-               WHERE user_id = $1 AND is_auto = false AND primary_email IS NOT NULL AND (display_name ILIKE $2 OR primary_email ILIKE $2)), \
-             auto AS (SELECT primary_email AS email, display_name AS name, 0 AS send_count, last_sent FROM contacts \
-               WHERE user_id = $1 AND is_auto = true AND primary_email IS NOT NULL AND (display_name ILIKE $2 OR primary_email ILIKE $2) \
-               AND lower(primary_email) NOT IN (SELECT lower(email) FROM known)), \
-             inbound AS (SELECT email, name, send_count, last_sent FROM (SELECT DISTINCT ON (from_email) from_email AS email, \
-               from_name AS name, 0 AS send_count, date AS last_sent, is_bulk FROM messages WHERE account_id = ANY($3) \
-               AND is_deleted = false AND from_email IS NOT NULL AND from_email != '' AND (from_email ILIKE $2 OR from_name ILIKE $2) \
-               AND lower(from_email) NOT IN (SELECT lower(primary_email) FROM contacts WHERE user_id = $1 AND primary_email IS NOT NULL) \
-               AND from_email !~* '^(noreply|no-reply|donotreply|mailer-daemon|notifications?|bounce[^@]*)@' \
-               ORDER BY from_email, date DESC) latest WHERE is_bulk IS NOT TRUE) \
-             SELECT email, name FROM (SELECT email, name, 1 AS priority, send_count, last_sent FROM known UNION ALL \
-               SELECT email, name, 2 AS priority, 0, last_sent FROM auto UNION ALL SELECT email, name, 3 AS priority, 0, last_sent FROM inbound) combined \
-             ORDER BY priority, send_count DESC, last_sent DESC NULLS LAST LIMIT 10",
-            params![&auth.user_id, format!("%{trimmed}%"), accounts],
+            &format!(
+                "WITH known AS (SELECT primary_email AS email, display_name AS name, send_count, last_sent FROM {relation} c \
+                   WHERE user_id = $1 AND is_auto = false AND primary_email IS NOT NULL AND (display_name ILIKE $2 OR primary_email ILIKE $2)), \
+                 auto AS (SELECT primary_email AS email, display_name AS name, 0 AS send_count, last_sent FROM contacts \
+                   WHERE user_id = $1 AND is_auto = true AND primary_email IS NOT NULL AND (display_name ILIKE $2 OR primary_email ILIKE $2) \
+                   AND lower(primary_email) NOT IN (SELECT lower(email) FROM known)) \
+                 SELECT email, name FROM (SELECT email, name, 1 AS priority, send_count, last_sent FROM known UNION ALL \
+                   SELECT email, name, 2 AS priority, 0, last_sent FROM auto) combined \
+                 ORDER BY priority, send_count DESC, last_sent DESC NULLS LAST LIMIT 10"
+            ),
+            &[Val::from(&auth.user_id), Val::from(format!("%{trimmed}%")), live],
         )
         .await
         .map_err(fail("Contact suggest error", "Failed to fetch contacts"))?;

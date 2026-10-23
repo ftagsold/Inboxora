@@ -13,13 +13,14 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::conversation::{
-    assert_no_alias_cycle, lock_conversations, provider_identity_for_copy, refresh_aggregates, resolve_alias,
-    resolve_own_identities, upsert_copy_tx,
+    CopyFacts, assert_no_alias_cycle, lock_conversations, provider_identity_for_copy, refresh_aggregates,
+    resolve_alias, resolve_own_identities, upsert_copy_tx,
 };
 use super::mail_utils::{
     adjust_folder_counts, resolve_all_drafts_paths, resolve_all_trash_paths, resolve_trash_folder,
 };
 use crate::engine::EngineRef;
+use crate::engine::cache::Location;
 use crate::engine::connect::Account;
 
 /// A failure with Node's optional `statusCode`.
@@ -202,8 +203,8 @@ async fn apply_override_tx(tx: &Tx<'_>, user: &str, r: &OverrideRequest) -> OpRe
             }
             let created: Uuid = tx
                 .opt(
-                    "INSERT INTO conversations (user_id, account_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number) \
-                     SELECT user_id, account_id, 'manual_conversation', subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number + 1 \
+                    "INSERT INTO conversations (user_id, account_id, kind, first_message_at, last_message_at, segment_number) \
+                     SELECT user_id, account_id, 'manual_conversation', first_message_at, last_message_at, segment_number + 1 \
                      FROM conversations WHERE id = $1 RETURNING id",
                     params![conversation],
                 )
@@ -843,7 +844,7 @@ async fn push_flags(engine: &EngineRef, rows: &[Map<String, Value>], flag: &str,
         let account = accounts.get(&a).cloned();
         let id = r.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
         let folder = r.get("folder").and_then(Value::as_str).unwrap_or("").to_owned();
-        let uid = r.get("uid").and_then(Value::as_i64);
+        let uid = inboxora_core::json::int(r.get("uid"));
         async move {
             let (Some(account), Some(uid)) = (account, uid) else { return };
             match engine.set_flag(&account, uid, &folder, flag, value).await {
@@ -1138,21 +1139,28 @@ async fn snapshot(tx: &Tx<'_>, id: Uuid) -> inboxora_core::Result<Option<Value>>
         .map(Value::Object))
 }
 
-async fn rebuild_rows(tx: &Tx<'_>, rows: &[Map<String, Value>], user: &str) -> inboxora_core::Result<usize> {
+async fn rebuild_rows(
+    tx: &Tx<'_>,
+    rows: &[Map<String, Value>],
+    user: &str,
+    facts: &HashMap<Uuid, CopyFacts>,
+) -> inboxora_core::Result<usize> {
     let mut changed = 0;
     for row in rows {
         let id = Uuid::parse_str(row.get("id").and_then(Value::as_str).unwrap_or_default())
             .map_err(|e| Error::internal(e.to_string()))?;
+        // The server no longer has it (or it could not be fetched): leave its links as they are.
+        let Some(facts) = facts.get(&id) else { continue };
         let account = row.get("account_id").and_then(Value::as_str).unwrap_or_default();
         let host = row.get("imap_host").and_then(Value::as_str).unwrap_or_default();
         let before = snapshot(tx, id).await?;
-        let identities: Vec<Value> = resolve_own_identities(tx, account, row.get("delivery_addresses"), None)
+        let identities: Vec<Value> = resolve_own_identities(tx, account, Some(&facts.delivery_addresses), None)
             .await?
             .into_iter()
             .map(Value::String)
             .collect();
         let provider = provider_identity_for_copy(row, host);
-        upsert_copy_tx(tx, id, &identities, Some(&provider), user, true).await?;
+        upsert_copy_tx(tx, id, facts, &identities, Some(&provider), user, true).await?;
         if before != snapshot(tx, id).await? {
             changed += 1;
         }
@@ -1162,7 +1170,7 @@ async fn rebuild_rows(tx: &Tx<'_>, rows: &[Map<String, Value>], user: &str) -> i
 
 /// One batch of `rebuildConversationCopies` for one account.
 pub async fn rebuild_batch(
-    db: &Db,
+    engine: &EngineRef,
     user: &str,
     account: &str,
     limit: i64,
@@ -1170,6 +1178,7 @@ pub async fn rebuild_batch(
     force: bool,
     cursor: Option<Cursor>,
 ) -> inboxora_core::Result<BatchResult> {
+    let db = &engine.db;
     let limit = limit.clamp(1, 500);
     let scope = if account.is_empty() { ALL_ACCOUNTS_SCOPE } else { account };
     let checkpoint = db
@@ -1195,48 +1204,52 @@ pub async fn rebuild_batch(
             is_null: c.get("last_sort_is_null").and_then(Value::as_bool).unwrap_or(false),
         })
     });
+    // Threading needs each copy's headers, which live on the IMAP server: fetch the page's
+    // headers (through the cache) before the transaction, then rebuild exactly those rows.
+    let (page_values, page_pred) = cursor_predicate(user, account, effective.as_ref(), limit);
+    let page: Vec<Map<String, Value>> = db
+        .json_rows(
+            &format!(
+                "SELECT m.id, m.account_id, m.folder, m.uid FROM messages m \
+                 JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1 \
+                 WHERE m.is_deleted = false AND m.account_id = $2 {page_pred} ORDER BY (m.date IS NULL), m.date ASC, m.id ASC LIMIT ${}",
+                page_values.len()
+            ),
+            &page_values,
+        )
+        .await?
+        .into_iter()
+        .filter_map(|v| if let Value::Object(m) = v { Some(m) } else { None })
+        .collect();
+    let locations: Vec<Location> = page.iter().filter_map(Location::from_row).collect();
+    let page_ids: Vec<String> = locations.iter().map(|l| l.id.to_string()).collect();
+    let facts: HashMap<Uuid, CopyFacts> =
+        engine.message_meta(&locations).await.iter().map(|(id, m)| (*id, CopyFacts::from_meta(m))).collect();
     let (user_s, account_s, lock_key) = (user.to_owned(), account.to_owned(), format!("conversation-rebuild:{user}"));
     let effective2 = effective.clone();
     // The advisory lock and the batch share one session.
     let result = db
         .transaction(true, 3, move |tx| {
             let (user, account, lock_key, effective) = (user_s.clone(), account_s.clone(), lock_key.clone(), effective2.clone());
+            let (page_ids, facts, page_len) = (page_ids.clone(), facts.clone(), page.len());
             Box::pin(async move {
                 tx.exec("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", params![&lock_key, format!("{lock_key}:2")]).await?;
-                let mut values: Vec<inboxora_core::pg::Val> = vec![user.as_str().into(), account.as_str().into()];
-                let mut pred = String::new();
-                if let Some(c) = effective.as_ref().filter(|c| c.id.is_some()) {
-                    if c.is_null {
-                        values.push(c.id.clone().into());
-                        pred = format!("AND (m.date IS NULL AND m.id > ${}::uuid)", values.len());
-                    } else {
-                        values.push(c.date.clone().into());
-                        values.push(c.id.clone().into());
-                        let n = values.len();
-                        pred = format!(
-                            "AND ((m.date IS NOT NULL AND (m.date > ${d}::timestamptz OR (m.date = ${d}::timestamptz AND m.id > ${n}::uuid))) OR m.date IS NULL)",
-                            d = n - 1
-                        );
-                    }
-                }
-                values.push(limit.into());
                 let rows: Vec<Map<String, Value>> = tx
                     .json_rows(
-                        &format!(
-                            "SELECT m.*, a.user_id, a.email_address, a.imap_host, a.protocol FROM messages m \
-                             JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1 \
-                             WHERE m.is_deleted = false AND m.account_id = $2 {pred} ORDER BY (m.date IS NULL), m.date ASC, m.id ASC LIMIT ${}",
-                            values.len()
-                        ),
-                        &values,
+                        "SELECT m.*, a.user_id, a.email_address, a.imap_host, a.protocol FROM messages m \
+                         JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1 \
+                         WHERE m.is_deleted = false AND m.account_id = $2 AND m.id = ANY($3::uuid[]) \
+                         ORDER BY (m.date IS NULL), m.date ASC, m.id ASC",
+                        params![&user, &account, page_ids],
                     )
                     .await?
                     .into_iter()
                     .filter_map(|v| if let Value::Object(m) = v { Some(m) } else { None })
                     .collect();
-                let changed = rebuild_rows(tx, &rows, &user).await?;
+                let _ = &effective;
+                let changed = rebuild_rows(tx, &rows, &user, &facts).await?;
                 let last = rows.last();
-                let complete = (rows.len() as i64) < limit;
+                let complete = (page_len as i64) < limit;
                 if !dry_run {
                     let last_date = last.and_then(|l| l.get("date")).and_then(Value::as_str).map(str::to_owned);
                     let is_null = match last {
@@ -1264,9 +1277,9 @@ pub async fn rebuild_batch(
                     .await?;
                 } else {
                     // A dry run must leave nothing behind.
-                    return Err(Error::Internal(format!("__dry_run__:{changed}:{}:{}", rows.len(), serde_json::to_string(&last.cloned()).unwrap_or_default())));
+                    return Err(Error::Internal(format!("__dry_run__:{changed}:{page_len}:{}", serde_json::to_string(&last.cloned()).unwrap_or_default())));
                 }
-                Ok((rows.len(), changed, complete, last.cloned()))
+                Ok((page_len, changed, complete, last.cloned()))
             })
         })
         .await;
@@ -1289,6 +1302,34 @@ pub async fn rebuild_batch(
     Ok(BatchResult { scanned, updated: if dry_run { 0 } else { changed }, would_change: changed, complete, next })
 }
 
+/// The rebuild page predicate after `cursor` and its bind values (`$1` user, `$2` account,
+/// then the cursor, then the limit last).
+fn cursor_predicate(
+    user: &str,
+    account: &str,
+    cursor: Option<&Cursor>,
+    limit: i64,
+) -> (Vec<inboxora_core::pg::Val>, String) {
+    let mut values: Vec<inboxora_core::pg::Val> = vec![user.into(), account.into()];
+    let mut pred = String::new();
+    if let Some(c) = cursor.filter(|c| c.id.is_some()) {
+        if c.is_null {
+            values.push(c.id.clone().into());
+            pred = format!("AND (m.date IS NULL AND m.id > ${}::uuid)", values.len());
+        } else {
+            values.push(c.date.clone().into());
+            values.push(c.id.clone().into());
+            let n = values.len();
+            pred = format!(
+                "AND ((m.date IS NOT NULL AND (m.date > ${d}::timestamptz OR (m.date = ${d}::timestamptz AND m.id > ${n}::uuid))) OR m.date IS NULL)",
+                d = n - 1
+            );
+        }
+    }
+    values.push(limit.into());
+    (values, pred)
+}
+
 #[derive(Debug, Clone)]
 struct Job {
     user_id: String,
@@ -1299,21 +1340,11 @@ struct Job {
 }
 
 static JOBS: LazyLock<Mutex<Vec<(String, Job)>>> = LazyLock::new(|| Mutex::new(Vec::new()));
-static RATE: LazyLock<Mutex<HashMap<String, (Instant, u32)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static RATE: LazyLock<crate::http::limit::Windows> = LazyLock::new(|| crate::http::limit::Windows::new(10_000));
 
 /// `consumeConversationRebuildRateLimit`: 2 requests per minute per user.
 pub fn consume_rebuild_rate_limit(user: &str) -> bool {
-    let mut m = RATE.lock();
-    let now = Instant::now();
-    let e = m.entry(user.to_owned()).or_insert((now, 0));
-    if now.duration_since(e.0) >= Duration::from_secs(60) {
-        *e = (now, 0);
-    }
-    if e.1 >= 2 {
-        return false;
-    }
-    e.1 += 1;
-    true
+    RATE.hit(user, Duration::from_secs(60)).0 <= 2
 }
 
 pub async fn record_rebuild_audit(
@@ -1333,7 +1364,7 @@ pub async fn record_rebuild_audit(
 
 /// `startConversationRebuildJob`.
 pub fn start_rebuild_job(
-    db: &Db,
+    engine: &EngineRef,
     user: &str,
     account: Option<String>,
     limit: i64,
@@ -1357,7 +1388,7 @@ pub fn start_rebuild_job(
             jobs.remove(0);
         }
     }
-    let (db, user, job_id) = (db.clone(), user.to_owned(), id.clone());
+    let (engine, user, job_id) = (engine.clone(), user.to_owned(), id.clone());
     let set = move |id: &str, f: &dyn Fn(&mut Job)| {
         if let Some((_, j)) = JOBS.lock().iter_mut().find(|(k, _)| k == id) {
             f(j);
@@ -1368,7 +1399,8 @@ pub fn start_rebuild_job(
         let run = async {
             let scopes: Vec<String> = match &account {
                 Some(a) => vec![a.clone()],
-                None => db
+                None => engine
+                    .db
                     .rows("SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id", params![&user])
                     .await?
                     .iter()
@@ -1380,8 +1412,9 @@ pub fn start_rebuild_job(
             for scope in &scopes {
                 let mut cursor: Option<Cursor> = None;
                 loop {
-                    let r = rebuild_batch(&db, &user, scope, limit, dry_run, force && cursor.is_none(), cursor.clone())
-                        .await?;
+                    let r =
+                        rebuild_batch(&engine, &user, scope, limit, dry_run, force && cursor.is_none(), cursor.clone())
+                            .await?;
                     scanned += r.scanned;
                     updated += r.updated;
                     would += r.would_change;
@@ -1414,7 +1447,7 @@ pub fn start_rebuild_job(
                     .map(|(_, j)| j.result.clone())
                     .unwrap_or(Value::Null);
                 let _ = record_rebuild_audit(
-                    &db,
+                    &engine.db,
                     &user,
                     &job_id,
                     "completed",
@@ -1429,7 +1462,7 @@ pub fn start_rebuild_job(
                     j.status = "failed".into();
                 });
                 let _ = record_rebuild_audit(
-                    &db,
+                    &engine.db,
                     &user,
                     &job_id,
                     "failed",
@@ -1454,7 +1487,8 @@ pub fn get_rebuild_job(user: &str, job: &str) -> Option<Value> {
 // ── ingest retry ────────────────────────────────────────────────────────────────────────────
 
 /// `retryConversationIngestFailures`: re-run persistence for recorded failures.
-pub async fn retry_ingest_failures(db: &Db, limit: i64) -> inboxora_core::Result<Vec<Value>> {
+pub async fn retry_ingest_failures(engine: &EngineRef, limit: i64) -> inboxora_core::Result<Vec<Value>> {
+    let db = &engine.db;
     let limit = limit.clamp(1, 100);
     let failures = db
         .transaction(false, 0, move |tx| {
@@ -1484,10 +1518,20 @@ pub async fn retry_ingest_failures(db: &Db, limit: i64) -> inboxora_core::Result
             f.get("message_row_id").and_then(Value::as_str).unwrap_or("").to_owned(),
             f.get("user_id").and_then(Value::as_str).unwrap_or("").to_owned(),
         );
+        let location = db
+            .json_opt("SELECT id, account_id, folder, uid FROM messages WHERE id = $1", params![&row_id])
+            .await?
+            .as_ref()
+            .and_then(Location::from_row);
+        let facts = match &location {
+            Some(l) => engine.message_meta(std::slice::from_ref(l)).await.get(&l.id).map(CopyFacts::from_meta),
+            None => None,
+        };
         let r = db
             .transaction(true, 2, move |tx| {
-                let (row_id, user) = (row_id.clone(), user.clone());
+                let (row_id, user, facts) = (row_id.clone(), user.clone(), facts.clone());
                 Box::pin(async move {
+                    let facts = facts.ok_or_else(|| Error::internal("Message is no longer on the server"))?;
                     let row = tx
                         .json_opt(
                             "SELECT m.*, a.user_id, a.email_address, a.imap_host, a.protocol FROM messages m JOIN email_accounts a ON a.id = m.account_id \
@@ -1496,7 +1540,7 @@ pub async fn retry_ingest_failures(db: &Db, limit: i64) -> inboxora_core::Result
                         )
                         .await?
                         .ok_or_else(|| Error::internal("Message row no longer exists"))?;
-                    rebuild_rows_single(tx, &row, &user).await
+                    rebuild_rows_single(tx, &row, &user, &facts).await
                 })
             })
             .await;
@@ -1519,29 +1563,30 @@ async fn rebuild_rows_single(
     tx: &Tx<'_>,
     row: &Map<String, Value>,
     user: &str,
+    facts: &CopyFacts,
 ) -> inboxora_core::Result<(String, Option<String>)> {
     let id = Uuid::parse_str(row.get("id").and_then(Value::as_str).unwrap_or_default())
         .map_err(|e| Error::internal(e.to_string()))?;
     let account = row.get("account_id").and_then(Value::as_str).unwrap_or_default();
     let host = row.get("imap_host").and_then(Value::as_str).unwrap_or_default();
-    let identities: Vec<Value> = resolve_own_identities(tx, account, row.get("delivery_addresses"), None)
+    let identities: Vec<Value> = resolve_own_identities(tx, account, Some(&facts.delivery_addresses), None)
         .await?
         .into_iter()
         .map(Value::String)
         .collect();
     let provider = provider_identity_for_copy(row, host);
-    let r = upsert_copy_tx(tx, id, &identities, Some(&provider), user, false).await?;
+    let r = upsert_copy_tx(tx, id, facts, &identities, Some(&provider), user, false).await?;
     Ok((r.logical_message_id.to_string(), r.conversation_id.map(|c| c.to_string())))
 }
 
 /// Run the ingest retry every five minutes.
-pub fn start_ingest_retry(db: Db) {
+pub fn start_ingest_retry(engine: EngineRef) {
     tokio::spawn(async move {
         let mut iv = tokio::time::interval(Duration::from_secs(300));
         iv.tick().await;
         loop {
             iv.tick().await;
-            if let Err(e) = retry_ingest_failures(&db, 25).await {
+            if let Err(e) = retry_ingest_failures(&engine, 25).await {
                 tracing::warn!("Conversation ingest retry failed: {e}");
             }
         }

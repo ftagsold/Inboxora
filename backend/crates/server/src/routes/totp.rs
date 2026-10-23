@@ -1,8 +1,7 @@
 //! `/api/totp`: authenticator-app enrolment for a signed-in user (port of `routes/totp.ts`).
 
-use std::collections::HashMap;
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::State;
@@ -11,7 +10,6 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use inboxora_core::pg::Q;
 use inboxora_core::{Error, Result, crypto, params};
-use parking_lot::Mutex;
 use serde_json::json;
 
 use super::util::{err, ok};
@@ -30,31 +28,16 @@ pub fn router() -> Router<AppState> {
 }
 
 /// The in-memory per-user attempt budget (`totpLimiter`: 5 per 15 minutes).
-static BUCKETS: LazyLock<Mutex<HashMap<String, (u32, Instant)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static BUCKETS: LazyLock<crate::http::limit::Windows> = LazyLock::new(|| crate::http::limit::Windows::new(10_000));
 const WINDOW: Duration = Duration::from_secs(15 * 60);
 
 fn limit(user_id: &str) -> Option<Response> {
-    let now = Instant::now();
-    let mut m = BUCKETS.lock();
-    if m.len() > 10_000 {
-        m.retain(|_, (_, reset)| now <= *reset);
-    }
-    match m.get_mut(user_id) {
-        Some((count, reset)) if now <= *reset => {
-            if *count >= 5 {
-                let mut res = err(429, "Too many attempts. Try again later.");
-                let secs = (*reset - now).as_millis().div_ceil(1000) as u64;
-                res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(secs));
-                return Some(res);
-            }
-            *count += 1;
-            None
-        }
-        _ => {
-            m.insert(user_id.to_owned(), (1, now + WINDOW));
-            None
-        }
-    }
+    let (hits, left) = BUCKETS.hit(user_id, WINDOW);
+    (hits > 5).then(|| {
+        let mut res = err(429, "Too many attempts. Try again later.");
+        res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(left.as_millis().div_ceil(1000) as u64));
+        res
+    })
 }
 
 fn now_ms() -> f64 {

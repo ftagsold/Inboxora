@@ -71,6 +71,7 @@ jobs:
           PORT: 3000
           NODE_ENV: test
           E2E_DISABLE_IMAP_CONNECT: 'true'
+          MAIL_CACHE_TTL_SECONDS: '86400'
           APP_URL: http://127.0.0.1:4173
           FRONTEND_URL: http://127.0.0.1:4173
           SESSION_SECRET: playwright-session-secret-012345678901234567890123
@@ -96,9 +97,12 @@ jobs:
           PGDATABASE: mailflow_test
           PGUSER: mailflow_test
           PGPASSWORD: mailflow_test
-        run: >-
-          psql -v ON_ERROR_STOP=1 -v username=playwright@example.test -v 'password=PlaywrightPassword123!'
-          -f backend/tests/e2e/playwright-seed.sql
+          REDIS_URL: redis://127.0.0.1:6379
+        # Postgres gets the header index; display fields and bodies go to the Redis mail cache.
+        run: |
+          psql -v ON_ERROR_STOP=1 -v username=playwright@example.test -v 'password=PlaywrightPassword123!' \
+            -v cache_file=e2e-artifacts/mail-cache.tsv -f backend/tests/e2e/playwright-seed.sql
+          node backend/tests/e2e/load-mail-cache.mjs e2e-artifacts/mail-cache.tsv
       - name: Run real app E2E
         working-directory: frontend
         env:

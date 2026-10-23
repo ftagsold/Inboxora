@@ -57,7 +57,15 @@ pub struct Ctx {
     message: &'static str,
 }
 
+/// A cancel channel nobody ever signals, for fetches outside a source's sync.
+static NEVER: LazyLock<watch::Sender<bool>> = LazyLock::new(|| watch::channel(false).0);
+
 impl Ctx {
+    /// A context no removal can cancel (live reads on behalf of a request).
+    fn detached(message: &'static str) -> Self {
+        Ctx { removed: Arc::new(AtomicBool::new(false)), cancel: NEVER.subscribe(), message }
+    }
+
     /// `throwIfRemoved(state)`.
     fn check(&self) -> std::result::Result<(), String> {
         if self.removed.load(Ordering::SeqCst) { Err(self.message.to_owned()) } else { Ok(()) }
@@ -431,7 +439,9 @@ const UPSERT_EVENT: &str = "INSERT INTO calendar_events (calendar_id, user_id, u
        etag = EXCLUDED.etag, summary = EXCLUDED.summary, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, \
        all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, description = EXCLUDED.description, \
        location = EXCLUDED.location, url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, \
-       remote_href = EXCLUDED.remote_href, remote_etag = EXCLUDED.remote_etag, updated_at = NOW()";
+       remote_href = EXCLUDED.remote_href, remote_etag = EXCLUDED.remote_etag, updated_at = NOW() \
+     WHERE (calendar_events.etag, calendar_events.remote_href, calendar_events.remote_etag) \
+       IS DISTINCT FROM (EXCLUDED.etag, EXCLUDED.remote_href, EXCLUDED.remote_etag)";
 
 fn event_params(
     calendar_id: uuid::Uuid,
@@ -492,16 +502,20 @@ async fn sync_collection(
         return Err("Remote calendar contains an unsupported event".into());
     }
     let calendar_id = calendar_for(db, source, c, ctx).await?;
+    if is_live(source) {
+        // Served live: drop rows a former two-way sync left behind and warm the cache.
+        db.exec("DELETE FROM calendar_events WHERE calendar_id = $1", params![calendar_id]).await.map_err(db_err)?;
+        let _ = document;
+        let live: Vec<LiveEvent> = events
+            .iter()
+            .map(|(e, href, etag)| LiveEvent { raw: e.raw.clone(), href: href.clone(), etag: etag.clone() })
+            .collect();
+        super::remote_dav::store_calendar(calendar_id, &live).await;
+        return Ok((events.len(), skipped));
+    }
     if let Some(doc) = document {
         ctx.check()?;
-        db.exec(
-            "INSERT INTO calendar_import_documents (source_id, raw_ical) VALUES ($1, $2) \
-             ON CONFLICT (source_id) DO UPDATE SET raw_ical = EXCLUDED.raw_ical, updated_at = NOW() \
-             WHERE calendar_import_documents.raw_ical IS DISTINCT FROM EXCLUDED.raw_ical",
-            params![&source.id, doc],
-        )
-        .await
-        .map_err(db_err)?;
+        let _ = doc;
     }
     let mut seen: Vec<String> = Vec::new();
     for (e, href, etag) in &events {
@@ -863,6 +877,108 @@ pub async fn push_event_to_remote(
     }
 }
 
+// ── live collections ─────────────────────────────────────────────────────────────────
+
+/// Sources served live (never stored): iCalendar feeds and read-only CalDAV. Two-way CalDAV
+/// calendars keep their events in `calendar_events` so edits and invitations work offline.
+pub fn is_live(source: &Source) -> bool {
+    source.kind == "ical_url" || !source.writable
+}
+
+/// One event resource of a live calendar.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LiveEvent {
+    pub raw: String,
+    pub href: Option<String>,
+    pub etag: Option<String>,
+}
+
+/// One vCard of a live address book.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LiveCard {
+    pub vcard: String,
+    pub href: String,
+    pub etag: String,
+}
+
+fn redact(message: String, source: &Source, secrets: &[String]) -> String {
+    let mut safe = if message.is_empty() { "Remote calendar request failed".to_owned() } else { message };
+    for secret in source.url.iter().chain(secrets.iter()).filter(|s| !s.is_empty()) {
+        safe = safe.replace(secret.as_str(), "[redacted]");
+    }
+    safe
+}
+
+/// Fetch a live calendar collection (`href_hash` `None` = the source's single legacy feed).
+pub async fn fetch_live_calendar(
+    db: &Db,
+    source: &Source,
+    href_hash: Option<&str>,
+) -> std::result::Result<Vec<LiveEvent>, String> {
+    let c = collections_to_sync(source)
+        .into_iter()
+        .find(|c| match href_hash {
+            Some(h) => c.href_hash == h,
+            None => c.legacy,
+        })
+        .ok_or_else(|| "Calendar collection is no longer selected".to_owned())?;
+    let policy = dav_client::connection_policy(db).await.map_err(db_err)?;
+    let ctx = Ctx::detached("Calendar source removed");
+    let mut secrets = Vec::new();
+    let (payloads, _) =
+        fetch_events(source, &c.href, policy, &ctx, &mut secrets).await.map_err(|e| redact(e, source, &secrets))?;
+    Ok(payloads.into_iter().map(|p| LiveEvent { raw: p.ical, href: p.href, etag: p.etag }).collect())
+}
+
+/// Fetch a live CardDAV address book by its collection hash.
+pub async fn fetch_live_book(db: &Db, source: &Source, href_hash: &str) -> std::result::Result<Vec<LiveCard>, String> {
+    let collections = parse_collections(source.address_book_collections.as_deref()).unwrap_or_default();
+    let href = collections
+        .iter()
+        .find(|c| str_field(c, "hrefHash") == Some(href_hash))
+        .and_then(|c| str_field(c, "href"))
+        .ok_or_else(|| "Address book is no longer selected".to_owned())?
+        .to_owned();
+    let policy = dav_client::connection_policy(db).await.map_err(db_err)?;
+    let Some(username) = source.username.clone() else { return Err("CardDAV username is missing".to_owned()) };
+    let Some(password) = decrypt_or_empty(source.password.as_deref()) else {
+        return Err("CardDAV password could not be decrypted".to_owned());
+    };
+    let creds = Creds { username, password, allow_private: policy.allow_private_hosts };
+    let cards = dav_client::fetch_address_book_cards(&href, &creds).await?;
+    Ok(cards.into_iter().map(|c| LiveCard { vcard: c.vcard, href: c.href, etag: c.etag }).collect())
+}
+
+/// The contacts-table fields of a vCard (shared by stored and live address books).
+pub fn contact_fields(vcard: &str, href: &str) -> serde_json::Map<String, Value> {
+    let c = contact_from_vcard(vcard, href);
+    let p = &c.parsed;
+    let mut m = serde_json::Map::new();
+    m.insert("uid".into(), json!(c.uid));
+    m.insert("vcard".into(), json!(c.vcard));
+    m.insert("etag".into(), json!(crypto::md5_hex(&c.vcard)));
+    m.insert("display_name".into(), json!(c.display_name));
+    m.insert("first_name".into(), json!(p.first_name));
+    m.insert("last_name".into(), json!(p.last_name));
+    m.insert("primary_email".into(), json!(c.primary_email));
+    m.insert("emails".into(), serde_json::to_value(&p.emails).unwrap_or_default());
+    m.insert("phones".into(), serde_json::to_value(&p.phones).unwrap_or_default());
+    m.insert("organization".into(), json!(p.organization));
+    m.insert("notes".into(), json!(p.notes));
+    m.insert("birthday".into(), json!(p.birthday));
+    m.insert("anniversary".into(), json!(p.anniversary));
+    m.insert("contact_dates".into(), serde_json::to_value(&p.contact_dates).unwrap_or_default());
+    m.insert("photo_data".into(), json!(p.photo_data));
+    m.insert("title".into(), json!(p.title));
+    m.insert("role".into(), json!(p.role));
+    m.insert("nickname".into(), json!(p.nickname));
+    m.insert("urls".into(), serde_json::to_value(&p.urls).unwrap_or_default());
+    m.insert("instant_messages".into(), serde_json::to_value(&p.instant_messages).unwrap_or_default());
+    m.insert("categories".into(), serde_json::to_value(&p.categories).unwrap_or_default());
+    m.insert("addresses".into(), serde_json::to_value(&p.addresses).unwrap_or_default());
+    m
+}
+
 // ── CardDAV address books ────────────────────────────────────────────────────────────
 
 async fn ensure_book(
@@ -922,55 +1038,6 @@ fn contact_from_vcard(vcard: &str, href: &str) -> RemoteContact {
     }
 }
 
-fn to_json<T: serde::Serialize>(v: &T) -> Val {
-    Val::from(inboxora_core::json::stringify(&serde_json::to_value(v).unwrap_or_default()))
-}
-
-async fn upsert_contact(db: &Db, book_id: uuid::Uuid, user_id: &str, c: &RemoteContact) -> inboxora_core::Result<()> {
-    let p = &c.parsed;
-    db.exec(
-        "INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, \
-         emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data, title, role, nickname, urls, \
-         instant_messages, categories, addresses, is_auto) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false) \
-         ON CONFLICT (address_book_id, uid) DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, \
-         display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, \
-         primary_email = EXCLUDED.primary_email, emails = EXCLUDED.emails, phones = EXCLUDED.phones, \
-         organization = EXCLUDED.organization, notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, \
-         anniversary = EXCLUDED.anniversary, contact_dates = EXCLUDED.contact_dates, title = EXCLUDED.title, \
-         role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages, \
-         categories = EXCLUDED.categories, addresses = EXCLUDED.addresses, photo_data = EXCLUDED.photo_data, updated_at = NOW()",
-        &[
-            Val::from(book_id),
-            Val::from(user_id),
-            Val::from(&c.uid),
-            Val::from(&c.vcard),
-            Val::from(crypto::md5_hex(&c.vcard)),
-            Val::from(c.display_name.clone()),
-            Val::from(p.first_name.clone()),
-            Val::from(p.last_name.clone()),
-            Val::from(c.primary_email.clone()),
-            to_json(&p.emails),
-            to_json(&p.phones),
-            Val::from(p.organization.clone()),
-            Val::from(p.notes.clone()),
-            Val::from(p.birthday.clone()),
-            Val::from(p.anniversary.clone()),
-            to_json(&p.contact_dates),
-            Val::from(p.photo_data.clone()),
-            Val::from(p.title.clone()),
-            Val::from(p.role.clone()),
-            Val::from(p.nickname.clone()),
-            to_json(&p.urls),
-            to_json(&p.instant_messages),
-            to_json(&p.categories),
-            to_json(&p.addresses),
-        ],
-    )
-    .await?;
-    Ok(())
-}
-
 async fn sync_book(
     db: &Db,
     user_id: &str,
@@ -982,39 +1049,18 @@ async fn sync_book(
 ) -> std::result::Result<usize, String> {
     let raw = ctx.guard(dav_client::fetch_address_book_cards(href, creds)).await?;
     ctx.check()?;
-    let mut cards: Vec<RemoteContact> = raw.iter().map(|c| contact_from_vcard(&c.vcard, &c.href)).collect();
+    let cards: Vec<RemoteContact> = raw.iter().map(|c| contact_from_vcard(&c.vcard, &c.href)).collect();
     if cards.iter().any(|c| !c.parsed.invalid_dates.is_empty() || !c.parsed.invalid_date_labels.is_empty()) {
         return Err("Remote CardDAV vCard contains an invalid contact date".into());
     }
     let book_id = ensure_book(db, user_id, source_id, href, name).await?;
     ctx.check()?;
-    let mut seen = HashSet::new();
-    for c in &mut cards {
-        if let Some(e) = c.primary_email.clone().filter(|e| !e.is_empty())
-            && !seen.insert(e)
-        {
-            c.primary_email = None;
-        }
-    }
-    let mut present: Vec<String> = cards.iter().map(|c| c.uid.clone()).collect();
-    let count = present.len();
-    if present.is_empty() {
-        present.push(String::new());
-    }
-    db.exec("DELETE FROM contacts WHERE address_book_id = $1 AND uid <> ALL($2::text[])", params![book_id, present])
-        .await
-        .map_err(db_err)?;
-    for c in &cards {
-        ctx.check()?;
-        upsert_contact(db, book_id, user_id, c).await.map_err(db_err)?;
-    }
-    db.exec(
-        "UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1",
-        params![book_id],
-    )
-    .await
-    .map_err(db_err)?;
-    Ok(count)
+    // Address books are served live: drop rows an earlier sync stored and warm the cache.
+    db.exec("DELETE FROM contacts WHERE address_book_id = $1", params![book_id]).await.map_err(db_err)?;
+    let live: Vec<LiveCard> =
+        raw.iter().map(|c| LiveCard { vcard: c.vcard.clone(), href: c.href.clone(), etag: c.etag.clone() }).collect();
+    super::remote_dav::store_book(book_id, &live).await;
+    Ok(cards.len())
 }
 
 async fn sync_address_books(db: &Db, source: &Source) -> Value {

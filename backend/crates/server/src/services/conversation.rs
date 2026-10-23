@@ -67,8 +67,6 @@ pub struct Provider {
     pub provider_message_id: Option<String>,
     pub provider_thread_id: Option<String>,
     pub namespace: Option<String>,
-    pub thread_index: Option<String>,
-    pub thread_topic: Option<String>,
     pub source: Option<String>,
     pub is_strong: bool,
     pub diagnostics: Value,
@@ -99,7 +97,6 @@ pub fn provider_metadata(input: &ProviderInput<'_>) -> Provider {
     };
     let header = |n: &str| input.headers.and_then(|h| h.get(n)).map(str::to_owned);
     let thread_index = header("thread-index");
-    let thread_topic = header("thread-topic");
     let root = if thread_id.is_none() { outlook_root(thread_index.as_deref()) } else { None };
     let effective_thread = if thread_id.is_none() && provider == "outlook" { root.clone() } else { thread_id.clone() };
     let source = if thread_id.is_some() {
@@ -120,8 +117,6 @@ pub fn provider_metadata(input: &ProviderInput<'_>) -> Provider {
         is_strong: provider == "gmail" && thread_id.is_some(),
         provider_thread_id: effective_thread,
         namespace: Some(provider_namespace(provider, Some(input.account_id), Some(input.host))),
-        thread_index,
-        thread_topic,
         source,
     }
 }
@@ -144,7 +139,7 @@ pub fn provider_identity_for_copy(copy: &Map<String, Value>, host: &str) -> Prov
     let thread = s("provider_thread_id");
     let gmail = provider.as_deref() == Some("gmail") && thread.is_some();
     let root = if provider.as_deref() == Some("outlook") {
-        outlook_root(s("conversation_thread_index").as_deref())
+        outlook_root(s("conversation_thread_index").as_deref()).or_else(|| s("provider_thread_id"))
     } else {
         None
     };
@@ -153,8 +148,6 @@ pub fn provider_identity_for_copy(copy: &Map<String, Value>, host: &str) -> Prov
         provider_message_id: s("provider_message_id"),
         provider_thread_id: if gmail { thread } else { root.clone() },
         namespace,
-        thread_index: s("conversation_thread_index"),
-        thread_topic: s("conversation_thread_topic"),
         is_strong: gmail,
         source: if gmail {
             Some("persisted-provider-thread".into())
@@ -464,7 +457,7 @@ const GENERIC_SUBJECTS: [&str; 12] = [
     "brak tematu",
 ];
 
-/// A message as the series decisions read it (Node's spread of a DB row).
+/// The incoming message as the series decisions read it.
 #[derive(Debug, Clone, Default)]
 pub struct SeriesInput {
     pub headers: Map<String, Value>,
@@ -474,7 +467,33 @@ pub struct SeriesInput {
     pub body_text: Option<String>,
     pub canonical_subject: String,
     pub references_anchor: Option<String>,
+}
+
+/// A stored logical message as the series decisions compare it: digests only, so no subject,
+/// address or body text is kept in the database.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SeriesDigest {
+    pub subject_hash: Option<String>,
+    pub sender_hash: String,
+    pub recipients_hash: String,
+    pub automated: bool,
+    /// Header authentication results are not part of the digest (the stored-row inputs never
+    /// carried headers), so a previous message never counts as authenticated.
+    pub authenticated: bool,
+    pub references_anchor: Option<String>,
+    pub body_template: Option<String>,
+    pub date: Option<DateTime<Utc>>,
     pub logical_message_count: f64,
+}
+
+/// A 64-bit digest: enough to compare series signals, small enough to index.
+fn digest64(s: &str) -> String {
+    sha256_hex(s)[..16].to_owned()
+}
+
+pub fn subject_hash(canonical: &str) -> Option<String> {
+    let s = canonical.to_lowercase();
+    (!s.is_empty()).then(|| digest64(&s))
 }
 
 struct Signals {
@@ -519,6 +538,24 @@ fn signals(m: &SeriesInput) -> Signals {
         authenticated: auth.contains("dkim=pass") || auth.contains("spf=pass") || auth.contains("dmarc=pass"),
         sender: [sender, h("return-path"), h("list-id")].join("|").to_lowercase(),
         recipients: js_json(&json!(recips)),
+    }
+}
+
+impl SeriesInput {
+    /// The digest stored for this message so later messages can be compared against it.
+    pub fn digest(&self) -> SeriesDigest {
+        let s = signals(self);
+        SeriesDigest {
+            subject_hash: subject_hash(&self.canonical_subject),
+            sender_hash: digest64(&s.sender),
+            recipients_hash: digest64(&s.recipients),
+            automated: s.automated,
+            authenticated: false,
+            references_anchor: self.references_anchor.clone(),
+            body_template: self.body_text.as_deref().map(|b| body_template_fingerprint(b)[..16].to_owned()),
+            date: self.date,
+            logical_message_count: 0.0,
+        }
     }
 }
 
@@ -568,17 +605,22 @@ fn ts(d: Option<DateTime<Utc>>) -> i64 {
     d.map(|t| t.timestamp_millis()).unwrap_or(0)
 }
 
-pub fn strict_series(message: &SeriesInput, previous: &SeriesInput) -> Option<SeriesDecision> {
+pub fn strict_series(message: &SeriesInput, previous: &SeriesDigest) -> Option<SeriesDecision> {
     let (now, prior) = (ts(message.date), ts(previous.date));
-    let (s, p) = (signals(message), signals(previous));
+    let s = signals(message);
+    let current = message.digest();
     let subject = message.canonical_subject.to_lowercase();
     if subject.is_empty() || GENERIC_SUBJECTS.contains(&subject.as_str()) {
         return None;
     }
-    if !s.authenticated || !p.authenticated || s.sender != p.sender || s.recipients != p.recipients {
+    if !s.authenticated
+        || !previous.authenticated
+        || current.sender_hash != previous.sender_hash
+        || current.recipients_hash != previous.recipients_hash
+    {
         return None;
     }
-    if subject != previous.canonical_subject.to_lowercase() {
+    if current.subject_hash != previous.subject_hash {
         return None;
     }
     if now - prior > 7 * 24 * 60 * 60 * 1000 || now < prior {
@@ -594,24 +636,27 @@ pub fn strict_series(message: &SeriesInput, previous: &SeriesInput) -> Option<Se
     Some(SeriesDecision { kind: Some("automated_reference_series"), confidence: Some(0.98) })
 }
 
-pub fn smart_series(message: &SeriesInput, previous: &SeriesInput) -> Option<SeriesDecision> {
+pub fn smart_series(message: &SeriesInput, previous: &SeriesDigest) -> Option<SeriesDecision> {
     static OTP: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"(?i)(?:otp|one[- ]time|verification|security|code|kod|weryfik|passcode|hasło)")
             .expect("regex")
     });
     let (now, prior) = (ts(message.date), ts(previous.date));
-    let (s, p) = (signals(message), signals(previous));
-    if !s.automated || !p.automated || s.sender != p.sender || s.recipients != p.recipients {
+    let current = message.digest();
+    if !current.automated
+        || !previous.automated
+        || current.sender_hash != previous.sender_hash
+        || current.recipients_hash != previous.recipients_hash
+    {
         return None;
     }
     let body = message.body_text.clone().unwrap_or_default();
     if !OTP.is_match(&format!("{} {body}", message.canonical_subject)) {
         return None;
     }
-    if now - prior > SERIES_WINDOW_MS
-        || now < prior
-        || body_template_fingerprint(&body) != body_template_fingerprint(previous.body_text.as_deref().unwrap_or(""))
-    {
+    let previous_template =
+        previous.body_template.clone().unwrap_or_else(|| body_template_fingerprint("")[..16].to_owned());
+    if now - prior > SERIES_WINDOW_MS || now < prior || body_template_fingerprint(&body)[..16] != previous_template {
         return None;
     }
     if previous.logical_message_count >= MAX_SEGMENT {
@@ -640,17 +685,15 @@ pub struct UpsertResult {
 struct Hydrated {
     user_id: String,
     account_id: String,
-    raw_headers: Option<String>,
     raw_in_reply_to: Option<String>,
     raw_references: Option<String>,
-    raw_message_id: Option<String>,
     canonical_message_id: Option<String>,
     canonical_subject: String,
     collision_key: String,
     direction: &'static str,
     message_date: Option<DateTime<Utc>>,
     body_fingerprint: Option<String>,
-    header_fingerprint: String,
+    header_fingerprint: Option<String>,
 }
 
 fn str_of(m: &Map<String, Value>, k: &str) -> Option<String> {
@@ -679,7 +722,6 @@ fn hydrate(source: &Map<String, Value>, date: Option<DateTime<Utc>>, user_id: &s
         from,
         Some(user_id),
     );
-    let raw_headers = truthy_str(source, "conversation_raw_headers").or_else(|| truthy_str(source, "raw_headers"));
     let body = source.get("body_text").filter(|v| !v.is_null()).map(inboxora_mail::text::js_string);
     let header_fp = js_json(&json!([
         source.get("message_id").cloned().unwrap_or(Value::Null),
@@ -687,20 +729,20 @@ fn hydrate(source: &Map<String, Value>, date: Option<DateTime<Utc>>, user_id: &s
         source.get("thread_references").cloned().unwrap_or(Value::Null),
         source.get("conversation_raw_headers").cloned().unwrap_or(Value::Null),
     ]));
+    // Fingerprints only identify copies that have no Message-ID; 64 bits tell collisions apart.
+    let no_id = identity.canonical_message_id.is_none();
     Hydrated {
         user_id: user_id.to_owned(),
         account_id: str_of(source, "account_id").unwrap_or_default(),
-        raw_headers,
         raw_in_reply_to: truthy_str(source, "in_reply_to"),
         raw_references: truthy_str(source, "thread_references"),
-        raw_message_id: identity.raw_message_id,
         canonical_message_id: identity.canonical_message_id,
         canonical_subject: canonical_subject(&str_of(source, "subject").unwrap_or_default()),
-        collision_key: identity.collision_key,
+        collision_key: identity.collision_key.chars().take(16).collect(),
         direction: classify_direction(&Value::Object(source.clone()), identities),
         message_date: date,
-        body_fingerprint: body.map(|b| sha256_hex(&b)),
-        header_fingerprint: sha256_hex(&header_fp),
+        body_fingerprint: if no_id { body.map(|b| sha256_hex(&b)) } else { None },
+        header_fingerprint: no_id.then(|| sha256_hex(&header_fp)),
     }
 }
 
@@ -719,46 +761,20 @@ fn logical_of(r: &Row) -> Logical {
     }
 }
 
+/// Older rows whose collision key was computed by a previous algorithm used to be matched by
+/// re-deriving the key from the stored subject/sender; with no text stored, only rows sharing
+/// the current key are consolidated.
 async fn matching_legacy_rows(tx: &Tx<'_>, h: &Hydrated) -> Result<Vec<Logical>> {
     let Some(canonical) = &h.canonical_message_id else { return Ok(vec![]) };
     let rows = tx
         .rows(
-            "SELECT lm.id, lm.conversation_id, lm.message_id_collision_key, lm.created_at, \
-                    sample.message_id, sample.date, sample.subject, sample.from_email, \
-                    lm.parent_logical_message_id, sample.in_reply_to, sample.thread_references \
-               FROM logical_messages lm \
-               LEFT JOIN LATERAL ( \
-                 SELECT m.message_id, m.date, m.subject, m.from_email, m.in_reply_to, m.thread_references \
-                   FROM messages m WHERE m.logical_message_id = lm.id AND m.is_deleted = false \
-                  ORDER BY m.date ASC NULLS LAST, m.id LIMIT 1 \
-               ) sample ON TRUE \
-              WHERE lm.user_id = $1 AND lm.account_id = $3 AND lm.canonical_message_id = $2 \
-              ORDER BY lm.created_at ASC, lm.id \
-              FOR UPDATE OF lm",
-            params![&h.user_id, canonical, &h.account_id],
+            "SELECT id, conversation_id, parent_logical_message_id FROM logical_messages \
+              WHERE user_id = $1 AND account_id = $3 AND canonical_message_id = $2 AND message_id_collision_key = $4 \
+              ORDER BY created_at ASC, id FOR UPDATE",
+            params![&h.user_id, canonical, &h.account_id, &h.collision_key],
         )
         .await?;
-    Ok(rows
-        .iter()
-        .filter(|r| {
-            let mid: Option<String> = r.get("message_id");
-            let Some(mid) = mid.filter(|m| !m.is_empty()) else { return false };
-            let from: Option<String> = r.get("from_email");
-            let from = from.map(Value::String);
-            let date: Option<DateTime<Utc>> = r.get("date");
-            let subject: Option<String> = r.get("subject");
-            logical_message_identity(
-                Some(&mid),
-                &date.map_or(MessageDate::None, MessageDate::JsDate),
-                subject.as_deref(),
-                from.as_ref(),
-                Some(&h.user_id),
-            )
-            .collision_key
-                == h.collision_key
-        })
-        .map(logical_of)
-        .collect())
+    Ok(rows.iter().map(logical_of).collect())
 }
 
 async fn consolidate_legacy(
@@ -924,7 +940,6 @@ struct Parent {
     id: Option<Uuid>,
     conversation_id: Option<Uuid>,
     canonical_message_id: Option<String>,
-    subject: Option<String>,
     ambiguous: bool,
     relation_type: &'static str,
 }
@@ -934,14 +949,13 @@ async fn find_parent(tx: &Tx<'_>, h: &Hydrated) -> Result<Option<Parent>> {
         id: Some(r.get("id")),
         conversation_id: r.get("conversation_id"),
         canonical_message_id: r.get("canonical_message_id"),
-        subject: r.get("subject"),
         ambiguous: false,
         relation_type: rel,
     };
     if let Some(reply) = normalize_message_id_list(h.raw_in_reply_to.as_deref().unwrap_or("")).pop() {
         let rows = tx
             .rows(
-                "SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages \
+                "SELECT id, conversation_id, canonical_message_id FROM logical_messages \
                  WHERE user_id = $1 AND account_id = $3 AND canonical_message_id = $2 ORDER BY created_at ASC FOR UPDATE",
                 params![&h.user_id, &reply, &h.account_id],
             )
@@ -954,7 +968,6 @@ async fn find_parent(tx: &Tx<'_>, h: &Hydrated) -> Result<Option<Parent>> {
                 id: None,
                 conversation_id: None,
                 canonical_message_id: Some(reply),
-                subject: None,
                 ambiguous: true,
                 relation_type: "ambiguous-in-reply-to",
             }));
@@ -965,7 +978,7 @@ async fn find_parent(tx: &Tx<'_>, h: &Hydrated) -> Result<Option<Parent>> {
         let reversed: Vec<String> = refs.into_iter().rev().collect();
         let rows = tx
             .rows(
-                "SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages \
+                "SELECT id, conversation_id, canonical_message_id FROM logical_messages \
                  WHERE user_id = $1 AND account_id = $3 AND canonical_message_id = ANY($2::text[]) ORDER BY created_at ASC FOR UPDATE",
                 params![&h.user_id, reversed.clone(), &h.account_id],
             )
@@ -984,7 +997,6 @@ async fn find_parent(tx: &Tx<'_>, h: &Hydrated) -> Result<Option<Parent>> {
                         id: None,
                         conversation_id: None,
                         canonical_message_id: Some(id),
-                        subject: None,
                         ambiguous: true,
                         relation_type: "ambiguous-references",
                     }));
@@ -1000,6 +1012,7 @@ async fn find_parent(tx: &Tx<'_>, h: &Hydrated) -> Result<Option<Parent>> {
 pub async fn upsert_copy(
     db: &Db,
     row_id: Uuid,
+    facts: &CopyFacts,
     identities: &[String],
     provider: Option<&Provider>,
     user_id: &str,
@@ -1007,9 +1020,10 @@ pub async fn upsert_copy(
     let ids: Vec<Value> = identities.iter().map(|s| Value::String(s.clone())).collect();
     let provider = provider.cloned();
     let user = user_id.to_owned();
+    let facts = facts.clone();
     db.transaction(true, 2, move |tx| {
-        let (ids, provider, user) = (ids.clone(), provider.clone(), user.clone());
-        Box::pin(async move { upsert_copy_tx(tx, row_id, &ids, provider.as_ref(), &user, false).await })
+        let (ids, provider, user, facts) = (ids.clone(), provider.clone(), user.clone(), facts.clone());
+        Box::pin(async move { upsert_copy_tx(tx, row_id, &facts, &ids, provider.as_ref(), &user, false).await })
     })
     .await
 }
@@ -1017,6 +1031,7 @@ pub async fn upsert_copy(
 pub async fn upsert_copy_tx(
     tx: &Tx<'_>,
     row_id: Uuid,
+    facts: &CopyFacts,
     identities: &[Value],
     provider: Option<&Provider>,
     user_id: &str,
@@ -1031,7 +1046,8 @@ pub async fn upsert_copy_tx(
         .await?
         .ok_or_else(|| Error::internal("Conversation copy not found or owner mismatch"))?;
     let date: Option<DateTime<Utc>> = verified.get("date");
-    let source = inboxora_core::pg::row_to_json(&verified).map_err(Error::from)?;
+    let mut source = inboxora_core::pg::row_to_json(&verified).map_err(Error::from)?;
+    facts.overlay(&mut source);
     let h = hydrate(&source, date, user_id, identities);
     let parent = find_parent(tx, &h).await?;
     let usable_parent = parent.as_ref().filter(|p| !p.ambiguous);
@@ -1045,60 +1061,49 @@ pub async fn upsert_copy_tx(
     } else {
         ("human_reply_chain".into(), Some("new-root".into()), 0.5)
     };
-    let _ = usable_parent.map(|p| canonical_subject(p.subject.as_deref().unwrap_or("")) != h.canonical_subject);
 
     let series_mode =
         str_of(&source, "automated_series_mode").filter(|s| !s.is_empty()).unwrap_or_else(|| "off".into());
+    let message = SeriesInput {
+        headers: Map::new(),
+        from_email: str_of(&source, "from_email"),
+        to_addresses: source.get("to_addresses").cloned().unwrap_or(Value::Null),
+        date,
+        body_text: str_of(&source, "body_text"),
+        canonical_subject: h.canonical_subject.clone(),
+        references_anchor: references_anchor(
+            truthy_str(&source, "thread_references").as_deref(),
+            truthy_str(&source, "in_reply_to").as_deref(),
+        ),
+    };
+    let digest = message.digest();
     let mut series: Option<SeriesDecision> = None;
     let mut matched_previous: Option<(Uuid, Option<Uuid>)> = None;
     if series_mode == "strict" || series_mode == "smart" {
         let candidates = tx
             .rows(
-                "SELECT lm.*, c.logical_message_count, m.from_email, m.to_addresses, m.body_text, m.date, m.conversation_raw_headers \
+                "SELECT lm.id, lm.conversation_id, lm.subject_hash, lm.references_anchor, lm.series_sender_hash, \
+                   lm.series_recipients_hash, lm.series_automated, lm.body_template_fingerprint, lm.message_date, c.logical_message_count \
                    FROM logical_messages lm \
                    JOIN conversations c ON c.id = lm.conversation_id AND c.user_id = lm.user_id AND c.account_id = lm.account_id \
-                   JOIN messages m ON m.logical_message_id = lm.id AND m.account_id = lm.account_id \
-                  WHERE lm.user_id = $1 AND lm.account_id = $3 AND lm.canonical_subject = $2 \
-                    AND lm.message_date > NOW() - INTERVAL '7 days' AND m.is_deleted = false \
+                  WHERE lm.user_id = $1 AND lm.account_id = $3 AND lm.subject_hash = $2 \
+                    AND lm.message_date > NOW() - INTERVAL '7 days' \
+                    AND EXISTS (SELECT 1 FROM messages m WHERE m.logical_message_id = lm.id AND m.account_id = lm.account_id AND m.is_deleted = false) \
                   ORDER BY lm.message_date DESC NULLS LAST LIMIT 10",
-                params![user_id, &h.canonical_subject, &h.account_id],
+                params![user_id, subject_hash(&h.canonical_subject), &h.account_id],
             )
             .await?;
-        let message = SeriesInput {
-            headers: Map::new(),
-            from_email: str_of(&source, "from_email"),
-            to_addresses: source.get("to_addresses").cloned().unwrap_or(Value::Null),
-            date,
-            body_text: str_of(&source, "body_text"),
-            canonical_subject: h.canonical_subject.clone(),
-            references_anchor: references_anchor(
-                truthy_str(&source, "thread_references").as_deref(),
-                truthy_str(&source, "in_reply_to").as_deref(),
-            ),
-            logical_message_count: 0.0,
-        };
         for c in &candidates {
-            let raw_refs: Option<String> = c.try_get("raw_references").ok().flatten();
-            let raw_reply: Option<String> = c.try_get("raw_in_reply_to").ok().flatten();
-            let canon: Option<String> = c.try_get("canonical_subject").ok().flatten();
-            let count = c
-                .try_get::<_, Option<i32>>("logical_message_count")
-                .map(|v| v.map(i64::from))
-                .or_else(|_| c.try_get::<_, Option<i64>>("logical_message_count"))
-                .ok()
-                .flatten();
-            let previous = SeriesInput {
-                headers: Map::new(),
-                from_email: c.get("from_email"),
-                to_addresses: c.get::<_, Option<Value>>("to_addresses").unwrap_or(Value::Null),
-                date: c.get("date"),
-                body_text: c.get("body_text"),
-                canonical_subject: canon.filter(|s| !s.is_empty()).unwrap_or_else(|| h.canonical_subject.clone()),
-                references_anchor: references_anchor(
-                    raw_refs.filter(|s| !s.is_empty()).as_deref(),
-                    raw_reply.filter(|s| !s.is_empty()).as_deref(),
-                ),
-                logical_message_count: count.unwrap_or(0) as f64,
+            let previous = SeriesDigest {
+                subject_hash: c.get("subject_hash"),
+                sender_hash: c.get::<_, Option<String>>("series_sender_hash").unwrap_or_default(),
+                recipients_hash: c.get::<_, Option<String>>("series_recipients_hash").unwrap_or_default(),
+                automated: c.get::<_, Option<bool>>("series_automated").unwrap_or(false),
+                authenticated: false,
+                references_anchor: c.get("references_anchor"),
+                body_template: c.get("body_template_fingerprint"),
+                date: c.get("message_date"),
+                logical_message_count: f64::from(c.get::<_, Option<i32>>("logical_message_count").unwrap_or(0)),
             };
             let decision = if series_mode == "strict" {
                 strict_series(&message, &previous)
@@ -1133,8 +1138,9 @@ pub async fn upsert_copy_tx(
     let logical = match existing {
         Some(l) => {
             tx.exec(
-                "UPDATE logical_messages SET raw_headers = COALESCE(raw_headers, $2), updated_at = NOW(), threading_reason = $3, threading_confidence = $4 WHERE id = $1 AND account_id = $5",
-                params![l.id, &h.raw_headers, &reason, confidence, &h.account_id],
+                "UPDATE logical_messages SET updated_at = NOW(), threading_reason = $2, threading_confidence = $3, \
+                   body_template_fingerprint = COALESCE(body_template_fingerprint, $5) WHERE id = $1 AND account_id = $4",
+                params![l.id, &reason, confidence, &h.account_id, &digest.body_template],
             )
             .await?;
             l
@@ -1142,29 +1148,27 @@ pub async fn upsert_copy_tx(
         None => {
             let inserted = tx
                 .opt(
-                    "INSERT INTO logical_messages (user_id, account_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_headers, \
-                       raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, \
-                       body_fingerprint, header_fingerprint, threading_reason, threading_confidence) \
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT DO NOTHING RETURNING id, conversation_id",
+                    "INSERT INTO logical_messages (user_id, account_id, canonical_message_id, message_id_collision_key, direction, message_date, \
+                       body_fingerprint, header_fingerprint, threading_reason, threading_confidence, subject_hash, references_anchor, \
+                       series_sender_hash, series_recipients_hash, series_automated, body_template_fingerprint) \
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT DO NOTHING RETURNING id, conversation_id",
                     params![
                         user_id,
                         &h.account_id,
                         &h.canonical_message_id,
-                        &h.raw_message_id,
                         &h.collision_key,
-                        &h.raw_headers,
-                        &h.raw_in_reply_to,
-                        &h.raw_references,
-                        js_json(&json!(in_reply_list)),
-                        js_json(&json!(refs_list)),
-                        truthy_str(&source, "subject"),
-                        &h.canonical_subject,
                         h.direction,
                         h.message_date,
                         &h.body_fingerprint,
                         &h.header_fingerprint,
                         &reason,
-                        confidence
+                        confidence,
+                        &digest.subject_hash,
+                        &digest.references_anchor,
+                        &digest.sender_hash,
+                        &digest.recipients_hash,
+                        digest.automated,
+                        &digest.body_template
                     ],
                 )
                 .await?;
@@ -1282,10 +1286,10 @@ pub async fn upsert_copy_tx(
         Some(c) => c,
         None => tx
             .opt(
-                "INSERT INTO conversations (user_id, account_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, \
+                "INSERT INTO conversations (user_id, account_id, kind, first_message_at, last_message_at, \
                    logical_message_count, copy_count, unread_count, threading_confidence) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$6,0,0,0,$7) RETURNING id",
-                params![user_id, &h.account_id, &kind, truthy_str(&source, "subject"), &h.canonical_subject, h.message_date, confidence],
+                 VALUES ($1,$2,$3,$4,$4,0,0,0,$5) RETURNING id",
+                params![user_id, &h.account_id, &kind, h.message_date, confidence],
             )
             .await?
             .map(|r| r.get::<_, Uuid>("id"))
@@ -1499,32 +1503,9 @@ pub async fn upsert_copy_tx(
         )
         .await?;
     }
-    let mut evidence: Vec<(Option<String>, Option<f64>, Value)> = vec![(
-        reason.clone(),
-        Some(confidence),
-        json!({ "relationType": parent.as_ref().map(|p| p.relation_type), "provider": provider.and_then(|p| p.provider.clone()) }),
-    )];
-    if let Some(s) = &series {
-        evidence.push((
-            s.kind.map(str::to_owned),
-            s.confidence,
-            json!({ "mode": series_mode, "previousLogicalMessageId": matched_previous.map(|(id, _)| id.to_string()) }),
-        ));
-    }
-    if let Some(p) = &parent {
-        evidence.push((
-            Some("rfc-parent".into()),
-            Some(0.99),
-            json!({ "parentLogicalMessageId": p.id.map(|i| i.to_string()) }),
-        ));
-    }
-    if provider_usable {
-        evidence.push((
-            Some("provider-thread-id".into()),
-            Some(1.0),
-            json!({ "provider": provider.and_then(|p| p.provider.clone()) }),
-        ));
-    }
+    // Routine evidence (reason, parent, provider) is already on the copy as threading_reason;
+    // only the cases that need explaining later are recorded.
+    let mut evidence: Vec<(Option<String>, Option<f64>, Value)> = Vec::new();
     if collision {
         evidence.push((
             Some("message-id-collision".into()),
@@ -1544,8 +1525,6 @@ pub async fn upsert_copy_tx(
     tx.exec(
         "UPDATE conversations c SET first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id), \
            last_message_at = (SELECT MAX(message_date) FROM logical_messages WHERE conversation_id = c.id), \
-           subject_snapshot = COALESCE((SELECT subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.subject_snapshot), \
-           canonical_subject = COALESCE((SELECT canonical_subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.canonical_subject), \
            logical_message_count = (SELECT COUNT(*) FROM logical_messages WHERE conversation_id = c.id), \
            copy_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false), \
            unread_count = (SELECT COUNT(*) FROM logical_messages lm WHERE lm.conversation_id = c.id AND EXISTS (SELECT 1 FROM messages m WHERE m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.is_deleted = false AND m.is_read = false)), \
@@ -1577,6 +1556,60 @@ pub async fn record_ingest_failure(
     Ok(())
 }
 
+/// What threading reads from a message. It comes from the fetched headers (sync, append) or the
+/// header cache (rebuild, retry) — the database keeps no subject, address or body text.
+#[derive(Debug, Clone, Default)]
+pub struct CopyFacts {
+    pub message_id: Option<String>,
+    pub subject: String,
+    pub from_email: String,
+    pub to: Value,
+    pub in_reply_to: Option<String>,
+    pub references: Option<String>,
+    pub delivery_addresses: Value,
+    /// The raw header block; only its fingerprint is kept (to tell apart Message-ID-less copies).
+    pub raw_headers: Option<String>,
+    /// Plain text, when it was fetched anyway (needed only by "smart" series detection).
+    pub body_text: Option<String>,
+}
+
+impl CopyFacts {
+    pub fn from_meta(m: &crate::engine::cache::Meta) -> Self {
+        CopyFacts {
+            message_id: m.message_id.clone(),
+            subject: m.subject.clone(),
+            from_email: m.from_email.clone(),
+            to: json!(m.to),
+            in_reply_to: m.in_reply_to.clone(),
+            references: m.references.clone(),
+            delivery_addresses: json!(m.delivery_addresses),
+            raw_headers: None,
+            body_text: None,
+        }
+    }
+
+    pub fn from_parsed(p: &crate::engine::parse::Parsed) -> Self {
+        let mut f = Self::from_meta(&crate::engine::cache::Meta::from_parsed(p));
+        f.raw_headers = Some(p.headers.to_raw_string()).filter(|h| !h.is_empty());
+        f
+    }
+
+    /// Lay the facts over a `messages` row under the column names the threading code reads.
+    fn overlay(&self, row: &mut Map<String, Value>) {
+        if self.message_id.is_some() && row.get("message_id").is_none_or(Value::is_null) {
+            row.insert("message_id".into(), json!(self.message_id));
+        }
+        row.insert("subject".into(), json!(self.subject));
+        row.insert("from_email".into(), json!(self.from_email));
+        row.insert("to_addresses".into(), self.to.clone());
+        row.insert("in_reply_to".into(), json!(self.in_reply_to));
+        row.insert("thread_references".into(), json!(self.references));
+        row.insert("delivery_addresses".into(), self.delivery_addresses.clone());
+        row.insert("conversation_raw_headers".into(), json!(self.raw_headers));
+        row.insert("body_text".into(), json!(self.body_text));
+    }
+}
+
 /// Fetch-side inputs for `persistConversationCopyForRow`.
 #[derive(Default)]
 pub struct RawCopy<'a> {
@@ -1587,8 +1620,8 @@ pub struct RawCopy<'a> {
 }
 
 /// `persistConversationCopyForRow`: derive the provider envelope and identities for a stored
-/// row, record the raw thread headers, and attach the copy to its conversation. Failures are
-/// recorded for the retry worker instead of failing the ingest.
+/// row and attach the copy to its conversation. Failures are recorded for the retry worker
+/// instead of failing the ingest.
 pub async fn persist_copy_for_row(
     db: &Db,
     row_id: Uuid,
@@ -1596,11 +1629,12 @@ pub async fn persist_copy_for_row(
     user_id: &str,
     host: &str,
     raw: &RawCopy<'_>,
+    facts: &CopyFacts,
 ) {
     let run = async {
         let Some(row) = db
             .json_opt(
-                "SELECT m.*, a.user_id FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.id = $2",
+                "SELECT m.provider_message_id, m.provider_thread_id FROM messages m WHERE m.id = $1 AND m.account_id = $2",
                 params![row_id, account_id],
             )
             .await?
@@ -1617,15 +1651,8 @@ pub async fn persist_copy_for_row(
             account_id,
             host,
         });
-        let raw_headers = raw.headers.map(Headers::to_raw_string).filter(|h| !h.is_empty());
-        let identities = resolve_own_identities(db, account_id, row.get("delivery_addresses"), raw.headers).await?;
-        db.exec(
-            "UPDATE messages SET conversation_raw_headers = COALESCE($1, conversation_raw_headers), conversation_thread_index = COALESCE($2, conversation_thread_index), \
-             conversation_thread_topic = COALESCE($3, conversation_thread_topic) WHERE id = $4",
-            params![raw_headers, &provider.thread_index, &provider.thread_topic, row_id],
-        )
-        .await?;
-        upsert_copy(db, row_id, &identities, Some(&provider), user_id).await.map(|_| ())
+        let identities = resolve_own_identities(db, account_id, Some(&facts.delivery_addresses), raw.headers).await?;
+        upsert_copy(db, row_id, facts, &identities, Some(&provider), user_id).await.map(|_| ())
     };
     if let Err(e) = run.await {
         tracing::error!("Conversation persistence error: {e}");

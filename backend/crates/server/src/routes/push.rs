@@ -175,28 +175,31 @@ async fn native_message(
     if !inboxora_mail::util::is_uuid(&id) {
         return Ok(err(400, "Invalid message id"));
     }
-    let row = s
-        .db
-        .json_opt(
-            "SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder FROM messages m JOIN email_accounts a ON a.id = m.account_id \
+    let row =
+        s.db.json_opt(
+            "SELECT m.id, m.uid, m.account_id, m.folder FROM messages m JOIN email_accounts a ON a.id = m.account_id \
              WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false",
             params![&id, &d.user_id],
         )
         .await?;
-    let Some(row) = row else { return Ok(err(404, "Message not found")) };
+    let Some(mut row) = row else { return Ok(err(404, "Message not found")) };
+    s.mail.hydrate_rows(std::slice::from_mut(&mut row)).await;
     Ok(ok(json!({ "eventId": id, "message": summary(&row), "unreadCount": unread(&s, &d.user_id).await? })))
 }
 
 async fn native_inbox(State(s): State<AppState>, DeviceAuth(d): DeviceAuth) -> Result<Response> {
-    let row = s
+    let mut row = s
         .db
         .json_opt(
-            "SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder FROM messages m JOIN email_accounts a ON a.id = m.account_id \
+            "SELECT m.id, m.uid, m.account_id, m.folder FROM messages m JOIN email_accounts a ON a.id = m.account_id \
              WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false \
              ORDER BY m.date DESC NULLS LAST, m.id DESC LIMIT 1",
             params![&d.user_id],
         )
         .await?;
+    if let Some(r) = row.as_mut() {
+        s.mail.hydrate_rows(std::slice::from_mut(r)).await;
+    }
     let unread_count = unread(&s, &d.user_id).await?;
     Ok(ok(json!({
         "message": row.as_ref().map(summary),

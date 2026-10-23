@@ -14,9 +14,11 @@ export const test = base.extend({
     await page.getByRole('button', { name: /Sign in|Zaloguj/i }).click();
     // A failed login can legitimately leave the browser on /login while the
     // POST still returns a response. Do not let that produce a false-positive
-    // real-app run: only the authenticated root is a valid landing page.
-    await page.waitForURL(url => url.pathname === '/', { waitUntil: 'domcontentloaded' });
-    await expect(page).toHaveURL(/\/$/);
+    // real-app run: only the authenticated app (the root, which routes on to a mailbox) is a
+    // valid landing page.
+    const authenticated = (url: URL) => url.pathname === '/' || url.pathname.startsWith('/mail/');
+    await page.waitForURL(authenticated, { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => authenticated(new URL(page.url()))).toBe(true);
     await expect.poll(() => responses.some(item => item.url.includes('/api/auth/login') && item.status === 200)).toBe(true);
     // Make the CE view explicit; this removes dependence on preference hydration timing
     // when the real app is opened immediately after login on a fresh CI browser context.

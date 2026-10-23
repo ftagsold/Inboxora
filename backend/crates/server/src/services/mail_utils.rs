@@ -11,25 +11,13 @@ use serde_json::Value;
 use crate::services::diagnostics_ring::record_sync_signal;
 
 /// Columns a relocated/copied sibling inherits from its source row.
-pub const RELOCATE_COPY_COLS: [&str; 50] = [
+pub const RELOCATE_COPY_COLS: [&str; 29] = [
     "message_id",
-    "subject",
-    "from_name",
-    "from_email",
-    "to_addresses",
-    "cc_addresses",
-    "reply_to",
-    "in_reply_to",
     "date",
-    "snippet",
     "is_read",
     "is_starred",
     "has_attachments",
     "flags",
-    "body_html",
-    "body_text",
-    "attachments",
-    "thread_references",
     "thread_id",
     "is_bulk",
     "read_changed_at",
@@ -38,16 +26,10 @@ pub const RELOCATE_COPY_COLS: [&str; 50] = [
     "spam_score_ml",
     "spam_verdict",
     "spam_analyzed_at",
-    "spam_details",
     "spam_user_override",
     "category",
-    "list_unsubscribe",
-    "list_unsubscribe_post",
     "unsubscribed_at",
-    "delivery_addresses",
     "plugin_annotations",
-    "sender_name",
-    "sender_email",
     "logical_message_id",
     "conversation_id",
     "conversation_user_id",
@@ -58,9 +40,6 @@ pub const RELOCATE_COPY_COLS: [&str; 50] = [
     "threading_reason",
     "threading_confidence",
     "threading_algorithm_version",
-    "conversation_raw_headers",
-    "conversation_thread_index",
-    "conversation_thread_topic",
     "automated_series_mode",
 ];
 
@@ -256,7 +235,7 @@ mod tests {
         let all: HashSet<String> = ["Trash".into(), "Deleted Items".into()].into();
         assert_eq!(delete_strategy("Deleted Items", Some("Trash"), Some(&all)), DeleteStrategy::Expunge);
         assert_eq!(delete_strategy("INBOX", Some("Trash"), Some(&all)), DeleteStrategy::Move("Trash".into()));
-        assert_eq!(RELOCATE_COPY_COLS.len(), 50);
+        assert_eq!(RELOCATE_COPY_COLS.len(), 29);
         assert!(relocate_select_cols().starts_with("d.account_id, u.new_uid, $4, d.message_id"));
     }
 }

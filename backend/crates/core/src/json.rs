@@ -103,6 +103,16 @@ pub fn val_to_json(v: &Val) -> Value {
 }
 
 /// JS truthiness of a JSON value (`if (req.body.x)`).
+/// An integer column from a JSON row: BIGINT arrives as a string (node-postgres parity), INT as
+/// a number.
+pub fn int(v: Option<&Value>) -> Option<i64> {
+    match v? {
+        Value::Number(n) => n.as_i64(),
+        Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
+}
+
 pub fn truthy(v: Option<&Value>) -> bool {
     match v {
         None | Some(Value::Null) => false,

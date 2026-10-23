@@ -189,7 +189,7 @@ fn snooze_row(m: &Map<String, Value>) -> SnoozeRow {
     let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
     SnoozeRow {
         id: s("id").unwrap_or_default(),
-        uid: m.get("uid").and_then(Value::as_i64).unwrap_or(0),
+        uid: inboxora_core::json::int(m.get("uid")).unwrap_or(0),
         account_id: s("account_id").unwrap_or_default(),
         folder: s("folder").unwrap_or_default(),
         message_id: s("message_id"),
@@ -202,17 +202,16 @@ fn snooze_row(m: &Map<String, Value>) -> SnoozeRow {
 /// `gatherSnoozeConversation`: the reply-chain component of `msg` in its folder.
 async fn gather_snooze_conversation(st: &AppState, msg: &SnoozeRow, thread_id: Option<&str>) -> Result<Vec<SnoozeRow>> {
     let Some(thread) = thread_id.filter(|t| !t.is_empty()) else { return Ok(vec![msg.clone()]) };
-    let mut pool: Vec<SnoozeRow> = st
+    let mut rows = st
         .db
         .json_rows(
-            "SELECT id, uid, account_id, folder, message_id, in_reply_to, thread_references, is_read FROM messages \
+            "SELECT id, uid, account_id, folder, message_id, is_read FROM messages \
              WHERE account_id = $1 AND thread_id = $2 AND message_id IS NOT NULL",
             params![&msg.account_id, thread],
         )
-        .await?
-        .iter()
-        .filter_map(|v| v.as_object().map(snooze_row))
-        .collect();
+        .await?;
+    st.mail.hydrate_values(&mut rows).await;
+    let mut pool: Vec<SnoozeRow> = rows.iter().filter_map(|v| v.as_object().map(snooze_row)).collect();
     if !pool.iter().any(|r| r.message_id == msg.message_id) {
         pool.push(msg.clone());
     }
@@ -299,7 +298,7 @@ pub async fn snooze(State(st): State<AppState>, a: Auth, Path(id): Path<String>,
     if until > now + chrono::Duration::days(30) {
         return Ok(err(400, "until must be within 30 days"));
     }
-    let Some(m) = st
+    let Some(mut m) = st
         .db
         .json_opt("SELECT m.*, a.user_id FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2", params![
             &id,
@@ -309,6 +308,7 @@ pub async fn snooze(State(st): State<AppState>, a: Auth, Path(id): Path<String>,
     else {
         return Ok(err(404, "Message not found"));
     };
+    st.mail.hydrate_rows(std::slice::from_mut(&mut m)).await;
     let msg = snooze_row(&m);
     let Some(mid) = msg.message_id.clone().filter(|m| !m.is_empty()) else {
         return Ok(err(400, "Message has no Message-ID header — cannot snooze"));
@@ -689,10 +689,10 @@ pub async fn unsubscribe(State(st): State<AppState>, a: Auth, Path(id): Path<Str
     if !is_uuid(&id) {
         return Ok(err(400, "Invalid message id"));
     }
-    let Some(row) = st
+    let Some(mut row) = st
         .db
-        .opt(
-            "SELECT m.list_unsubscribe, m.list_unsubscribe_post FROM messages m JOIN email_accounts a ON m.account_id = a.id \
+        .json_opt(
+            "SELECT m.id, m.account_id, m.folder, m.uid FROM messages m JOIN email_accounts a ON m.account_id = a.id \
              WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false",
             params![&id, &a.user_id],
         )
@@ -700,14 +700,13 @@ pub async fn unsubscribe(State(st): State<AppState>, a: Auth, Path(id): Path<Str
     else {
         return Ok(err(404, "Message not found"));
     };
-    let Some(raw) = row.get::<_, Option<String>>(0).filter(|s| !s.is_empty()) else {
+    st.mail.hydrate_rows(std::slice::from_mut(&mut row)).await;
+    let header = |k: &str| row.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    let Some(raw) = header("list_unsubscribe") else {
         return Ok(err(400, "No unsubscribe header"));
     };
     let unsub = inboxora_mail::headers::decode_mime_words(&raw);
-    let post = row
-        .get::<_, Option<String>>(1)
-        .filter(|s| !s.is_empty())
-        .map(|p| inboxora_mail::headers::decode_mime_words(&p));
+    let post = header("list_unsubscribe_post").map(|p| inboxora_mail::headers::decode_mime_words(&p));
     static REFS: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"<([^>]+)>").expect("re"));
     let refs: Vec<String> =

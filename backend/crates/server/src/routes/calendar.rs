@@ -2,9 +2,8 @@
 //! reads; event mutations, invitations and external sources join it with CalDAV writeback
 //! and mail delivery.
 
-use std::collections::HashMap;
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::{Path, State};
@@ -14,7 +13,6 @@ use axum::routing::{get, patch};
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use inboxora_core::pg::{Q, Val};
 use inboxora_core::{Result, params};
-use parking_lot::Mutex;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 
@@ -23,6 +21,7 @@ use crate::routes::contacts::query_string;
 use crate::routes::search::js_date_parse;
 use crate::routes::util::{empty, err, json, ok};
 use crate::services::calendar::{self as cal, EVENT_COLUMNS, coverage_predicate};
+use crate::services::remote_dav;
 use crate::state::AppState;
 
 const MAX_EVENT_RANGE_DAYS: i64 = 366;
@@ -63,8 +62,13 @@ async fn attendees(State(s): State<AppState>, auth: Auth, Path(id): Path<String>
             params![&id, &auth.user_id],
         )
         .await?;
-    let Some(row) = row else { return Ok(err(404, "Event not found")) };
-    let raw: Option<String> = row.get(0);
+    let raw: Option<String> = match row {
+        Some(row) => row.get(0),
+        None => match remote_dav::event_by_id(&s.db, &auth.user_id, &id).await {
+            Some(e) => e.get("raw_ical").and_then(Value::as_str).map(str::to_owned),
+            None => return Ok(err(404, "Event not found")),
+        },
+    };
     Ok(ok(json!({ "attendees": inboxora_pim::ical::attendee_statuses(raw.as_deref().unwrap_or("")) })))
 }
 
@@ -282,15 +286,27 @@ async fn list_events(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Res
             .into_iter()
             .filter_map(|v| v.as_object().cloned())
             .collect();
+        // Read-only remote calendars are not stored: project them from their live snapshot.
+        let in_range = |e: &Map<String, Value>| {
+            let t = |k: &str| e.get(k).and_then(Value::as_str).and_then(|v| DateTime::parse_from_rfc3339(v).ok());
+            e.get("recurring").and_then(Value::as_bool).unwrap_or(false)
+                || matches!((t("starts_at"), t("ends_at")), (Some(s), Some(en)) if s < to && en > from)
+        };
+        fallback.extend(
+            remote_dav::event_rows(&s.db, &auth.user_id, selected.as_deref()).await.into_iter().filter(in_range),
+        );
     }
     let mut contact_events: Vec<Value> = Vec::new();
     if include_contacts {
+        let (relation, live) = remote_dav::contacts_relation(&s.db, &auth.user_id, 2).await;
         let contacts = s
             .db
             .json_rows(
-                "SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL \
-                 OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = 'array' AND jsonb_array_length(contact_dates) > 0))",
-                params![&auth.user_id],
+                &format!(
+                    "SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM {relation} c WHERE user_id = $1 AND (birthday IS NOT NULL \
+                     OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = 'array' AND jsonb_array_length(contact_dates) > 0))"
+                ),
+                &[Val::from(&auth.user_id), live],
             )
             .await?;
         let a = contact_appearance(&s, &auth.user_id).await?;
@@ -326,28 +342,18 @@ async fn list_events(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Res
     Ok(ok(json!({ "events": events, "truncated": false })))
 }
 
-static SEARCH_BUCKETS: LazyLock<Mutex<HashMap<String, (u32, Instant)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static SEARCH_BUCKETS: LazyLock<crate::http::limit::Windows> =
+    LazyLock::new(|| crate::http::limit::Windows::new(10_000));
 
 fn search_limited(user: &str) -> Option<Response> {
-    let now = Instant::now();
-    let mut b = SEARCH_BUCKETS.lock();
-    match b.get_mut(user) {
-        Some((count, reset)) if now <= *reset => {
-            if *count >= 20 {
-                let mut r = json(429, json!({ "error": "Too many search requests. Try again shortly." }));
-                if let Ok(v) = HeaderValue::from_str(&((*reset - now).as_secs_f64().ceil() as u64).to_string()) {
-                    r.headers_mut().insert("retry-after", v);
-                }
-                return Some(r);
-            }
-            *count += 1;
-            None
+    let (hits, left) = SEARCH_BUCKETS.hit(user, Duration::from_secs(60));
+    (hits > 20).then(|| {
+        let mut r = json(429, json!({ "error": "Too many search requests. Try again shortly." }));
+        if let Ok(v) = HeaderValue::from_str(&(left.as_secs_f64().ceil() as u64).to_string()) {
+            r.headers_mut().insert("retry-after", v);
         }
-        _ => {
-            b.insert(user.to_owned(), (1, now + Duration::from_secs(60)));
-            None
-        }
-    }
+        r
+    })
 }
 
 async fn search_events(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response> {
@@ -364,7 +370,7 @@ async fn search_events(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<R
     }
     let limit =
         query_string(&q, "limit").and_then(|v| crate::http::query::parse_int(&v)).unwrap_or(200).clamp(1, 500) as usize;
-    let rows: Vec<Map<String, Value>> = s
+    let mut rows: Vec<Map<String, Value>> = s
         .db
         .json_rows(
             &format!(
@@ -377,6 +383,13 @@ async fn search_events(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<R
         .into_iter()
         .filter_map(|v| v.as_object().cloned())
         .collect();
+    let needle = query.to_lowercase();
+    let matches = |e: &Map<String, Value>| {
+        ["summary", "description", "location"]
+            .iter()
+            .any(|k| e.get(*k).and_then(Value::as_str).is_some_and(|v| v.to_lowercase().contains(&needle)))
+    };
+    rows.extend(remote_dav::event_rows(&s.db, &auth.user_id, None).await.into_iter().filter(matches));
     if rows.is_empty() {
         return Ok(ok(json!({ "events": [] })));
     }

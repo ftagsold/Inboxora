@@ -89,12 +89,7 @@ pub fn valid_folder_name(name: &str) -> bool {
     n > 0 && n <= 255 && name.chars().all(|c| (c as u32) > 31 && c as u32 != 127)
 }
 
-/// Strip NUL bytes PostgreSQL rejects.
-pub fn clean(s: &str) -> String {
-    if s.contains('\0') { s.replace('\0', "") } else { s.to_owned() }
-}
-
-/// `messages.attachments` as an array (stored as JSON text or jsonb).
+/// An attachment list as an array (JSON text or a JSON array).
 pub fn attachments_of(v: Option<&Value>) -> Value {
     match v {
         Some(Value::String(s)) => {

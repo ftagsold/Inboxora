@@ -161,6 +161,16 @@ pub async fn project_resources(
                             c.2 -= old.status.events.len();
                         }
                     }
+                    // Expired entries leave their key in the queue (and a re-insert adds it
+                    // again); drop stale and duplicate keys before the queue outgrows the map.
+                    if c.1.len() > 2 * c.0.len() + 64 {
+                        let (map, order, _) = &mut *c;
+                        let mut seen = std::collections::HashSet::new();
+                        let mut kept: Vec<String> =
+                            order.drain(..).rev().filter(|k| map.contains_key(k) && seen.insert(k.clone())).collect();
+                        kept.reverse();
+                        order.extend(kept);
+                    }
                 }
                 statuses[i] = Some(if cache_enabled { filter_window(&status, from, to) } else { status });
             }

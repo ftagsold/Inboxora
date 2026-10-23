@@ -3,15 +3,11 @@
 //! authentication with DAV application passwords, Express-style path matching and the
 //! RFC 6764 well-known redirects.
 
-use std::collections::HashMap;
-use std::time::Instant;
-
 use axum::body::Body as AxumBody;
 use axum::extract::Request;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use inboxora_core::Error;
-use parking_lot::Mutex;
 
 use crate::http::middleware::RoutePattern;
 use crate::routes::util::empty;
@@ -24,34 +20,23 @@ const MAX_REQUESTS: u64 = 500;
 const BODY_LIMIT: usize = 16 * 1024 * 1024;
 
 /// The in-memory per-IP request budget (`cardavRateLimit` / `caldavRateLimit`).
-#[derive(Default)]
-pub struct Buckets(Mutex<HashMap<String, (u64, Instant)>>);
+pub struct Buckets(crate::http::limit::Windows);
+
+impl Default for Buckets {
+    fn default() -> Self {
+        Self(crate::http::limit::Windows::new(10_000))
+    }
+}
 
 impl Buckets {
     /// `Some(429)` once the IP has used its budget for the current window.
     pub fn check(&self, ip: &str) -> Option<Response> {
-        let window = auth::auth_limits().window;
-        let now = Instant::now();
-        let mut m = self.0.lock();
-        if m.len() > 10_000 {
-            m.retain(|_, (_, reset)| now <= *reset);
-        }
-        match m.get_mut(ip) {
-            Some((count, reset)) if now <= *reset => {
-                if *count >= MAX_REQUESTS {
-                    let secs = (*reset - now).as_millis().div_ceil(1000);
-                    let mut res = empty(429);
-                    res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(secs as u64));
-                    return Some(res);
-                }
-                *count += 1;
-                None
-            }
-            _ => {
-                m.insert(ip.to_owned(), (1, now + window));
-                None
-            }
-        }
+        let (hits, left) = self.0.hit(ip, auth::auth_limits().window);
+        (hits > MAX_REQUESTS).then(|| {
+            let mut res = empty(429);
+            res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(left.as_millis().div_ceil(1000) as u64));
+            res
+        })
     }
 }
 

@@ -4,28 +4,48 @@
 -- applied its migrations:
 --
 --   psql -v ON_ERROR_STOP=1 -v username=playwright@example.test -v password='PlaywrightPassword123!' \
---     -f backend/tests/e2e/playwright-seed.sql
+--     -v cache_file=mail-cache.tsv -f backend/tests/e2e/playwright-seed.sql
+--   node backend/tests/e2e/load-mail-cache.mjs mail-cache.tsv
+--
+-- PostgreSQL keeps only the header index; the messages' display fields and bodies normally come
+-- from IMAP through the Redis mail cache. With IMAP disabled the fixture writes them to
+-- `cache_file` (key<TAB>JSON lines), which load-mail-cache.mjs puts into Redis.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 SELECT set_config('seed.username', :'username', false), set_config('seed.password', :'password', false);
 
+CREATE TEMP TABLE fixture_cache (key text PRIMARY KEY, value jsonb NOT NULL);
+
 -- One physical copy of a logical message.
 CREATE FUNCTION pg_temp.seed_copy(p_account uuid, p_uid int, p_folder text, p_logical uuid, p_conv uuid, p_user uuid,
                                   p_canonical text, p_subject text, p_body text, p_direction text, p_days int)
 RETURNS void LANGUAGE sql AS $fn$
-  INSERT INTO messages (account_id, uid, folder, message_id, subject, from_name, from_email, to_addresses, date, snippet,
-                        body_text, body_html, is_read, thread_id, logical_message_id, conversation_id,
-                        conversation_user_id, canonical_message_id, threading_reason, threading_confidence)
-  VALUES (p_account, p_uid, p_folder, p_canonical, p_subject,
-          CASE WHEN p_direction = 'outgoing' THEN 'Ja' ELSE 'Alice' END,
-          CASE WHEN p_direction = 'outgoing' THEN 'me@gmail.test' ELSE 'alice@example.test' END,
-          CASE WHEN p_direction = 'outgoing'
-               THEN '[{"address": "alice@example.test", "name": "Alice"}]'::jsonb
-               ELSE '[{"address": "me@gmail.test", "name": "Ja"}]'::jsonb END,
-          NOW() - make_interval(days => p_days), p_subject, p_body,
-          format('<p>%s</p><blockquote>Quoted previous message</blockquote>', p_body), true, p_conv::text, p_logical,
-          p_conv, p_user, p_canonical, 'playwright-fixture', 1)
+  WITH copy AS (
+    INSERT INTO messages (account_id, uid, folder, message_id, date, is_read, thread_id, logical_message_id, conversation_id,
+                          conversation_user_id, canonical_message_id, threading_reason, threading_confidence)
+    VALUES (p_account, p_uid, p_folder, p_canonical, NOW() - make_interval(days => p_days), true, p_conv::text, p_logical,
+            p_conv, p_user, p_canonical, 'playwright-fixture', 1)
+    RETURNING id
+  )
+  INSERT INTO fixture_cache (key, value)
+  SELECT 'h:' || copy.id, jsonb_build_object(
+           'message_id', p_canonical, 'subject', p_subject,
+           'from_name', CASE WHEN p_direction = 'outgoing' THEN 'Ja' ELSE 'Alice' END,
+           'from_email', CASE WHEN p_direction = 'outgoing' THEN 'me@gmail.test' ELSE 'alice@example.test' END,
+           'sender_name', NULL, 'sender_email', NULL,
+           'to', CASE WHEN p_direction = 'outgoing'
+                      THEN '[{"email": "alice@example.test", "name": "Alice"}]'::jsonb
+                      ELSE '[{"email": "me@gmail.test", "name": "Ja"}]'::jsonb END,
+           'cc', '[]'::jsonb, 'reply_to', '[]'::jsonb, 'in_reply_to', NULL, 'references', NULL,
+           'snippet', p_subject, 'has_attachments', false, 'list_unsubscribe', NULL, 'list_unsubscribe_post', NULL,
+           'delivery_addresses', '[]'::jsonb)
+    FROM copy
+  UNION ALL
+  SELECT 'b:' || copy.id, jsonb_build_object(
+           'html', format('<p>%s</p><blockquote>Quoted previous message</blockquote>', p_body), 'text', p_body,
+           'attachments', '[]'::jsonb)
+    FROM copy
 $fn$;
 
 DO $seed$
@@ -80,15 +100,16 @@ BEGIN
 
   -- Golden dataset: one Gmail conversation, all copies in one native thread.
   v_subject := 'Golden conversation thread';
-  INSERT INTO conversations (user_id, account_id, canonical_subject, subject_snapshot, first_message_at, last_message_at,
+  INSERT INTO conversations (user_id, account_id, first_message_at, last_message_at,
                              logical_message_count, copy_count, unread_count, threading_confidence)
-  VALUES (v_user, v_gmail, v_subject, v_subject, NOW() - interval '5 days', NOW(), 5, 6, 0, 1)
+  VALUES (v_user, v_gmail, NOW() - interval '5 days', NOW(), 5, 6, 0, 1)
   RETURNING id INTO v_golden;
   FOR i IN 0..4 LOOP
     v_canonical := format('<fixture-%s-%s@example.test>', left(v_golden::text, 8), i);
-    INSERT INTO logical_messages (user_id, account_id, conversation_id, canonical_message_id, raw_message_id, subject,
-                                  canonical_subject, direction, message_date, threading_reason, threading_confidence)
-    VALUES (v_user, v_gmail, v_golden, v_canonical, v_canonical, v_subject, v_subject, v_golden_dirs[i + 1],
+    INSERT INTO logical_messages (user_id, account_id, conversation_id, canonical_message_id, subject_hash,
+                                  direction, message_date, threading_reason, threading_confidence)
+    VALUES (v_user, v_gmail, v_golden, v_canonical, left(encode(sha256(convert_to(lower(v_subject), 'UTF8')), 'hex'), 16),
+            v_golden_dirs[i + 1],
             NOW() - make_interval(days => 5 - i), 'playwright-fixture', 1)
     RETURNING id INTO v_logical;
     FOREACH v_folder IN ARRAY v_golden_copies[i + 1:i + 1] LOOP
@@ -104,16 +125,17 @@ BEGIN
   LOOP
     v_count := CASE WHEN rec.idx = 0 THEN 3 ELSE 2 END;
     v_account := v_accounts[rec.idx % 3 + 1];
-    INSERT INTO conversations (user_id, account_id, canonical_subject, subject_snapshot, first_message_at, last_message_at,
+    INSERT INTO conversations (user_id, account_id, first_message_at, last_message_at,
                                logical_message_count, copy_count, unread_count, threading_confidence)
-    VALUES (v_user, v_account, rec.subject, rec.subject, NOW() - interval '5 days', NOW(), v_count, v_count, 0, 1)
+    VALUES (v_user, v_account, NOW() - interval '5 days', NOW(), v_count, v_count, 0, 1)
     RETURNING id INTO v_conv;
     FOR n IN 0..v_count - 1 LOOP
       v_direction := CASE WHEN rec.idx = 0 AND n = v_count - 1 THEN 'outgoing' ELSE 'incoming' END;
       v_canonical := format('<fixture-%s-%s@example.test>', left(v_conv::text, 8), n);
-      INSERT INTO logical_messages (user_id, account_id, conversation_id, canonical_message_id, raw_message_id, subject,
-                                    canonical_subject, direction, message_date, threading_reason, threading_confidence)
-      VALUES (v_user, v_account, v_conv, v_canonical, v_canonical, rec.subject, rec.subject, v_direction,
+      INSERT INTO logical_messages (user_id, account_id, conversation_id, canonical_message_id, subject_hash,
+                                    direction, message_date, threading_reason, threading_confidence)
+      VALUES (v_user, v_account, v_conv, v_canonical, left(encode(sha256(convert_to(lower(rec.subject), 'UTF8')), 'hex'), 16),
+              v_direction,
               NOW() - make_interval(days => 5 - n), 'playwright-fixture', 1)
       RETURNING id INTO v_logical;
       PERFORM pg_temp.seed_copy(v_account, 2000 + rec.idx * 10 + n, 'INBOX', v_logical, v_conv, v_user, v_canonical,
@@ -140,3 +162,12 @@ BEGIN
   RAISE NOTICE 'seeded user % (%), golden conversation %', v_username, v_user, v_golden;
 END
 $seed$;
+
+-- The mail cache entries (display fields and bodies) for load-mail-cache.mjs.
+\if :{?cache_file}
+\pset tuples_only on
+\pset format unaligned
+\o :cache_file
+SELECT key || E'\t' || value::text FROM fixture_cache ORDER BY key;
+\o
+\endif

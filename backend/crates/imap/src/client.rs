@@ -160,6 +160,8 @@ pub struct FetchQuery {
     /// `BODY.PEEK[HEADER.FIELDS (…)]`.
     pub header_fields: Vec<String>,
     pub body_parts: Vec<String>,
+    /// Fetch only the first `n` bytes of each body part (`BODY.PEEK[p]<0.n>`).
+    pub body_part_max: Option<u32>,
     /// `BODY.PEEK[]<start.max>`; `Some((0, None))` = the whole source.
     pub source: Option<(u64, Option<u64>)>,
     pub thread_id: bool,
@@ -203,7 +205,8 @@ pub struct Client {
     idling: bool,
 }
 
-fn quote(s: &str) -> String {
+/// An IMAP string: quoted when plain ASCII, else a (non-synchronising) literal.
+pub fn quote(s: &str) -> String {
     if !s.is_empty() && s.len() < 1024 && !s.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0 || b >= 0x80) {
         let mut out = String::with_capacity(s.len() + 2);
         out.push('"');
@@ -1159,7 +1162,10 @@ impl Client {
             items.push(format!("BODY.PEEK[HEADER.FIELDS ({})]", q.header_fields.join(" ").to_uppercase()));
         }
         for p in &q.body_parts {
-            items.push(format!("BODY.PEEK[{p}]"));
+            match q.body_part_max {
+                Some(n) => items.push(format!("BODY.PEEK[{p}]<0.{n}>")),
+                None => items.push(format!("BODY.PEEK[{p}]")),
+            }
         }
         if let Some((start, max)) = q.source {
             match max {

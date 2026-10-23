@@ -10,14 +10,11 @@ use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use inboxora_core::pg::{Q, Val};
 use inboxora_core::{Result, params};
-use inboxora_mail::sanitize::{
-    block_remote_images, has_remote_images, rewrite_anchor_hrefs, rewrite_ebay_imageser_urls, sanitize_email,
-    should_block_remote_images, strip_email_head,
-};
-use inboxora_mail::snippet::{build_snippet_from_html, snippet_from_body};
-use serde_json::{Value, json};
+use inboxora_mail::sanitize::{block_remote_images, has_remote_images, should_block_remote_images};
+use serde_json::{Map, Value, json};
 
-use super::{account_of, attachments_of, clean, is_uuid};
+use super::{account_of, attachments_of, is_uuid};
+use crate::engine::cache::Location;
 use crate::http::{Auth, Body, Qs};
 use crate::routes::contacts::{query_int, query_string};
 use crate::routes::search::resolve_account_scope;
@@ -25,10 +22,8 @@ use crate::routes::util::{err, ok};
 use crate::services::diagnostics_ring::record_sync_signal;
 use crate::state::AppState;
 
-const MESSAGE_COLS: &str = "m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email, m.to_addresses, m.cc_addresses, \
-    m.reply_to, m.in_reply_to, m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id, m.category, \
-    m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses, \
-    a.name AS account_name, a.email_address AS account_email, a.color AS account_color";
+const MESSAGE_COLS: &str = "m.id, m.uid, m.folder, m.message_id, m.date, m.is_read, m.is_starred, m.has_attachments, m.account_id, \
+    m.category, m.unsubscribed_at, a.name AS account_name, a.email_address AS account_email, a.color AS account_color";
 
 fn valid_folder_name(name: &str) -> bool {
     let n = inboxora_mail::text::js_len(name);
@@ -84,7 +79,6 @@ pub async fn list_messages(
         }
         None => {}
     }
-    conds.push("NOT (m.message_id IS NULL AND (m.subject IS NULL OR m.subject = '(no subject)') AND COALESCE(m.snippet, '') = '')".into());
     let where_ = conds.join(" AND ");
     let safe_limit = if limit == 0 { 50 } else { limit.clamp(1, 500) };
     let safe_offset = offset.max(0);
@@ -131,14 +125,13 @@ pub async fn list_messages(
                ORDER BY MAX(m.date) DESC, m.account_id, m.thread_key LIMIT ${l} OFFSET ${o}), \
              deduped AS MATERIALIZED ( \
                SELECT DISTINCT ON (m.account_id, m.thread_key, COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text)) \
-                 m.id, m.uid, m.folder, m.message_id, {identity} AS thread_id, m.thread_key, m.subject, m.from_name, m.from_email, \
-                 m.to_addresses, m.cc_addresses, m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, \
-                 m.draft_in_reply_to, m.draft_references, m.draft_composition, m.reply_to, m.in_reply_to, m.date, m.snippet, m.is_read, \
-                 m.is_starred, m.has_attachments, m.account_id, m.category, m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses, \
-                 a.name AS account_name, a.email_address AS account_email, a.color AS account_color, (co.id IS NOT NULL) AS has_contact_photo \
+                 m.id, m.uid, m.folder, m.message_id, {identity} AS thread_id, m.thread_key, \
+                 m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, \
+                 m.draft_in_reply_to, m.draft_references, m.draft_composition, m.date, m.is_read, \
+                 m.is_starred, m.has_attachments, m.account_id, m.category, \
+                 a.name AS account_name, a.email_address AS account_email, a.color AS account_color \
                FROM messages m JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_key = m.thread_key \
                JOIN email_accounts a ON m.account_id = a.id \
-               LEFT JOIN contacts co ON co.user_id = a.user_id AND co.primary_email = lower(m.from_email) AND co.photo_data IS NOT NULL \
                WHERE {where_} \
                ORDER BY m.account_id, m.thread_key, COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text), \
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END, m.date ASC), \
@@ -149,19 +142,13 @@ pub async fn list_messages(
              ranked AS ( \
                SELECT d.*, COALESCE(tt.message_count, 1) AS message_count, \
                  COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count, \
-                 FIRST_VALUE(d.subject) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject, \
-                 FIRST_VALUE(d.from_name) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name, \
-                 FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email, \
-                 FIRST_VALUE(d.has_contact_photo) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_has_contact_photo, \
-                 FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date DESC, d.id DESC) AS latest_from_email, \
-                 FIRST_VALUE(d.from_name) OVER (PARTITION BY d.thread_id ORDER BY d.date DESC, d.id DESC) AS latest_from_name, \
+                 FIRST_VALUE(d.id) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS first_id, \
                  ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn \
                FROM deduped d LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id) \
-             SELECT id, uid, folder, message_id, thread_id, thread_key, thread_subject AS subject, thread_from_name AS from_name, \
-               thread_from_email AS from_email, to_addresses, cc_addresses, draft_bcc_addresses, draft_uid_validity, draft_alias_id, \
-               draft_in_reply_to, draft_references, draft_composition, reply_to, in_reply_to, date, snippet, is_starred, is_read, \
-               has_attachments, account_id, account_name, account_email, account_color, category, list_unsubscribe, list_unsubscribe_post, \
-               delivery_addresses, message_count, unread_count, thread_has_contact_photo AS has_contact_photo, latest_from_email, latest_from_name \
+             SELECT id, uid, folder, message_id, thread_id, thread_key, draft_bcc_addresses, draft_uid_validity, draft_alias_id, \
+               draft_in_reply_to, draft_references, draft_composition, date, is_starred, is_read, \
+               has_attachments, account_id, account_name, account_email, account_color, category, \
+               message_count, unread_count, first_id \
              FROM ranked WHERE rn = 1 ORDER BY date DESC",
             l = p + 1,
             o = p + 2,
@@ -170,7 +157,8 @@ pub async fn list_messages(
         tv.push(Val::from(if specific { vec![resolved.clone().unwrap_or_default()] } else { scoped.clone() }));
         tv.push(Val::Int(safe_limit));
         tv.push(Val::Int(safe_offset));
-        let rows = s.db.json_rows(&sql, &tv).await?;
+        let mut rows = s.db.json_rows(&sql, &tv).await?;
+        hydrate_threads(s, user_id, &mut rows).await?;
         let count = s
             .db
             .opt(
@@ -186,24 +174,94 @@ pub async fn list_messages(
     let lp = values.len() + 1;
     values.push(Val::Int(safe_limit));
     values.push(Val::Int(safe_offset));
-    let rows = s
-        .db
-        .json_rows(
+    let mut rows =
+        s.db.json_rows(
             &format!(
-                "SELECT m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject, m.from_name, m.from_email, \
-                   m.to_addresses, m.cc_addresses, m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, \
-                   m.draft_in_reply_to, m.draft_references, m.draft_composition, m.reply_to, m.in_reply_to, m.date, m.snippet, m.is_read, \
-                   m.is_starred, m.has_attachments, m.account_id, m.category, m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses, \
-                   a.name as account_name, a.email_address as account_email, a.color as account_color, (co.id IS NOT NULL) AS has_contact_photo \
+                "SELECT m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, \
+                   m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, \
+                   m.draft_in_reply_to, m.draft_references, m.draft_composition, m.date, m.is_read, \
+                   m.is_starred, m.has_attachments, m.account_id, m.category, \
+                   a.name as account_name, a.email_address as account_email, a.color as account_color \
                  FROM messages m JOIN email_accounts a ON m.account_id = a.id \
-                 LEFT JOIN contacts co ON co.user_id = a.user_id AND co.primary_email = lower(m.from_email) AND co.photo_data IS NOT NULL \
                  WHERE {where_} ORDER BY m.date DESC LIMIT ${lp} OFFSET ${}",
                 lp + 1
             ),
             &values,
         )
         .await?;
+    s.mail.hydrate_values(&mut rows).await;
+    mark_contact_photos(s, user_id, &mut rows, "from_email").await?;
     Ok((rows, total, false, resolved))
+}
+
+/// Threaded rows carry their latest message; the thread's subject and sender come from its
+/// first message (`first_id`), whose headers are fetched alongside.
+async fn hydrate_threads(s: &AppState, user_id: &str, rows: &mut [Value]) -> Result<()> {
+    s.mail.hydrate_values(rows).await;
+    let firsts: Vec<String> = rows
+        .iter()
+        .filter(|r| r.get("first_id") != r.get("id"))
+        .filter_map(|r| r.get("first_id").and_then(Value::as_str).map(str::to_owned))
+        .collect();
+    let mut first_meta: HashMap<String, Map<String, Value>> = HashMap::new();
+    if !firsts.is_empty() {
+        let mut locs = s
+            .db
+            .json_rows("SELECT id, account_id, folder, uid FROM messages WHERE id = ANY($1::uuid[])", params![firsts])
+            .await?;
+        s.mail.hydrate_values(&mut locs).await;
+        for l in locs {
+            if let Value::Object(m) = l {
+                let id = m.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+                first_meta.insert(id, m);
+            }
+        }
+    }
+    for r in rows.iter_mut() {
+        let Some(row) = r.as_object_mut() else { continue };
+        row.insert("latest_from_email".into(), row.get("from_email").cloned().unwrap_or(Value::Null));
+        row.insert("latest_from_name".into(), row.get("from_name").cloned().unwrap_or(Value::Null));
+        let first = row.get("first_id").and_then(Value::as_str).and_then(|f| first_meta.get(f));
+        if let Some(f) = first {
+            for k in ["subject", "from_name", "from_email"] {
+                row.insert(k.into(), f.get(k).cloned().unwrap_or(Value::Null));
+            }
+        }
+        row.remove("first_id");
+    }
+    mark_contact_photos(s, user_id, rows, "from_email").await
+}
+
+/// `has_contact_photo` for each row's sender (`key`), from the user's contacts.
+pub async fn mark_contact_photos(s: &AppState, user_id: &str, rows: &mut [Value], key: &str) -> Result<()> {
+    let emails: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r.get(key).and_then(Value::as_str))
+        .filter(|e| !e.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    let with_photo: std::collections::HashSet<String> = if emails.is_empty() {
+        Default::default()
+    } else {
+        let (relation, live) = crate::services::remote_dav::contacts_relation(&s.db, user_id, 3).await;
+        s.db.rows(
+            &format!(
+                "SELECT DISTINCT primary_email FROM {relation} c WHERE user_id = $1 AND primary_email = ANY($2) AND photo_data IS NOT NULL"
+            ),
+            &[Val::from(user_id), Val::from(emails), live],
+        )
+        .await?
+        .iter()
+        .filter_map(|r| r.get::<_, Option<String>>(0))
+        .collect()
+    };
+    for r in rows.iter_mut() {
+        if let Some(row) = r.as_object_mut() {
+            let has = row.get(key).and_then(Value::as_str).is_some_and(|e| with_photo.contains(&e.to_lowercase()));
+            row.insert("has_contact_photo".into(), json!(has));
+        }
+    }
+    Ok(())
 }
 
 pub async fn messages(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response> {
@@ -236,10 +294,6 @@ pub async fn messages(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Respo
     if let Some(acc) = &resolved
         && !messages.is_empty()
     {
-        let ids: Vec<String> =
-            messages.iter().filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
-        let (m, acc2) = (s.mail.clone(), acc.clone());
-        tokio::spawn(async move { m.prefetch_folder_bodies(&acc2, &ids).await });
         let ghosts = messages
             .iter()
             .filter(|m| {
@@ -273,7 +327,10 @@ pub async fn message(State(s): State<AppState>, a: Auth, Path(id): Path<String>)
         )
         .await;
     Ok(match r {
-        Ok(Some(row)) => ok(Value::Object(row)),
+        Ok(Some(mut row)) => {
+            s.mail.hydrate_rows(std::slice::from_mut(&mut row)).await;
+            ok(Value::Object(row))
+        }
         Ok(None) => err(404, "Message not found"),
         Err(e) => {
             tracing::error!("GET /messages/:id error: {e}");
@@ -319,7 +376,10 @@ pub async fn resolve_message(State(s): State<AppState>, a: Auth, q: Qs) -> Resul
         Ok::<_, inboxora_core::Error>(row)
     };
     Ok(match run.await {
-        Ok(Some(r)) => ok(Value::Object(r)),
+        Ok(Some(mut r)) => {
+            s.mail.hydrate_rows(std::slice::from_mut(&mut r)).await;
+            ok(Value::Object(r))
+        }
         Ok(None) => err(404, "Message not found"),
         Err(e) => {
             tracing::error!("GET /resolve-message error: {e}");
@@ -356,14 +416,13 @@ pub async fn thread(State(s): State<AppState>, a: Auth, Path(thread_id): Path<St
         if ids.is_empty() {
             return Ok(Some(ok(json!({ "messages": [] }))));
         }
-        let rows = s
+        let mut rows = s
             .db
             .json_rows(
                 "WITH deduped AS ( \
                    SELECT DISTINCT ON (m.account_id, COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text)) \
-                     m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject, m.from_name, m.from_email, m.to_addresses, \
-                     m.cc_addresses, m.reply_to, m.in_reply_to, m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id, \
-                     m.category, m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses, \
+                     m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.date, m.is_read, m.is_starred, m.has_attachments, \
+                     m.account_id, m.category, m.unsubscribed_at, \
                      a.name AS account_name, a.email_address AS account_email, a.color AS account_color \
                    FROM messages m JOIN email_accounts a ON m.account_id = a.id \
                    WHERE m.is_deleted = false AND m.account_id = ANY($1) AND m.thread_key = $2 \
@@ -373,6 +432,7 @@ pub async fn thread(State(s): State<AppState>, a: Auth, Path(thread_id): Path<St
                 params![ids, &thread_id],
             )
             .await?;
+        s.mail.hydrate_values(&mut rows).await;
         Ok::<_, inboxora_core::Error>(Some(ok(json!({ "messages": rows }))))
     };
     match run.await {
@@ -409,36 +469,15 @@ pub async fn unread_counts(State(s): State<AppState>, a: Auth) -> Result<Respons
     Ok(res)
 }
 
-fn snippet_is_garbled(s: &str) -> bool {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-        [
-            r"(?i)&[a-z][a-z0-9]*;",
-            r"##[^#]*##",
-            r"-->",
-            r"\{[^}]*[:;][^}]*\}",
-            r"(?i)<[a-z][^>]*>",
-            r"(?i)</[a-z][a-z0-9:-]*\s*>",
-            r"(?:====|____|\*\*\*\*|####|~~~~|----)",
-            r"\[[^\]]+\]\(https?://",
-        ]
-        .iter()
-        .map(|p| Regex::new(p).expect("regex"))
-        .collect()
-    });
-    !s.is_empty() && PATTERNS.iter().any(|r| r.is_match(s))
-}
-
 const BODY_FETCH_TIMEOUT: Duration = Duration::from_secs(40);
 
 pub async fn body(State(s): State<AppState>, a: Auth, Path(id): Path<String>, q: Qs) -> Result<Response> {
     if !is_uuid(&id) {
         return Ok(err(400, "Invalid message id"));
     }
-    let Some(m) =
+    let Some(mut m) =
         s.db.json_opt(
-            "SELECT m.*, a.user_id, u.preferences, ci.message_id AS calendar_invitation_id FROM messages m \
+            "SELECT m.id, m.account_id, m.folder, m.uid, u.preferences, ci.message_id AS calendar_invitation_id FROM messages m \
              JOIN email_accounts a ON m.account_id = a.id JOIN users u ON u.id = a.user_id \
              LEFT JOIN inbound_calendar_invitations ci ON ci.message_id = m.id WHERE m.id = $1 AND a.user_id = $2",
             params![&id, &a.user_id],
@@ -447,155 +486,84 @@ pub async fn body(State(s): State<AppState>, a: Auth, Path(id): Path<String>, q:
     else {
         return Ok(err(404, "Message not found"));
     };
+    let Some(loc) = Location::from_row(&m) else { return Ok(err(404, "Message not found")) };
+    let fetched = tokio::time::timeout(BODY_FETCH_TIMEOUT, async {
+        let (meta, body) = tokio::join!(s.mail.message_meta(std::slice::from_ref(&loc)), s.mail.message_body(&loc));
+        (meta, body)
+    })
+    .await;
+    let (meta, body) = match fetched {
+        Ok((meta, Ok(b))) => (meta, b),
+        Ok((_, Err(e))) => return Ok(body_fetch_error(&e.0)),
+        Err(_) => return Ok(body_fetch_error("BODY_FETCH_TIMEOUT")),
+    };
+    if let Some(meta) = meta.get(&loc.id) {
+        meta.apply(&mut m);
+    }
     let st = |k: &str| m.get(k).and_then(Value::as_str);
     let prefs = m.get("preferences").cloned().unwrap_or(Value::Null);
     let skip_blocking = q.str("remoteImages") == Some("1");
-    let block = |html: &str| -> (String, bool) {
-        if !skip_blocking && should_block_remote_images(&prefs, st("from_email")) && has_remote_images(html) {
-            (block_remote_images(html), true)
-        } else {
-            (html.to_owned(), false)
+    let (html, blocked) = match body.html.as_deref() {
+        Some(h) if !skip_blocking && should_block_remote_images(&prefs, st("from_email")) && has_remote_images(h) => {
+            (Some(block_remote_images(h)), true)
         }
+        Some(h) => (Some(h.to_owned()), false),
+        None => (None, false),
     };
-    let finish = |html: Option<String>, text: Value, attachments: Value, blocked: bool| {
-        let mut out = json!({
-            "html": html, "text": text, "attachments": attachments, "hasBlockedRemoteImages": blocked,
-            "senderEmail": m.get("sender_email").cloned().unwrap_or(Value::Null),
-            "senderName": m.get("sender_name").cloned().unwrap_or(Value::Null),
-        });
-        if m.get("calendar_invitation_id").is_some_and(|v| !v.is_null()) {
-            out["calendarInvitation"] = json!(true);
-        }
-        ok(out)
-    };
-    let cached_html = st("body_html").filter(|h| !h.is_empty()).map(str::to_owned);
-    let has_text = st("body_text").is_some_and(|t| !t.is_empty());
-    static CID: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)\bcid:").expect("re"));
-    static HTTP_IMG: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r#"(?i)<img[^>]+src=["']http://|background=["']http://|url\(\s*['"]?http://"#).expect("re")
+    let mut out = json!({
+        "html": html,
+        "text": body.text.clone().map_or(Value::Null, Value::String),
+        "attachments": body.attachments,
+        "hasBlockedRemoteImages": blocked,
+        "senderEmail": m.get("sender_email").cloned().unwrap_or(Value::Null),
+        "senderName": m.get("sender_name").cloned().unwrap_or(Value::Null),
     });
-    static ANCHOR: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)<a\b[^>]*").expect("re"));
-    static HREF: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r#"(?i)\shref=["']"#).expect("re"));
-    // Any `href="` in an `<a …` tag whose target is not absolute, relative or a known scheme
-    // (the JS lookahead backtracks over every href in the tag, so check each one).
-    let bare_href = |h: &str| {
-        ANCHOR.find_iter(h).any(|tag| {
-            HREF.find_iter(tag.as_str()).any(|m| {
-                let rest = h[tag.start() + m.end()..].to_lowercase();
-                !["http://", "https://", "mailto:", "cid:", "tel:", "//", "#", "/", "."]
-                    .iter()
-                    .any(|p| rest.starts_with(p))
-            })
-        })
-    };
-    let stale = cached_html.as_deref().is_some_and(|h| CID.is_match(h) || HTTP_IMG.is_match(h));
-    if (cached_html.is_some() || has_text) && !stale {
-        let attachments = attachments_of(m.get("attachments"));
-        let mut html = cached_html.as_deref().map(strip_email_head);
-        let mut persist = html.is_some() && html != cached_html;
-        if let Some(h) = html.as_deref()
-            && h.contains("svcs.ebay.com/imageser")
-        {
-            let r = rewrite_ebay_imageser_urls(h);
-            if r != h {
-                html = Some(r);
-                persist = true;
-            }
-        }
-        if let Some(h) = html.as_deref()
-            && bare_href(h)
-        {
-            let r = rewrite_anchor_hrefs(h);
-            if r != h {
-                html = Some(r);
-                persist = true;
-            }
-        }
-        if persist && let Some(h) = &html {
-            let (db, h, id) = (s.db.clone(), clean(h), id.clone());
-            tokio::spawn(async move {
-                let _ = db.exec("UPDATE messages SET body_html = $1 WHERE id = $2", params![h, id]).await;
-            });
-        }
-        let snippet = st("snippet").unwrap_or("");
-        if snippet.is_empty() || snippet_is_garbled(snippet) {
-            let snip = match st("body_text") {
-                None if m.get("body_text").is_none_or(Value::is_null) => {
-                    html.as_deref().map(build_snippet_from_html).unwrap_or_default()
-                }
-                _ => snippet_from_body(st("body_text").unwrap_or(""), html.as_deref()),
-            };
-            if !snip.is_empty() {
-                let (db, id) = (s.db.clone(), id.clone());
-                tokio::spawn(async move {
-                    let _ = db.exec("UPDATE messages SET snippet = $1 WHERE id = $2", params![clean(&snip), id]).await;
-                });
-            }
-        }
-        let (response_html, blocked) = match &html {
-            Some(h) => {
-                let (r, b) = block(h);
-                (Some(r), b)
-            }
-            None => (None, false),
-        };
-        return Ok(finish(response_html, m.get("body_text").cloned().unwrap_or(Value::Null), attachments, blocked));
+    if m.get("calendar_invitation_id").is_some_and(|v| !v.is_null()) {
+        out["calendarInvitation"] = json!(true);
     }
-    let account_id = st("account_id").unwrap_or("").to_owned();
-    let run = async {
-        let account =
-            account_of(&s, &account_id).await?.ok_or_else(|| crate::engine::EngineError("Account not found".into()))?;
-        s.mail.note_user_activity(&account_id);
-        let uid = m.get("uid").and_then(Value::as_i64).unwrap_or(0);
-        let folder = st("folder").unwrap_or("INBOX").to_owned();
-        match tokio::time::timeout(BODY_FETCH_TIMEOUT, s.mail.fetch_message_body(&account, uid, &folder)).await {
-            Ok(r) => r,
-            Err(_) => Err(crate::engine::EngineError("BODY_FETCH_TIMEOUT".into())),
-        }
+    Ok(ok(out))
+}
+
+fn body_fetch_error(msg: &str) -> Response {
+    let msg = if msg.is_empty() { "Unknown error" } else { msg };
+    tracing::error!("Body fetch error: {msg}");
+    if msg.to_uppercase().contains("THROTTL") {
+        return crate::routes::util::json(
+            503,
+            json!({ "error": "The mail server is temporarily throttling access. Please wait a few minutes and try again.", "throttled": true }),
+        );
+    }
+    if msg == "BODY_FETCH_TIMEOUT" {
+        return crate::routes::util::json(
+            504,
+            json!({ "error": "This message is taking too long to load — the mail server may be temporarily unreachable. Please try again.", "timeout": true }),
+        );
+    }
+    err(500, msg)
+}
+
+/// A message's attachment list (from its cached body) when it belongs to `user`.
+async fn owned_attachments(s: &AppState, user: &str, id: &str) -> Result<Option<(Map<String, Value>, Vec<Value>)>> {
+    let Some(mut m) =
+        s.db.json_opt(
+            "SELECT m.id, m.account_id, m.folder, m.uid FROM messages m JOIN email_accounts a ON m.account_id = a.id \
+             WHERE m.id = $1 AND a.user_id = $2",
+            params![id, user],
+        )
+        .await?
+    else {
+        return Ok(None);
     };
-    match run.await {
-        Ok(b) => {
-            let safe_html = b.html.as_deref().filter(|h| !h.is_empty()).map(|h| clean(&sanitize_email(h)));
-            let safe_text = clean(b.text.as_deref().unwrap_or(""));
-            let snip = clean(&snippet_from_body(&safe_text, safe_html.as_deref().or(b.html.as_deref())));
-            let atts = Value::Array(b.attachments.iter().map(|a| a.to_json()).collect());
-            if safe_html.is_some() || b.text.as_deref().is_some_and(|t| !t.is_empty()) || !b.attachments.is_empty() {
-                s.db.exec(
-                    "UPDATE messages SET body_html = $1, body_text = $2, attachments = $3, snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END WHERE id = $4",
-                    params![&safe_html, &safe_text, atts.to_string(), &id, &snip],
-                )
-                .await?;
-            }
-            let (html, blocked) = match &safe_html {
-                Some(h) => {
-                    let (r, b) = block(h);
-                    (Some(r), b)
-                }
-                None => (None, false),
-            };
-            Ok(finish(html, json!(safe_text), atts, blocked))
-        }
+    let Some(loc) = Location::from_row(&m) else { return Ok(None) };
+    let atts = match s.mail.message_body(&loc).await {
+        Ok(b) => attachments_of(Some(&b.attachments)).as_array().cloned().unwrap_or_default(),
         Err(e) => {
-            let msg = if e.0.is_empty() { "Unknown error".to_owned() } else { e.0 };
-            tracing::error!("Body fetch error: {msg}");
-            if msg.to_uppercase().contains("THROTTL") {
-                return Ok(crate::routes::util::json(
-                    503,
-                    json!({ "error": "The mail server is temporarily throttling access. Please wait a few minutes and try again.", "throttled": true }),
-                ));
-            }
-            if msg == "BODY_FETCH_TIMEOUT" {
-                return Ok(crate::routes::util::json(
-                    504,
-                    json!({ "error": "This message is taking too long to load — the mail server may be temporarily unreachable. Please try again.", "timeout": true }),
-                ));
-            }
-            Ok(err(500, &msg))
+            tracing::warn!("Attachment list fetch failed: {e}");
+            vec![]
         }
-    }
+    };
+    s.mail.hydrate_rows(std::slice::from_mut(&mut m)).await;
+    Ok(Some((m, atts)))
 }
 
 pub async fn headers(State(s): State<AppState>, a: Auth, Path(id): Path<String>) -> Result<Response> {
@@ -616,7 +584,7 @@ pub async fn headers(State(s): State<AppState>, a: Auth, Path(id): Path<String>)
         let account_id = m.get("account_id").and_then(Value::as_str).unwrap_or("").to_owned();
         let mut headers = String::new();
         if let Some(account) = account_of(&s, &account_id).await? {
-            let uid = m.get("uid").and_then(Value::as_i64).unwrap_or(0);
+            let uid = inboxora_core::json::int(m.get("uid")).unwrap_or(0);
             let folder = m.get("folder").and_then(Value::as_str).unwrap_or("INBOX");
             match s.mail.fetch_headers(&account, uid, folder).await {
                 Ok(h) => headers = h,
@@ -624,19 +592,17 @@ pub async fn headers(State(s): State<AppState>, a: Auth, Path(id): Path<String>)
             }
         }
         if headers.trim().is_empty() {
-            headers = inboxora_mail::headers::build_headers_from_message(&Value::Object(m.clone()));
+            let mut row = m.clone();
+            s.mail.hydrate_rows(std::slice::from_mut(&mut row)).await;
+            headers = inboxora_mail::headers::build_headers_from_message(&Value::Object(row));
         }
-        let mut subject = m.get("subject").cloned().unwrap_or(Value::Null);
+        let mut subject = Value::Null;
         if !headers.trim().is_empty() {
             let parsed = inboxora_mail::headers::Headers::parse(&headers);
             let imap_subject =
                 inboxora_mail::headers::decode_mime_words(parsed.get("subject").unwrap_or("")).trim().to_owned();
-            if !imap_subject.is_empty() && imap_subject != "(no subject)" {
-                let current = m.get("subject").and_then(Value::as_str).unwrap_or("");
+            if !imap_subject.is_empty() {
                 subject = json!(imap_subject);
-                if current.is_empty() || current == "(no subject)" {
-                    s.db.exec("UPDATE messages SET subject = $1 WHERE id = $2", params![&imap_subject, &id]).await?;
-                }
             }
         }
         Ok::<_, crate::engine::EngineError>(ok(json!({ "headers": headers, "subject": subject })))
@@ -659,17 +625,9 @@ pub async fn attachments_zip(State(s): State<AppState>, a: Auth, Path(id): Path<
     if !is_uuid(&id) {
         return Ok(err(400, "Invalid message id"));
     }
-    let Some(m) = s
-        .db
-        .json_opt("SELECT m.*, a.user_id FROM messages m JOIN email_accounts a ON m.account_id = a.id WHERE m.id = $1 AND a.user_id = $2", params![
-            &id,
-            &a.user_id
-        ])
-        .await?
-    else {
+    let Some((m, atts)) = owned_attachments(&s, &a.user_id, &id).await? else {
         return Ok(err(404, "Message not found"));
     };
-    let atts: Vec<Value> = attachments_of(m.get("attachments")).as_array().cloned().unwrap_or_default();
     if atts.is_empty() {
         return Ok(err(404, "No attachments"));
     }
@@ -695,7 +653,7 @@ pub async fn attachments_zip(State(s): State<AppState>, a: Auth, Path(id): Path<
                 )
             })
             .collect();
-        let uid = m.get("uid").and_then(Value::as_i64).unwrap_or(0);
+        let uid = inboxora_core::json::int(m.get("uid")).unwrap_or(0);
         let folder = m.get("folder").and_then(Value::as_str).unwrap_or("INBOX").to_owned();
         let buffers = s.mail.fetch_multiple_attachments(&account, uid, &folder, &parts).await?;
         if buffers.is_empty() {
@@ -768,22 +726,12 @@ pub async fn attachment(
     let Some(part_num) = crate::routes::dav::decode_uri_component(&part) else {
         return Ok(err(400, "Invalid attachment part identifier"));
     };
-    let Some(m) = s
-        .db
-        .json_opt("SELECT m.*, a.user_id FROM messages m JOIN email_accounts a ON m.account_id = a.id WHERE m.id = $1 AND a.user_id = $2", params![
-            &id,
-            &a.user_id
-        ])
-        .await?
-    else {
+    let Some((m, atts)) = owned_attachments(&s, &a.user_id, &id).await? else {
         return Ok(err(404, "Message not found"));
     };
-    let atts = attachments_of(m.get("attachments"));
     let Some(att) = atts
-        .as_array()
-        .and_then(|v| {
-            v.iter().find(|a| inboxora_mail::text::js_string(a.get("part").unwrap_or(&Value::Null)) == part_num)
-        })
+        .iter()
+        .find(|a| inboxora_mail::text::js_string(a.get("part").unwrap_or(&Value::Null)) == part_num)
         .cloned()
     else {
         return Ok(err(404, "Attachment not found"));
@@ -794,7 +742,7 @@ pub async fn attachment(
     let run = async {
         let account_id = m.get("account_id").and_then(Value::as_str).unwrap_or("").to_owned();
         let Some(account) = account_of(&s, &account_id).await? else { return Ok(err(404, "Account not found")) };
-        let uid = m.get("uid").and_then(Value::as_i64).unwrap_or(0);
+        let uid = inboxora_core::json::int(m.get("uid")).unwrap_or(0);
         let folder = m.get("folder").and_then(Value::as_str).unwrap_or("INBOX").to_owned();
         let Some(buf) = s.mail.fetch_attachment(&account, uid, &folder, &part_num).await? else {
             return Ok(err(404, "Could not fetch attachment"));
@@ -851,7 +799,7 @@ async fn toggle(s: &AppState, user: &str, id: &str, value: &Value, flag: &str) -
         crate::services::mail_utils::adjust_folder_counts(&s.db, &account_id, folder, 0, if new { -1 } else { 1 });
     }
     if let Some(account) = account_of(s, &account_id).await? {
-        let uid = m.get("uid").and_then(Value::as_i64).unwrap_or(0);
+        let uid = inboxora_core::json::int(m.get("uid")).unwrap_or(0);
         let folder = m.get("folder").and_then(Value::as_str).unwrap_or("INBOX");
         match s.mail.set_flag(&account, uid, folder, flag, new).await {
             Ok(()) => s.mail.resolve_flag_push(&account_id, id, flag),

@@ -42,6 +42,23 @@ working. A reverse proxy that pointed at the frontend container's port 80 now po
 Inboxora container's port 3000; a Caddyfile that proxied `frontend:443` proxies `backend:3000`.
 `ghcr.io/dragonk/inboxora-frontend` is no longer published.
 
+### Storage: smaller database, faster backups
+
+5.0.0 stops copying mail into PostgreSQL. The database keeps a header index (where each message
+lives, its date, flags and threading links); subjects, addresses, snippets and bodies are read
+from your IMAP server and cached in Redis for ten minutes (`MAIL_CACHE_TTL_SECONDS`). Search runs
+on the mail server. Calendar subscriptions, read-only CalDAV calendars and CardDAV address books
+are likewise read live; two-way CalDAV calendars and everything created in Inboxora stay stored.
+
+The first start after the upgrade drops the old copies and then rewrites the affected tables
+once (`VACUUM FULL`) so the space actually returns to the disk. Expect a longer first start on a
+large installation, and have free disk space about the size of the `messages` table; the log
+reports each table and the database size before and after. If the rewrite fails (for example
+for lack of space) it is retried on the next start.
+
+Because mail is read live, a cold mailbox page needs one IMAP round trip, and search speed
+depends on your provider's server-side search.
+
 ## What is gone
 
 - **Plugins.** The GTD plugin (labels, sections, the pet) and the plugin hooks are not part of

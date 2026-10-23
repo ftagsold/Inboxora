@@ -322,22 +322,23 @@ pub async fn run_rules(
         r.get("conditions").and_then(Value::as_array).is_some_and(|c| c.iter().any(|c| s(c, "field") == "body"))
     });
     if needs_body {
-        let ids: Vec<String> = messages.iter().map(|m| m.id.to_string()).collect();
-        match engine.db.rows("SELECT id, body_text FROM messages WHERE id = ANY($1::uuid[])", params![ids]).await {
-            Ok(rows) => {
-                let by: HashMap<Uuid, Option<String>> =
-                    rows.iter().map(|r| (r.get("id"), r.get("body_text"))).collect();
-                for m in messages.iter_mut() {
-                    m.body_text = Some(by.get(&m.id).cloned().flatten().unwrap_or_default());
-                    if m.body_text.as_deref() == Some("") {
-                        tracing::warn!(
-                            "inboxRules: body_text not yet available for message {} — body rules will not match (account uses lazy body fetch)",
-                            m.id
-                        );
-                    }
+        for m in messages.iter_mut() {
+            let loc = crate::engine::cache::Location {
+                id: m.id,
+                account_id: account.id().to_owned(),
+                folder: m.folder.clone(),
+                uid: m.uid,
+            };
+            m.body_text = Some(match engine.message_text(&loc).await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!(
+                        "inboxRules: body unavailable for message {} — body rules will not match: {e}",
+                        m.id
+                    );
+                    String::new()
                 }
-            }
-            Err(e) => tracing::error!("inboxRules: failed to fetch body_text for rules: {e}"),
+            });
         }
     }
     let last_forward = rules.iter().rposition(|r| {
@@ -693,28 +694,23 @@ pub async fn forward_rule_message(
     let reservation: Uuid = reserved.get("id");
     let mut delivered = false;
     let r: EResult<&'static str> = async {
-        let row = db
+        let mut row = db
             .json_opt(
-                "SELECT id, account_id, uid, folder, subject, from_name, from_email, to_addresses, cc_addresses, date, body_text, body_html, attachments \
-                 FROM messages WHERE id = $1 AND account_id = $2",
+                "SELECT id, account_id, uid, folder, date FROM messages WHERE id = $1 AND account_id = $2",
                 params![message_id, account.id()],
             )
             .await?
             .ok_or_else(|| EngineError("Forward source message not found".into()))?;
-        let uid = row.get("uid").and_then(Value::as_i64).unwrap_or(0);
+        engine.hydrate_rows(std::slice::from_mut(&mut row)).await;
+        let uid = inboxora_core::json::int(row.get("uid")).unwrap_or(0);
         let folder = row.get("folder").and_then(Value::as_str).unwrap_or("").to_owned();
-        let mut text = row.get("body_text").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-        let mut html = row.get("body_html").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-        let mut fetched_parts: Vec<Value> = Vec::new();
-        if text.is_none() && html.is_none() {
-            let body = engine.fetch_message_body(account, uid, &folder).await?;
-            text = body.text;
-            html = body.html;
-            fetched_parts = body.attachments.iter().map(|a| a.to_json()).collect();
-        }
+        let body = engine.fetch_message_body(account, uid, &folder).await?;
+        let text = body.text;
+        let html = body.html;
+        let fetched_parts: Vec<Value> = body.attachments.iter().map(|a| a.to_json()).collect();
         let mut stored: Vec<Value> = Vec::new();
         let mut seen = HashSet::new();
-        for c in parse_list(row.get("attachments")).into_iter().chain(fetched_parts) {
+        for c in fetched_parts {
             let Some(part) = c.get("part").and_then(Value::as_str).map(str::to_owned) else { continue };
             if seen.insert(part) {
                 stored.push(c);
@@ -726,15 +722,31 @@ pub async fn forward_rule_message(
         }
         let mut parts: Vec<Part> = Vec::new();
         if !stored.is_empty() {
-            let req: Vec<(String, Option<String>)> =
-                stored.iter().map(|a| (s(a, "part").to_owned(), a.get("encoding").and_then(Value::as_str).map(str::to_owned))).collect();
+            let req: Vec<(String, Option<String>)> = stored
+                .iter()
+                .map(|a| (s(a, "part").to_owned(), a.get("encoding").and_then(Value::as_str).map(str::to_owned)))
+                .collect();
             let buffers = engine.fetch_multiple_attachments(account, uid, &folder, &req).await?;
             for a in &stored {
-                let content = buffers.get(s(a, "part")).cloned().ok_or_else(|| EngineError("Forward attachment unavailable".into()))?;
+                let content = buffers
+                    .get(s(a, "part"))
+                    .cloned()
+                    .ok_or_else(|| EngineError("Forward attachment unavailable".into()))?;
                 parts.push(Part {
-                    filename: Some(a.get("filename").and_then(Value::as_str).filter(|f| !f.is_empty()).unwrap_or("attachment").to_owned()),
+                    filename: Some(
+                        a.get("filename")
+                            .and_then(Value::as_str)
+                            .filter(|f| !f.is_empty())
+                            .unwrap_or("attachment")
+                            .to_owned(),
+                    ),
                     content,
-                    content_type: a.get("type").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("application/octet-stream").to_owned(),
+                    content_type: a
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .filter(|t| !t.is_empty())
+                        .unwrap_or("application/octet-stream")
+                        .to_owned(),
                     cid: None,
                 });
             }
@@ -749,7 +761,12 @@ pub async fn forward_rule_message(
         };
         let mut all: Vec<Part> = inline
             .into_iter()
-            .map(|i| Part { filename: Some(i.filename), content: i.content, content_type: i.content_type, cid: Some(i.cid) })
+            .map(|i| Part {
+                filename: Some(i.filename),
+                content: i.content,
+                content_type: i.content_type,
+                cid: Some(i.cid),
+            })
             .collect();
         all.extend(parts);
         if all.iter().map(|p| p.content.len()).sum::<usize>() > MAX_ATTACHMENT_BYTES {
@@ -763,7 +780,8 @@ pub async fn forward_rule_message(
             .await
             .map_err(|_| EngineError("Forward delivery failed".into()))?;
         delivered = true;
-        db.exec("UPDATE inbox_rule_forwards SET status = 'sent', sent_at = NOW() WHERE id = $1", params![reservation]).await?;
+        db.exec("UPDATE inbox_rule_forwards SET status = 'sent', sent_at = NOW() WHERE id = $1", params![reservation])
+            .await?;
         Ok("sent")
     }
     .await;

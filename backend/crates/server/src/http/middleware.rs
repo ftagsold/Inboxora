@@ -75,6 +75,21 @@ pub async fn timing(req: Request, next: Next) -> Response {
                 .extensions()
                 .get::<MatchedPath>()
                 .map_or_else(|| "unmatched".to_owned(), |p| inboxora_core::metrics::express_pattern(p.as_str()));
+            // Extension methods are client-chosen; keep the metrics key space bounded.
+            let method = if matches!(
+                method,
+                Method::GET
+                    | Method::POST
+                    | Method::PUT
+                    | Method::PATCH
+                    | Method::DELETE
+                    | Method::HEAD
+                    | Method::OPTIONS
+            ) {
+                method.as_str()
+            } else {
+                "OTHER"
+            };
             format!("{method} {pattern}")
         }
     };

@@ -9,6 +9,6 @@ pub mod utf7;
 
 pub use client::{
     Auth, Client, CmdStatus, Config, CopyResult, CreateResult, Error, Event, FetchQuery, ListEntry, Mailbox, Namespace,
-    Result, Status_ as MailboxStatus, uid_set,
+    Result, Status_ as MailboxStatus, quote, uid_set,
 };
 pub use types::{Address, Envelope, Message, parse_internal_date, parse_mail_date, structure_json};

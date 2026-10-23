@@ -502,14 +502,20 @@ async fn fetch_forwarded(
             ids.push(m.clone());
         }
     }
-    let rows = s
+    let mut rows = s
         .db
         .json_rows(
-            "SELECT m.id, m.uid, m.folder, m.attachments, m.account_id FROM messages m JOIN email_accounts a ON m.account_id = a.id WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2",
+            "SELECT m.id, m.uid, m.folder, m.account_id FROM messages m JOIN email_accounts a ON m.account_id = a.id WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2",
             params![ids, user],
         )
         .await
         .map_err(internal)?;
+    for row in rows.iter_mut() {
+        let Some(m) = row.as_object_mut() else { continue };
+        let Some(loc) = crate::engine::cache::Location::from_row(m) else { continue };
+        let body = s.mail.message_body(&loc).await.map_err(|e| (502, e.0))?;
+        m.insert("attachments".into(), body.attachments);
+    }
     let by_id = |id: &str| rows.iter().find(|r| r.get("id").and_then(Value::as_str) == Some(id));
     let mut declared = 0u64;
     let mut plan: Vec<(Value, Value)> = Vec::new();
@@ -549,7 +555,7 @@ async fn fetch_forwarded(
             let engine = s.mail.clone();
             async move {
                 let account = account.ok_or((404, "Account not found".to_owned()))?;
-                let uid = msg.get("uid").and_then(Value::as_i64).unwrap_or(0);
+                let uid = inboxora_core::json::int(msg.get("uid")).unwrap_or(0);
                 let folder = msg.get("folder").and_then(Value::as_str).unwrap_or("");
                 let part = att.get("part").and_then(Value::as_str).unwrap_or("");
                 let filename =

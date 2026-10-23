@@ -9,6 +9,13 @@
 # To pin a specific version instead of latest, set INBOXORA_VERSION in your .env:
 #   INBOXORA_VERSION=4.0.1
 
+# Rotate container logs (Docker keeps json-file logs forever by default).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: "${LOG_MAX_FILES:-3}"
+
 services:
 
   # ── Inboxora (API + web app) ─────────────────────────────────────────────────
@@ -19,6 +26,7 @@ services:
   backend:
     image: ghcr.io/dragonk/inboxora-backend:${INBOXORA_VERSION:-latest}
     container_name: inboxora-backend
+    logging: *logging
     restart: unless-stopped
     healthcheck:
       # Distroless image: the server binary probes /api/health itself.
@@ -152,6 +160,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: inboxora-postgres
+    logging: *logging
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-inboxora}
@@ -172,8 +181,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: inboxora-redis
+    logging: *logging
     restart: unless-stopped
-    command: redis-server --save 60 1 --loglevel warning
+    # Mail content is cached here for minutes (MAIL_CACHE_TTL_SECONDS); the memory cap evicts the
+    # shortest-lived keys first, so sessions outlive cached mail.
+    command: redis-server --save 60 1 --loglevel warning --maxmemory ${REDIS_MAXMEMORY:-256mb} --maxmemory-policy volatile-ttl
     volumes:
       - redis_data:/data
     healthcheck:
@@ -206,6 +218,7 @@ services:
   ntfy:
     image: binwiederhier/ntfy:v2.28.0
     container_name: inboxora-ntfy
+    logging: *logging
     restart: unless-stopped
     command: serve
     environment:
@@ -238,6 +251,7 @@ services:
     profiles: ["https"]
     image: caddy:2-alpine
     container_name: inboxora-caddy
+    logging: *logging
     restart: unless-stopped
     ports:
       - "80:80"

@@ -13,7 +13,6 @@ pub struct ProviderProfile {
     pub batches_per_conn: usize,
     pub fetch_body: bool,
     pub pushes_flags: bool,
-    pub snippet_index: bool,
     pub speculative_fetch: bool,
     pub skip_folder_patterns: &'static [&'static str],
     pub skip_folder_names: &'static [&'static str],
@@ -39,7 +38,6 @@ const BASE: ProviderProfile = ProviderProfile {
     batches_per_conn: 15,
     fetch_body: false,
     pushes_flags: true,
-    snippet_index: true,
     speculative_fetch: true,
     skip_folder_patterns: &[],
     skip_folder_names: &[],
@@ -64,7 +62,6 @@ pub static GOOGLE: ProviderProfile = ProviderProfile {
     error_delay_ms: 30000,
     batches_per_conn: 10,
     pushes_flags: false,
-    snippet_index: false,
     speculative_fetch: false,
     skip_folder_patterns: &["all mail", "[gmail]/starred", "[gmail]/important"],
     skip_folder_names: &["[gmail]"],
@@ -98,7 +95,6 @@ pub static PURELYMAIL: ProviderProfile = ProviderProfile {
     connect_stagger_ms: Some(1200),
     idle_keepalive_ms: Some(4 * 60 * 1000),
     pushes_flags: false,
-    snippet_index: false,
     speculative_fetch: false,
     prefer_fresh_body_fetch: true,
     fresh_inbox_sync: false,
@@ -274,11 +270,8 @@ pub fn skips_folder(profile: &ProviderProfile, path: &str) -> bool {
 pub const BODY_PREFETCH_PARTS: [&str; 8] = ["1", "1.1", "1.2", "2", "2.1", "2.2", "1.1.1", "1.2.1"];
 pub const FLAG_SCAN_TIMEOUT_MS: u64 = 20_000;
 pub const DELTA_SCAN_UID_WINDOW: u64 = 5000;
-pub const QUIET_WINDOW_MS: u64 = 8000;
 pub const DEFAULT_SYNC_INTERVAL_MS: u64 = 15_000;
 pub const DEFAULT_FOLDER_SYNC_INTERVAL_MS: u64 = 15 * 60_000;
-pub const SNIPPET_BACKOFF_BASE_MS: u64 = 10 * 60_000;
-pub const SNIPPET_BACKOFF_MAX_MS: u64 = 2 * 60 * 60_000;
 pub const STALE_SYNC_WARN_MS: u64 = 5 * 60_000;
 pub const STALENESS_CHECK_MS: u64 = 3 * 60_000;
 pub const SYNC_HUNG_MS: u64 = 30_000;
