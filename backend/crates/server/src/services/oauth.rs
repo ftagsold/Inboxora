@@ -146,7 +146,7 @@ pub async fn process_microsoft_tokens(
                 Some(row) => {
                     tx.exec(
                         "UPDATE email_accounts SET oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3, name = $4, \
-                         oauth_public_client = $5, oauth_provider = 'microsoft', sync_error = NULL WHERE id = $6",
+                         oauth_public_client = $5, oauth_provider = 'microsoft', sync_error = NULL, reauth_required = false WHERE id = $6",
                         params![access_enc, refresh_enc, expiry, display.clone().unwrap_or_else(|| email.clone()), public_client, row.get::<_, uuid::Uuid>("id")],
                     )
                     .await?;
@@ -169,12 +169,45 @@ pub async fn process_microsoft_tokens(
     Ok(email)
 }
 
-type Refresh = Shared<BoxFuture<'static, Result<Map<String, Value>, String>>>;
+/// A failed access-token refresh. `reauth` marks failures only a new sign-in can fix: the
+/// refresh token is missing, or the identity provider rejected it (`invalid_grant`). Anything
+/// else (provider unreachable, 5xx) is temporary and retried on the next connect.
+#[derive(Debug, Clone)]
+pub struct RefreshError {
+    pub message: String,
+    pub reauth: bool,
+}
+
+impl RefreshError {
+    pub fn reauth(message: impl Into<String>) -> Self {
+        Self { message: message.into(), reauth: true }
+    }
+
+    /// Classify a token endpoint's error answer: `invalid_grant` means the refresh token is
+    /// expired or revoked.
+    pub fn from_token_error(error: Option<&str>, message: impl Into<String>) -> Self {
+        Self { message: message.into(), reauth: error == Some("invalid_grant") }
+    }
+}
+
+impl From<String> for RefreshError {
+    fn from(message: String) -> Self {
+        Self { message, reauth: false }
+    }
+}
+
+impl std::fmt::Display for RefreshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+type Refresh = Shared<BoxFuture<'static, Result<Map<String, Value>, RefreshError>>>;
 static IN_FLIGHT: LazyLock<Mutex<HashMap<String, Refresh>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// `refreshMicrosoftToken(account)`: one refresh per account at a time; concurrent callers share
 /// it. Returns the account row with the plaintext access token and new expiry.
-pub async fn refresh_microsoft_token(db: &Db, account: Map<String, Value>) -> Result<Map<String, Value>, String> {
+pub async fn refresh_microsoft_token(db: &Db, account: Map<String, Value>) -> Result<Map<String, Value>, RefreshError> {
     let id = account.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let fut = {
         let mut m = IN_FLIGHT.lock();
@@ -196,12 +229,14 @@ pub async fn refresh_microsoft_token(db: &Db, account: Map<String, Value>) -> Re
     fut.await
 }
 
-async fn do_refresh(db: &Db, mut account: Map<String, Value>) -> Result<Map<String, Value>, String> {
+async fn do_refresh(db: &Db, mut account: Map<String, Value>) -> Result<Map<String, Value>, RefreshError> {
     let cfg = ms_config();
     let stored =
         account.get("oauth_refresh_token").and_then(Value::as_str).and_then(crypto::decrypt).filter(|t| !t.is_empty());
     let Some(refresh) = stored else {
-        return Err("OAuth refresh token is missing or corrupted — please reconnect your account".into());
+        return Err(RefreshError::reauth(
+            "OAuth refresh token is missing or corrupted — please reconnect your account",
+        ));
     };
     let url = format!("{}/{}/oauth2/v2.0/token", authority(), cfg.tenant_id);
     let post = async |with_secret: bool| {
@@ -228,10 +263,15 @@ async fn do_refresh(db: &Db, mut account: Map<String, Value>) -> Result<Map<Stri
         became_public = ok(status);
     }
     if !ok(status) {
-        return Err(text(&tokens, "error_description").unwrap_or("Token refresh failed").to_owned());
+        return Err(RefreshError::from_token_error(
+            text(&tokens, "error"),
+            text(&tokens, "error_description").unwrap_or("Token refresh failed"),
+        ));
     }
     let Some(access) = text(&tokens, "access_token").map(str::to_owned) else {
-        return Err("Token refresh response is missing an access token — please reconnect your account".into());
+        return Err(RefreshError::reauth(
+            "Token refresh response is missing an access token — please reconnect your account",
+        ));
     };
     let expiry = expiry_of(&tokens);
     let public = was_public || became_public;

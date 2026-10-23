@@ -29,7 +29,7 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/reindex", post(reindex))
 }
 
-const SAFE_FIELDS: [&str; 24] = [
+const SAFE_FIELDS: [&str; 26] = [
     "id",
     "name",
     "sender_name",
@@ -49,6 +49,8 @@ const SAFE_FIELDS: [&str; 24] = [
     "include_in_unified_inbox",
     "last_sync",
     "sync_error",
+    "reauth_required",
+    "oidc_provider_id",
     "sort_order",
     "folder_mappings",
     "signature",
@@ -154,7 +156,7 @@ async fn list(State(s): State<AppState>, a: Auth) -> Result<Response> {
         .json_rows(
             "SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify, \
                     smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled, include_in_unified_inbox, \
-                    last_sync, sync_error, sort_order, folder_mappings, signature, created_at, categorization_enabled \
+                    last_sync, sync_error, reauth_required, oidc_provider_id, sort_order, folder_mappings, signature, created_at, categorization_enabled \
              FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at",
             params![&a.user_id],
         )

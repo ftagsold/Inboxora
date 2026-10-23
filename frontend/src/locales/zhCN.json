@@ -2015,5 +2015,11 @@
   "backendReconnecting": {
     "title": "正在重新连接…",
     "body": "Inboxora 暂时无法连接到服务器。服务器恢复后将自动重新连接。"
+  },
+  "reauth": {
+    "title": "重新登录",
+    "body": "{{email}} 的登录已过期或已被撤销。请重新登录以继续接收邮件。",
+    "later": "稍后",
+    "signIn": "使用 {{provider}} 登录"
   }
 }

@@ -2015,5 +2015,11 @@
   "backendReconnecting": {
     "title": "Obnovování připojení…",
     "body": "Inboxora se teď nemůže spojit se serverem. Připojení se obnoví automaticky, jakmile bude server znovu dostupný."
+  },
+  "reauth": {
+    "title": "Přihlaste se znovu",
+    "body": "Přihlášení pro {{email}} vypršelo nebo bylo odvoláno. Přihlaste se znovu, abyste dál dostávali poštu.",
+    "later": "Později",
+    "signIn": "Přihlásit přes {{provider}}"
   }
 }

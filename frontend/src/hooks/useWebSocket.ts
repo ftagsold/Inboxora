@@ -65,6 +65,7 @@ type WsIncomingMessage =
   | { type: 'account_connected'; accountId: string }
   | { type: 'folders_synced'; accountId: string }
   | { type: 'account_error'; accountId: string; error?: string }
+  | { type: 'account_reauth_required'; accountId: string; oidcProviderId?: string | null }
   | { type: 'backfill_all_start'; accountId: string }
   | { type: 'backfill_progress'; accountId: string; synced: number; total: number | null }
   | { type: 'backfill_complete'; accountId: string }
@@ -109,7 +110,7 @@ function isWsMessageFlagChange(value: unknown): value is WsMessageFlagChange {
 
 function isCoreMessageType(value: string): value is CoreMessageType {
   return value === 'new_messages' || value === 'exists_hint' || value === 'account_connected'
-    || value === 'folders_synced' || value === 'account_error' || value === 'backfill_all_start'
+    || value === 'folders_synced' || value === 'account_error' || value === 'account_reauth_required' || value === 'backfill_all_start'
     || value === 'backfill_progress' || value === 'backfill_complete' || value === 'backfill_all_complete'
     || value === 'folder_updated' || value === 'sync_complete' || value === 'folder_emptied'
     || value === 'snooze_wakeup' || value === 'flags_synced' || value === 'message_flags';
@@ -127,6 +128,7 @@ function isWsIncomingMessage(value: unknown): value is WsIncomingMessage {
     case 'account_connected': case 'folders_synced': case 'backfill_all_start': case 'backfill_complete':
     case 'backfill_all_complete': case 'snooze_wakeup': case 'flags_synced': return typeof value.accountId === 'string';
     case 'account_error': return typeof value.accountId === 'string' && isOptionalString(value.error);
+    case 'account_reauth_required': return typeof value.accountId === 'string' && (value.oidcProviderId === null || isOptionalString(value.oidcProviderId));
     case 'backfill_progress': return typeof value.accountId === 'string' && typeof value.synced === 'number' && (typeof value.total === 'number' || value.total === null);
     case 'folder_updated': return typeof value.accountId === 'string' && typeof value.folder === 'string';
     case 'sync_complete': return typeof value.accountId === 'string' || value.accountId === null;
@@ -257,7 +259,7 @@ export function useWebSocket() {
       }
 
       case 'account_connected': {
-        updateAccount(data.accountId, { sync_error: null });
+        updateAccount(data.accountId, { sync_error: null, reauth_required: false });
         break;
       }
 
@@ -272,6 +274,12 @@ export function useWebSocket() {
 
       case 'account_error': {
         updateAccount(data.accountId, { sync_error: data.error });
+        break;
+      }
+
+      case 'account_reauth_required': {
+        // ReauthPrompt watches this flag and sends the user through sign-in again.
+        updateAccount(data.accountId, { reauth_required: true });
         break;
       }
 

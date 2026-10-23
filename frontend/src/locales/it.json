@@ -2015,5 +2015,11 @@
   "backendReconnecting": {
     "title": "Riconnessione…",
     "body": "Inboxora non riesce a raggiungere il server in questo momento. Si riconnetterà automaticamente appena sarà di nuovo disponibile."
+  },
+  "reauth": {
+    "title": "Accedi di nuovo",
+    "body": "L'accesso per {{email}} è scaduto o è stato revocato. Accedi di nuovo per continuare a ricevere la posta.",
+    "later": "Più tardi",
+    "signIn": "Accedi con {{provider}}"
   }
 }

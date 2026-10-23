@@ -2015,5 +2015,11 @@
   "backendReconnecting": {
     "title": "Reconectando…",
     "body": "Inboxora no puede conectar con su servidor en este momento. Se reconectará automáticamente en cuanto vuelva a estar disponible."
+  },
+  "reauth": {
+    "title": "Inicia sesión de nuevo",
+    "body": "Tu sesión para {{email}} ha caducado o se ha revocado. Inicia sesión de nuevo para seguir recibiendo correo.",
+    "later": "Más tarde",
+    "signIn": "Iniciar sesión con {{provider}}"
   }
 }

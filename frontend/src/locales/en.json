@@ -2015,5 +2015,11 @@
   "backendReconnecting": {
     "title": "Reconnecting…",
     "body": "Inboxora can't reach its server right now. It reconnects automatically as soon as the server is back."
+  },
+  "reauth": {
+    "title": "Sign in again",
+    "body": "Your sign-in for {{email}} has expired or was revoked. Sign in again to keep receiving mail.",
+    "later": "Later",
+    "signIn": "Sign in with {{provider}}"
   }
 }

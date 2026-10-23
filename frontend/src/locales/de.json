@@ -2015,5 +2015,11 @@
   "backendReconnecting": {
     "title": "Verbindung wird wiederhergestellt…",
     "body": "Inboxora erreicht den Server gerade nicht. Die Verbindung wird automatisch wiederhergestellt, sobald er wieder verfügbar ist."
+  },
+  "reauth": {
+    "title": "Erneut anmelden",
+    "body": "Deine Anmeldung für {{email}} ist abgelaufen oder wurde widerrufen. Melde dich erneut an, um weiter E-Mails zu empfangen.",
+    "later": "Später",
+    "signIn": "Mit {{provider}} anmelden"
   }
 }

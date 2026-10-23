@@ -157,11 +157,17 @@ pub fn connect_cooldown_ms(failures: u32) -> u64 {
 pub fn is_connection_refusal(detail: &str) -> bool {
     static RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(
-            r"(?i)connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout",
+            r"(?i)connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout|\[unavailable\]",
         )
         .expect("refusal regex")
     });
     RE.is_match(detail)
+}
+
+/// The server rejected the sign-in itself, not just failed to check it: `[UNAVAILABLE]` (the
+/// server's auth backend is down) and timeouts are temporary.
+pub fn is_auth_rejection(detail: &str) -> bool {
+    detail.starts_with("Authentication failed") && !detail.to_uppercase().contains("[UNAVAILABLE]")
 }
 
 /// Retry IPv4-only only for a timeout on a dual-stack host when the provider did not refuse.
@@ -322,15 +328,26 @@ mod tests {
             "rate limit exceeded",
             "ratelimited",
             "IMAP connect timeout (30000ms)",
+            "Authentication failed [UNAVAILABLE]",
         ] {
             assert!(is_connection_refusal(s), "{s}");
         }
         assert!(!is_connection_refusal("Socket timeout"));
         assert!(!is_connection_refusal("Authentication failed"));
+        assert!(!is_connection_refusal("Authentication failed [AUTHENTICATIONFAILED]"));
         assert_eq!(connect_cooldown_ms(0), 30_000);
         assert_eq!(connect_cooldown_ms(2), 60_000);
         assert_eq!(connect_cooldown_ms(6), 900_000);
         assert_eq!(connect_cooldown_ms(60), 900_000);
+    }
+
+    #[test]
+    fn auth_rejection_vs_temporary_auth_failure() {
+        assert!(is_auth_rejection("Authentication failed"));
+        assert!(is_auth_rejection("Authentication failed [AUTHENTICATIONFAILED]"));
+        assert!(!is_auth_rejection("Authentication failed [UNAVAILABLE]"));
+        assert!(!is_auth_rejection("IMAP connect timeout (30000ms)"));
+        assert!(!is_auth_rejection("Connection closed"));
     }
 
     #[test]

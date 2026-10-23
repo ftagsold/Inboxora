@@ -15,6 +15,7 @@ use tokio::sync::oneshot;
 
 use super::policy::{self, ProviderProfile};
 use crate::services::dav_client::connection_policy;
+use crate::services::oauth::RefreshError;
 
 /// An `email_accounts` row (node-pg JSON), as the engine passes it around.
 #[derive(Debug, Clone)]
@@ -72,18 +73,27 @@ pub async fn load_account(db: &Db, id: &str) -> inboxora_core::Result<Option<Acc
     Ok(db.json_opt("SELECT * FROM email_accounts WHERE id = $1", params![id]).await?.map(Account::from_map))
 }
 
-/// `ensureFreshToken`: refresh a Microsoft/OIDC token expiring within 5 minutes.
-pub async fn ensure_fresh_token(db: &Db, account: Account) -> Account {
-    let provider = account.str("oauth_provider").map(str::to_owned);
-    if !matches!(provider.as_deref(), Some("microsoft" | "oidc")) {
-        return account;
+/// Whether the account signs in with a refreshable Microsoft/OIDC access token.
+pub fn uses_token_refresh(account: &Account) -> bool {
+    matches!(account.str("oauth_provider"), Some("microsoft" | "oidc"))
+}
+
+/// `ensureFreshToken`: refresh a Microsoft/OIDC token expiring within 5 minutes, or right away
+/// when `force` (the mail server just rejected the current one). A temporary refresh failure
+/// keeps the current token; only a failure that needs a new sign-in is returned.
+pub async fn ensure_fresh_token(db: &Db, account: Account, force: bool) -> Result<Account, RefreshError> {
+    if !uses_token_refresh(&account) {
+        return Ok(account);
     }
-    let Some(expiry) = account.str("oauth_token_expiry").and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-    else {
-        return account;
-    };
-    if expiry.with_timezone(&chrono::Utc) - chrono::Utc::now() >= chrono::Duration::minutes(5) {
-        return account;
+    let provider = account.str("oauth_provider").map(str::to_owned);
+    if !force {
+        let Some(expiry) = account.str("oauth_token_expiry").and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        else {
+            return Ok(account);
+        };
+        if expiry.with_timezone(&chrono::Utc) - chrono::Utc::now() >= chrono::Duration::minutes(5) {
+            return Ok(account);
+        }
     }
     tracing::info!("Refreshing {} token for {}", provider.as_deref().unwrap_or(""), account.log());
     let map = (*account.0).clone();
@@ -93,10 +103,14 @@ pub async fn ensure_fresh_token(db: &Db, account: Account) -> Account {
         crate::services::oidc::refresh_mail_account_token(db, map).await
     };
     match refreshed {
-        Ok(m) => Account::from_map(m),
+        Ok(m) => Ok(Account::from_map(m)),
+        Err(e) if e.reauth => {
+            tracing::error!("Token refresh rejected for {}: {e}", account.log());
+            Err(e)
+        }
         Err(e) => {
             tracing::error!("Token refresh failed for {}: {e}", account.log());
-            account
+            Ok(account)
         }
     }
 }
@@ -235,7 +249,7 @@ pub async fn connect_client(
         let _slot = SlotGuard::acquire(sem, host).await;
         match tokio::time::timeout(timeout, Client::connect(&cfg)).await {
             Ok(Ok(c)) => Ok(c),
-            Ok(Err(e)) => Err(e.to_string()),
+            Ok(Err(e)) => Err(connect_error_text(&e)),
             Err(_) => Err(format!("{tag} timeout ({}ms)", timeout.as_millis())),
         }
     };
@@ -251,6 +265,16 @@ pub async fn connect_client(
             v4.addresses.retain(IpAddr::is_ipv4);
             attempt(v4, format!("{label} IPv4-retry")).await
         }
+    }
+}
+
+/// A connect failure's text. An authentication refusal keeps the server's response code (e.g.
+/// `[UNAVAILABLE]` when the server's own auth backend is down) so a rejected sign-in can be
+/// told apart from a temporary one.
+fn connect_error_text(e: &inboxora_imap::Error) -> String {
+    match e {
+        inboxora_imap::Error::Auth { code: Some(code), .. } => format!("{e} [{code}]"),
+        _ => e.to_string(),
     }
 }
 

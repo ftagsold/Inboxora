@@ -207,7 +207,7 @@ pub async fn account_transport(
             } else {
                 crate::services::oidc::refresh_mail_account_token(db, account.clone()).await
             };
-            account = refreshed.map_err(|e| (500, e))?;
+            account = refreshed.map_err(|e| (500, e.message))?;
         }
     }
     let s = |k: &str| account.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned);

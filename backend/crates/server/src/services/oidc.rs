@@ -12,6 +12,8 @@ use inboxora_net::reqwest;
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
 
+use crate::services::oauth::RefreshError;
+
 const DISCOVERY_TTL: Duration = Duration::from_secs(5 * 60);
 
 static CACHE: LazyLock<Mutex<HashMap<String, (Value, Instant)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -570,7 +572,7 @@ pub async fn provision_mail_account(db: &Db, m: MailProvision<'_>) -> Result<(),
            smtp_host = excluded.smtp_host, smtp_port = excluded.smtp_port, smtp_tls = excluded.smtp_tls, \
            oauth_access_token = excluded.oauth_access_token, \
            oauth_refresh_token = COALESCE(excluded.oauth_refresh_token, email_accounts.oauth_refresh_token), \
-           oauth_token_expiry = excluded.oauth_token_expiry, sync_error = NULL",
+           oauth_token_expiry = excluded.oauth_token_expiry, sync_error = NULL, reauth_required = false",
         params![
             user_id,
             mail.display_name.clone().unwrap_or_else(|| provider_name.to_owned()),
@@ -600,10 +602,12 @@ pub async fn provision_mail_account(db: &Db, m: MailProvision<'_>) -> Result<(),
 pub async fn refresh_mail_account_token(
     db: &Db,
     mut account: Map<String, Value>,
-) -> Result<Map<String, Value>, String> {
+) -> Result<Map<String, Value>, RefreshError> {
     let s = |k: &str| account.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned);
     let Some(provider_id) = s("oidc_provider_id") else {
-        return Err("This mailbox is not linked to an OIDC provider — please log in again to reconnect it".into());
+        return Err(RefreshError::reauth(
+            "This mailbox is not linked to an OIDC provider — please log in again to reconnect it",
+        ));
     };
     let row = db
         .opt(
@@ -612,10 +616,12 @@ pub async fn refresh_mail_account_token(
         )
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "The OIDC provider for this mailbox no longer exists".to_owned())?;
+        .ok_or_else(|| RefreshError::reauth("The OIDC provider for this mailbox no longer exists"))?;
     let refresh =
         s("oauth_refresh_token").as_deref().and_then(crypto::decrypt).filter(|t| !t.is_empty()).ok_or_else(|| {
-            "OIDC refresh token is missing or corrupted — please log in again to reconnect this mailbox".to_owned()
+            RefreshError::reauth(
+                "OIDC refresh token is missing or corrupted — please log in again to reconnect this mailbox",
+            )
         })?;
     let secret = row
         .get::<_, Option<String>>("client_secret")
@@ -642,10 +648,10 @@ pub async fn refresh_mail_account_token(
     let tokens: Map<String, Value> = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let text = |k: &str| tokens.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
     if !(200..300).contains(&status) {
-        return Err(text("error_description")
-            .or_else(|| text("error"))
-            .unwrap_or("OIDC token refresh failed")
-            .to_owned());
+        return Err(RefreshError::from_token_error(
+            text("error"),
+            text("error_description").or_else(|| text("error")).unwrap_or("OIDC token refresh failed"),
+        ));
     }
     let secs = tokens.get("expires_in").and_then(Value::as_f64).filter(|v| v.is_finite() && *v > 0.0).unwrap_or(3600.0);
     let expiry = chrono::Utc::now() + chrono::Duration::milliseconds((secs * 1000.0) as i64);

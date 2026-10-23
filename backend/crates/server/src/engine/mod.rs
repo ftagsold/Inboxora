@@ -36,11 +36,16 @@ use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc, watch};
 use tokio::task::JoinHandle;
 
-use self::connect::{Account, KeyedSemaphore, connect_client, ensure_fresh_token, load_account, resolve_target};
+use self::connect::{
+    Account, KeyedSemaphore, connect_client, ensure_fresh_token, load_account, resolve_target, uses_token_refresh,
+};
 use self::limits::{Kind, Limiter, Permit, Prio};
 use self::policy::*;
 use self::pool::{Lease, Pool, Slot};
 use crate::services::diagnostics_ring::{record_broadcast, record_sync_signal, record_warning};
+
+/// `sync_error` of an account whose sign-in the mail server or identity provider no longer accepts.
+pub const REAUTH_REQUIRED: &str = "Sign-in expired — sign in again to reconnect this mailbox";
 
 /// An engine failure; its text is what Node's `extractImapError` would report.
 #[derive(Debug, Clone)]
@@ -181,6 +186,8 @@ pub struct State {
     pub backfill_running: HashSet<String>,
     pub backfill_all_running: HashSet<String>,
     pub connect_cooldown: HashMap<String, (u64, u32)>,
+    /// Accounts whose sign-in the server no longer accepts, until a new sign-in.
+    pub reauth_pending: HashSet<String>,
     pub sync_error_state: HashMap<String, Option<String>>,
     pub pending_flag_push: HashMap<String, HashMap<String, FlagOp>>,
     pub pending_flag_sync: HashSet<String>,
@@ -456,10 +463,7 @@ impl Engine {
         prio: Prio,
         kind: Kind,
     ) -> EResult<(Account, Client)> {
-        let fresh = ensure_fresh_token(&self.db, account.clone()).await;
-        let target = resolve_target(&self.db, &fresh).await?;
-        let client = self.connect_counted(&fresh, &target, label, prio, kind).await?;
-        Ok((fresh, client))
+        self.connect_fresh(account, label, prio, kind, false).await
     }
 
     /// `withFreshLogin`'s connection: token refresh and resolution bounded like Node's.
@@ -470,16 +474,81 @@ impl Engine {
         prio: Prio,
         kind: Kind,
     ) -> EResult<(Account, Client)> {
-        let fresh = race(15_000, &format!("{label} token refresh"), async {
-            Ok(ensure_fresh_token(&self.db, account.clone()).await)
-        })
-        .await?;
-        let target = race(15_000, &format!("{label} host resolve"), async {
-            resolve_target(&self.db, &fresh).await.map_err(EngineError)
-        })
-        .await?;
-        let client = self.connect_counted(&fresh, &target, label, prio, kind).await?;
-        Ok((fresh, client))
+        self.connect_fresh(account, label, prio, kind, true).await
+    }
+
+    /// Refresh the token if due, resolve and connect. When the server rejects a token that was
+    /// not due for refresh (revoked or invalidated early), refresh it once and retry; a refresh
+    /// the identity provider rejects, or a fresh token the server still rejects, needs a new
+    /// sign-in and marks the account for it.
+    async fn connect_fresh(
+        &self,
+        account: &Account,
+        label: &str,
+        prio: Prio,
+        kind: Kind,
+        bounded: bool,
+    ) -> EResult<(Account, Client)> {
+        let fresh = self.fresh_token(account, label, bounded, false).await?;
+        let target = if bounded {
+            race(15_000, &format!("{label} host resolve"), async {
+                resolve_target(&self.db, &fresh).await.map_err(EngineError)
+            })
+            .await?
+        } else {
+            resolve_target(&self.db, &fresh).await?
+        };
+        let err = match self.connect_counted(&fresh, &target, label, prio, kind).await {
+            Ok(client) => return Ok((fresh, client)),
+            Err(e) if uses_token_refresh(&fresh) && is_auth_rejection(&e.0) => e,
+            Err(e) => return Err(e),
+        };
+        tracing::warn!("IMAP rejected the token for {} ({err}); refreshing and retrying", fresh.log());
+        let fresh = self.fresh_token(&fresh, label, bounded, true).await?;
+        match self.connect_counted(&fresh, &target, label, prio, kind).await {
+            Ok(client) => Ok((fresh, client)),
+            Err(e) if is_auth_rejection(&e.0) => Err(self.mark_reauth(&fresh, &e.0).await),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn fresh_token(&self, account: &Account, label: &str, bounded: bool, force: bool) -> EResult<Account> {
+        let refreshed = if bounded {
+            race(15_000, &format!("{label} token refresh"), async {
+                Ok(ensure_fresh_token(&self.db, account.clone(), force).await)
+            })
+            .await?
+        } else {
+            ensure_fresh_token(&self.db, account.clone(), force).await
+        };
+        match refreshed {
+            Ok(a) => Ok(a),
+            Err(e) => Err(self.mark_reauth(account, &e.message).await),
+        }
+    }
+
+    /// Flag an account whose sign-in is no longer accepted: persist it, back off, and tell the
+    /// user's clients so they can send the user through sign-in again.
+    async fn mark_reauth(&self, account: &Account, reason: &str) -> EngineError {
+        tracing::warn!("Sign-in for {} is no longer accepted ({reason}); a new sign-in is required", account.log());
+        let first = self.st.lock().reauth_pending.insert(account.id().to_owned());
+        self.note_connection_refusal(account);
+        if let Err(e) =
+            self.db.exec("UPDATE email_accounts SET reauth_required = true WHERE id = $1", params![account.id()]).await
+        {
+            tracing::warn!("Could not flag {} for sign-in: {e}", account.log());
+        }
+        if first {
+            self.broadcast(
+                json!({
+                    "type": "account_reauth_required",
+                    "accountId": account.id(),
+                    "oidcProviderId": account.str("oidc_provider_id"),
+                }),
+                Some(account.user_id()),
+            );
+        }
+        EngineError(REAUTH_REQUIRED.into())
     }
 
     async fn pool_for(&self, account: &Account) -> Arc<Pool> {
@@ -553,7 +622,12 @@ impl Engine {
         if prev == Some(None) {
             return;
         }
-        match self.db.exec("UPDATE email_accounts SET sync_error = NULL WHERE id = $1", params![account.id()]).await {
+        self.st.lock().reauth_pending.remove(account.id());
+        match self
+            .db
+            .exec("UPDATE email_accounts SET sync_error = NULL, reauth_required = false WHERE id = $1", params![account.id()])
+            .await
+        {
             Ok(_) => {
                 self.st.lock().sync_error_state.insert(account.id().to_owned(), None);
                 if matches!(prev, Some(Some(_))) {
@@ -1033,9 +1107,7 @@ impl Engine {
                 if !row.enabled() {
                     return Ok(None);
                 }
-                let fresh = ensure_fresh_token(&self.db, row).await;
-                let target = resolve_target(&self.db, &fresh).await?;
-                Ok(Some((fresh, target)))
+                Ok(Some(row))
             })
             .await;
             let connected = match setup {
@@ -1043,10 +1115,7 @@ impl Engine {
                     self.finish_tick(&account, syncing);
                     return;
                 }
-                Ok(Some((fresh, target))) => self
-                    .connect_counted(&fresh, &target, "Reconnect", Prio::Inbox, Kind::Persistent)
-                    .await
-                    .map(|c| (fresh, c)),
+                Ok(Some(row)) => self.open_client_bounded(&row, "Reconnect", Prio::Inbox, Kind::Persistent).await,
                 Err(e) => Err(e),
             };
             match connected {
@@ -1302,6 +1371,15 @@ impl Engine {
                 .filter(|a| !st.connections.contains_key(a.id()) && !st.connecting.contains(a.id()))
                 .collect()
         };
+        {
+            // A new sign-in cleared `reauth_required`: retry those accounts now, not after the backoff.
+            let mut st = self.st.lock();
+            for a in &eligible {
+                if a.bool("reauth_required") == Some(false) && st.reauth_pending.remove(a.id()) {
+                    st.connect_cooldown.remove(a.id());
+                }
+            }
+        }
         if eligible.is_empty() {
             return;
         }
