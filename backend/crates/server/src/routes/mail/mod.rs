@@ -58,7 +58,9 @@ pub fn router() -> Router<AppState> {
         .route("/scheduled", get(crate::services::scheduled_send::list))
         .route(
             "/scheduled/{id}",
-            get(crate::services::scheduled_send::detail).delete(crate::services::scheduled_send::cancel),
+            get(crate::services::scheduled_send::detail)
+                .patch(crate::services::scheduled_send::update)
+                .delete(crate::services::scheduled_send::cancel),
         )
         .route("/draft", post(compose::save_draft))
         .route("/draft/{uid}", axum::routing::delete(compose::delete_draft))

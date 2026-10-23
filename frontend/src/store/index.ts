@@ -88,6 +88,11 @@ export interface ComposeDraft {
   draftUid?: number;
   draftUidValidity?: number;
   draftRowId?: string;
+  /** Editing a scheduled mail: Save replaces Send and updates it in place. */
+  scheduledId?: string;
+  /** Uploaded attachments to start with (a scheduled mail's own). */
+  attachments?: Array<{ name: string; data: string; type?: string; size?: number }>;
+  priority?: string;
   [key: string]: unknown;
 }
 
@@ -140,6 +145,9 @@ export interface StoreState {
   hasMoreMessages: boolean;
   setHasMoreMessages: (v: boolean) => void;
   selectedMessageId: string | null;
+  /** A scheduled (not yet sent) mail open in the reader; exclusive with selectedMessageId. */
+  selectedScheduledId: string | null;
+  setSelectedScheduled: (id: string | null) => void;
   lastViewedMessageId: string | null;
   setSelectedMessage: (id: string | null) => void;
   unreadCounts: {
@@ -667,13 +675,14 @@ export const useStore = create<StoreState>()((set, get) => ({
       // The mounted mail list still receives background updates. Preserve its
       // loaded pages, scroll position and native thread membership immediately.
       if (!navChanged && (state.showCalendar || state.showContacts)) {
-        return { showContacts: false, showCalendar: false, selectedMessageId: null, mobileSidebarOpen: false };
+        return { showContacts: false, showCalendar: false, selectedMessageId: null, selectedScheduledId: null, mobileSidebarOpen: false };
       }
       return {
         selectedAccountId: accountId,
         mobileSidebarOpen: false,
         selectedFolder: folder,
         selectedMessageId: null,
+        selectedScheduledId: null,
         messages: [],
         messagesOffset: 0,
         hasMoreMessages: true,
@@ -765,7 +774,9 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Selected message
   selectedMessageId: null,
   lastViewedMessageId: null,
-  setSelectedMessage: (id: string | null) =>set(id ? { selectedMessageId: id, lastViewedMessageId: id } : { selectedMessageId: null }),
+  setSelectedMessage: (id: string | null) =>set(id ? { selectedMessageId: id, lastViewedMessageId: id, selectedScheduledId: null } : { selectedMessageId: null, selectedScheduledId: null }),
+  selectedScheduledId: null,
+  setSelectedScheduled: (id: string | null) => set(id ? { selectedScheduledId: id, selectedMessageId: null } : { selectedScheduledId: null }),
 
   // Unread counts
   unreadCounts: { total: 0, byAccount: {} },

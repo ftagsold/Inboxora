@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
-import { Button } from './ui.tsx';
+import { Button, Dialog } from './ui.tsx';
 import { formatInvitationRange } from '../utils/invitationTime.ts';
 import { invitationConflicts } from '../utils/invitationConflicts.ts';
 import type { ConflictCandidate } from '../utils/invitationConflicts.ts';
@@ -80,11 +80,14 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
 
   const notifyCalendarChanged = () => window.dispatchEvent(new Event('inboxora:calendar-changed'));
 
-  const respond = async (answer: InvitationResponse) => {
+  // Answering first asks whether the organizer should get the reply.
+  const [confirming, setConfirming] = useState<InvitationResponse | null>(null);
+  const respond = async (answer: InvitationResponse, notify: boolean) => {
     if (busy || (answer !== 'DECLINED' && !calendarId)) return;
+    setConfirming(null);
     setSaving(answer); setError(null);
     try {
-      const result = await api.calendar.respondInvitation(messageId, answer, answer === 'DECLINED' ? undefined : calendarId);
+      const result = await api.calendar.respondInvitation(messageId, answer, answer === 'DECLINED' ? undefined : calendarId, notify);
       setResponse(answer); setLocalEvent(result.localEvent || null); notifyCalendarChanged();
       onResponded?.();
     } catch { setError('reply'); }
@@ -142,7 +145,7 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
     data-testid={`calendar-invitation-${answer.toLowerCase()}`}
     variant={response === answer ? 'primary' : 'default'}
     aria-pressed={response === answer}
-    onClick={() => { void respond(answer); }}
+    onClick={() => setConfirming(answer)}
     disabled={busy || (answer !== 'DECLINED' && !calendarId)}
   >{saving === answer ? t('calendar.saving') : label}</Button>;
 
@@ -195,6 +198,24 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
         {answerButton('TENTATIVE', t('calendar.invitationTentative'))}
         {answerButton('DECLINED', t('calendar.invitationDecline'))}
       </div>}
+
+    {confirming && <Dialog
+      title={t('calendar.invitationNotifyTitle')}
+      closeLabel={t('common.close')}
+      onClose={() => setConfirming(null)}
+      testId="calendar-invitation-notify"
+      footer={<>
+        <Button onClick={() => setConfirming(null)}>{t('common.cancel')}</Button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button data-testid="calendar-invitation-notify-no" onClick={() => { void respond(confirming, false); }}>{t('calendar.invitationNotifyNo')}</Button>
+          <Button variant="primary" autoFocus data-testid="calendar-invitation-notify-yes" onClick={() => { void respond(confirming, true); }}>{t('calendar.invitationNotifyYes')}</Button>
+        </div>
+      </>}
+    >
+      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+        {t('calendar.invitationNotifyBody', { answer: responseLabel[confirming] })}
+      </p>
+    </Dialog>}
 
     {error === 'reply' && <span role="alert" style={{ color: 'var(--red)' }}>{t('calendar.invitationReplyFailed')}</span>}
     {error === 'save' && <span role="alert" style={{ color: 'var(--red)' }}>{t('calendar.invitationSaveFailed')}</span>}

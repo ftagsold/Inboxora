@@ -1054,7 +1054,8 @@
         "tomorrowMorning": "Zítra ráno",
         "tomorrowAfternoon": "Zítra odpoledne",
         "monday": "V pondělí ráno"
-      }
+      },
+      "menuHeading": "Odeslat později"
     }
   },
   "contacts": {
@@ -1984,7 +1985,11 @@
     "editRecurringBody": "Tato událost je součástí série. Co se má upravit?",
     "editScopeSingle": "Pouze tento výskyt",
     "editScopeAll": "Celou sérii",
-    "sourcePickAddressBooks": "Vyberte adresáře kontaktů k importu"
+    "sourcePickAddressBooks": "Vyberte adresáře kontaktů k importu",
+    "invitationNotifyTitle": "Odpovědět organizátorovi?",
+    "invitationNotifyBody": "Vaše odpověď „{{answer}}“ se uloží do kalendáře. Informovat organizátora?",
+    "invitationNotifyYes": "Odeslat odpověď",
+    "invitationNotifyNo": "Neodesílat"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",
@@ -2047,8 +2052,14 @@
     "sendsAt": "Odeslání: {{when}}",
     "sending": "Odesílání…",
     "notYetSent": "Zatím neodesláno",
-    "discard": "Zahodit",
-    "cancelSend": "Zrušit odeslání",
-    "failedAt": "Odeslání se nezdařilo ({{when}})"
+    "failedAt": "Odeslání se nezdařilo ({{when}})",
+    "discardEdits": "Zahodit změny v tomto naplánovaném e-mailu?",
+    "saved": "Naplánovaný e-mail aktualizován",
+    "save": "Uložit",
+    "rescheduleTitle": "Změnit čas odeslání",
+    "reschedule": "Čas odeslání",
+    "edit": "Upravit",
+    "delete": "Smazat naplánovaný e-mail",
+    "editTitle": "Upravit naplánovaný e-mail"
   }
 }

@@ -528,8 +528,9 @@ export const api = {
     // Who was invited to an event and how each answered.
     attendeeStatuses: (eventId: string) => request('GET', `/calendar/events/${encodeURIComponent(eventId)}/attendees`),
     // Accept / maybe / decline: replies to the organizer and updates the local copy.
-    respondInvitation: (id: string, response: 'ACCEPTED' | 'TENTATIVE' | 'DECLINED', calendarId?: string) =>
-      request('POST', `/calendar/invitations/${encodeURIComponent(id)}/respond`, { response, calendarId }),
+    // `notify: false` records the answer without replying to the organizer.
+    respondInvitation: (id: string, response: 'ACCEPTED' | 'TENTATIVE' | 'DECLINED', calendarId?: string, notify = true) =>
+      request('POST', `/calendar/invitations/${encodeURIComponent(id)}/respond`, { response, calendarId, ...(notify ? {} : { notify: false }) }),
     listCalendars: ({ signal }: { signal?: AbortSignal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
     updateCalendar: (id: string, data: unknown) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
     deleteCalendar: (id: string, confirmName: string) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
@@ -593,7 +594,9 @@ export const api = {
   // Scheduled send
   getScheduled:    (accountId: string | null = null) =>
     request('GET', `/mail/scheduled${accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''}`),
-  getScheduledMail: (id: string) => request('GET', `/mail/scheduled/${encodeURIComponent(id)}`),
+  getScheduledMail: (id: string, full = false) => request('GET', `/mail/scheduled/${encodeURIComponent(id)}${full ? '?full=1' : ''}`),
+  updateScheduled: (id: string, data: { sendAt?: string; payload?: Record<string, unknown> }) =>
+    request('PATCH', `/mail/scheduled/${encodeURIComponent(id)}`, data),
   cancelScheduled: (id: string) => request('DELETE', `/mail/scheduled/${encodeURIComponent(id)}`),
 
   // Block List

@@ -1054,7 +1054,8 @@
         "tomorrowMorning": "Domani mattina",
         "tomorrowAfternoon": "Domani pomeriggio",
         "monday": "Lunedì mattina"
-      }
+      },
+      "menuHeading": "Invia più tardi"
     }
   },
   "contacts": {
@@ -1984,7 +1985,11 @@
     "editRecurringBody": "Questo evento fa parte di una serie. Cosa vuoi modificare?",
     "editScopeSingle": "Solo questa occorrenza",
     "editScopeAll": "L'intera serie",
-    "sourcePickAddressBooks": "Scegli quali rubriche importare"
+    "sourcePickAddressBooks": "Scegli quali rubriche importare",
+    "invitationNotifyTitle": "Rispondere all'organizzatore?",
+    "invitationNotifyBody": "La tua risposta «{{answer}}» viene salvata nel calendario. Avvisare l'organizzatore?",
+    "invitationNotifyYes": "Invia risposta",
+    "invitationNotifyNo": "Non inviare"
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",
@@ -2047,8 +2052,14 @@
     "sendsAt": "Invio: {{when}}",
     "sending": "Invio in corso…",
     "notYetSent": "Non ancora inviato",
-    "discard": "Elimina",
-    "cancelSend": "Annulla invio",
-    "failedAt": "Invio non riuscito ({{when}})"
+    "failedAt": "Invio non riuscito ({{when}})",
+    "discardEdits": "Annullare le modifiche a questa e-mail programmata?",
+    "saved": "E-mail programmata aggiornata",
+    "save": "Salva",
+    "rescheduleTitle": "Modifica orario di invio",
+    "reschedule": "Orario di invio",
+    "edit": "Modifica",
+    "delete": "Elimina e-mail programmata",
+    "editTitle": "Modifica e-mail programmata"
   }
 }

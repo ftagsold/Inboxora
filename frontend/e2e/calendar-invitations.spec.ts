@@ -37,6 +37,7 @@ for (const reader of [false, true]) test(`mail invitation can be accepted from $
   await expect(invitation.getByTestId('calendar-invitation-conflicts')).toContainText('Przegląd makiet');
   await expect(invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true })).toHaveCount(0);
   await invitation.getByRole('button', { name: 'Akceptuj', exact: true }).click();
+  await page.getByTestId('calendar-invitation-notify-yes').click();
   await expect.poll(() => replies).toEqual([{ response: 'ACCEPTED', calendarId: 'calendar-personal' }]);
   await expect.poll(() => archives.length).toBe(1);
   await page.screenshot({ path: testInfo.outputPath('invitation-accepted.png') });

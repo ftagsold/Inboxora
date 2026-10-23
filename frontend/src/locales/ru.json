@@ -1054,7 +1054,8 @@
         "tomorrowMorning": "Завтра утром",
         "tomorrowAfternoon": "Завтра днём",
         "monday": "В понедельник утром"
-      }
+      },
+      "menuHeading": "Отправить позже"
     }
   },
   "contacts": {
@@ -1984,7 +1985,11 @@
     "editRecurringBody": "Это событие входит в серию. Что изменить?",
     "editScopeSingle": "Только этот повтор",
     "editScopeAll": "Всю серию",
-    "sourcePickAddressBooks": "Выберите адресные книги для импорта"
+    "sourcePickAddressBooks": "Выберите адресные книги для импорта",
+    "invitationNotifyTitle": "Ответить организатору?",
+    "invitationNotifyBody": "Ваш ответ «{{answer}}» сохранён в календаре. Сообщить организатору?",
+    "invitationNotifyYes": "Отправить ответ",
+    "invitationNotifyNo": "Не отправлять"
   },
   "mailFolders": {
     "inbox": "Входящие",
@@ -2047,8 +2052,14 @@
     "sendsAt": "Отправка: {{when}}",
     "sending": "Отправка…",
     "notYetSent": "Ещё не отправлено",
-    "discard": "Удалить",
-    "cancelSend": "Отменить отправку",
-    "failedAt": "Не удалось отправить ({{when}})"
+    "failedAt": "Не удалось отправить ({{when}})",
+    "discardEdits": "Отменить изменения в запланированном письме?",
+    "saved": "Запланированное письмо обновлено",
+    "save": "Сохранить",
+    "rescheduleTitle": "Изменить время отправки",
+    "reschedule": "Время отправки",
+    "edit": "Изменить",
+    "delete": "Удалить запланированное письмо",
+    "editTitle": "Изменить запланированное письмо"
   }
 }

@@ -1054,7 +1054,8 @@
         "tomorrowMorning": "Tomorrow morning",
         "tomorrowAfternoon": "Tomorrow afternoon",
         "monday": "Monday morning"
-      }
+      },
+      "menuHeading": "Send later"
     }
   },
   "contacts": {
@@ -1984,7 +1985,11 @@
     "editRecurringBody": "This event is part of a series. What should be edited?",
     "editScopeSingle": "Only this occurrence",
     "editScopeAll": "The entire series",
-    "sourcePickAddressBooks": "Choose which address books to import"
+    "sourcePickAddressBooks": "Choose which address books to import",
+    "invitationNotifyTitle": "Reply to the organizer?",
+    "invitationNotifyBody": "Your answer “{{answer}}” is saved in your calendar. Should the organizer be told?",
+    "invitationNotifyYes": "Send reply",
+    "invitationNotifyNo": "Don't send"
   },
   "mailFolders": {
     "inbox": "Inbox",
@@ -2047,8 +2052,14 @@
     "sendsAt": "Sends {{when}}",
     "sending": "Sending…",
     "notYetSent": "Not sent yet",
-    "discard": "Discard",
-    "cancelSend": "Cancel send",
-    "failedAt": "Sending failed ({{when}})"
+    "failedAt": "Sending failed ({{when}})",
+    "discardEdits": "Discard your changes to this scheduled mail?",
+    "saved": "Scheduled mail updated",
+    "save": "Save",
+    "rescheduleTitle": "Change send time",
+    "reschedule": "Send time",
+    "edit": "Edit",
+    "delete": "Delete scheduled mail",
+    "editTitle": "Edit scheduled mail"
   }
 }

@@ -66,7 +66,7 @@ type WsIncomingMessage =
   | { type: 'folders_synced'; accountId: string }
   | { type: 'account_error'; accountId: string; error?: string }
   | { type: 'account_reauth_required'; accountId: string; oidcProviderId?: string | null }
-  | { type: 'scheduled_changed'; accountId: string }
+  | { type: 'scheduled_changed'; accountId: string; sent?: boolean }
   | { type: 'backfill_all_start'; accountId: string }
   | { type: 'backfill_progress'; accountId: string; synced: number; total: number | null }
   | { type: 'backfill_complete'; accountId: string }
@@ -279,8 +279,19 @@ export function useWebSocket() {
       }
 
       case 'scheduled_changed': {
-        // A scheduled mail was added, cancelled, sent or failed: the Sent folder's list refetches.
+        // A scheduled mail was added, changed, cancelled, sent or failed: the Sent folder's
+        // scheduled rows refetch. When it was sent, its Sent copy is appended and synced
+        // server-side within a few seconds: refresh the list as that lands, like after a send.
         window.dispatchEvent(new CustomEvent('inboxora:scheduled_changed', { detail: { accountId: data.accountId } }));
+        if (data.sent) {
+          const { accountId } = data;
+          for (const delay of [300, 1500, 4000]) {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+              if (useStore.getState().folders[accountId]) api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
+            }, delay);
+          }
+        }
         break;
       }
 

@@ -1,8 +1,10 @@
 //! Scheduled send: `POST /mail/send` with `sendAt` stores the request in `scheduled_sends`,
 //! and a worker sends it through the regular send path once it is due. Each send uses the
 //! idempotency key `scheduled:<id>`, so a crash mid-send never dispatches the mail twice. The
-//! list/detail/cancel routes back the scheduled rows the web app shows in the Sent folder.
+//! list/detail/update/cancel routes back the scheduled rows the web app shows in the Sent
+//! folder. The worker sleeps until the next row is due and is woken whenever one changes.
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use axum::extract::{Path, State};
@@ -18,8 +20,10 @@ use crate::routes::mail::{account_for_user, compose, is_uuid};
 use crate::routes::util::{err, ok};
 use crate::state::AppState;
 
-/// How often the worker looks for due mail.
-const TICK: Duration = Duration::from_secs(15);
+/// The longest the worker sleeps between checks (it is woken early on every change).
+const MAX_SLEEP: Duration = Duration::from_secs(60);
+/// Wakes the worker after a scheduled mail was added or changed.
+static WAKE: LazyLock<tokio::sync::Notify> = LazyLock::new(tokio::sync::Notify::new);
 /// Mail due in less than this is sent right away instead of scheduled.
 const MIN_LEAD_SECS: i64 = 30;
 /// The furthest ahead a send can be scheduled.
@@ -32,8 +36,9 @@ const SUMMARY: &str = "id, account_id, send_at, status, last_error, created_at, 
      payload->'to' AS to, payload->'cc' AS cc, payload->'bcc' AS bcc, payload->>'subject' AS subject, \
      COALESCE(jsonb_path_query_array(payload, '$.attachments[*].filename'), '[]'::jsonb) AS attachments";
 
-fn notify(s: &AppState, user: &str, account_id: &str) {
-    s.mail.broadcast(json!({ "type": "scheduled_changed", "accountId": account_id }), Some(user));
+/// Tell the user's clients; `sent` means the mail just went out (its Sent copy follows).
+fn notify(s: &AppState, user: &str, account_id: &str, sent: bool) {
+    s.mail.broadcast(json!({ "type": "scheduled_changed", "accountId": account_id, "sent": sent }), Some(user));
 }
 
 fn recipients(v: Option<&Value>) -> usize {
@@ -44,49 +49,120 @@ fn recipients(v: Option<&Value>) -> usize {
     }
 }
 
-/// `POST /mail/send` with `sendAt`: validate and store the request.
-pub async fn schedule(s: &AppState, user: &str, mut payload: Value) -> Result<Response> {
-    let Some(obj) = payload.as_object_mut() else { return Ok(err(400, "Invalid request body")) };
+/// A request ready to store: its send time, account and payload (without `sendAt`).
+struct Valid {
+    send_at: DateTime<Utc>,
+    account_id: String,
+    payload: Value,
+}
+
+/// Validate a send request carrying `sendAt`; `Err` is the response to return.
+async fn validate(s: &AppState, user: &str, mut payload: Value) -> Result<std::result::Result<Valid, Response>> {
+    let Some(obj) = payload.as_object_mut() else { return Ok(Err(err(400, "Invalid request body"))) };
     let Some(send_at) = obj
         .remove("sendAt")
         .and_then(|v| v.as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()))
         .map(|t| t.with_timezone(&Utc))
     else {
-        return Ok(err(400, "sendAt must be an ISO 8601 date-time"));
+        return Ok(Err(err(400, "sendAt must be an ISO 8601 date-time")));
     };
     let now = Utc::now();
     if send_at < now + chrono::Duration::seconds(MIN_LEAD_SECS) {
-        return Ok(err(400, "The scheduled time must be in the future"));
+        return Ok(Err(err(400, "The scheduled time must be in the future")));
     }
     if send_at > now + chrono::Duration::days(MAX_AHEAD_DAYS) {
-        return Ok(err(400, "Mail can be scheduled at most one year ahead"));
+        return Ok(Err(err(400, "Mail can be scheduled at most one year ahead")));
     }
     let Some(account_id) = obj.get("accountId").and_then(Value::as_str).filter(|v| is_uuid(v)).map(str::to_owned)
     else {
-        return Ok(err(400, "accountId required"));
+        return Ok(Err(err(400, "accountId required")));
     };
     if recipients(obj.get("to")) + recipients(obj.get("cc")) + recipients(obj.get("bcc")) == 0 {
-        return Ok(err(400, "At least one recipient is required"));
+        return Ok(Err(err(400, "At least one recipient is required")));
     }
     if account_for_user(s, &account_id, user).await?.is_none() {
-        return Ok(err(404, "Account not found"));
+        return Ok(Err(err(404, "Account not found")));
     }
     if payload.to_string().len() > MAX_PAYLOAD_BYTES {
-        return Ok(err(400, "Total attachment size exceeds 25 MB"));
+        return Ok(Err(err(400, "Total attachment size exceeds 25 MB")));
     }
+    Ok(Ok(Valid { send_at, account_id, payload }))
+}
+
+/// `POST /mail/send` with `sendAt`: validate and store the request.
+pub async fn schedule(s: &AppState, user: &str, payload: Value) -> Result<Response> {
+    let v = match validate(s, user, payload).await? {
+        Ok(v) => v,
+        Err(r) => return Ok(r),
+    };
     let row =
         s.db.opt(
             "INSERT INTO scheduled_sends (user_id, account_id, send_at, payload) VALUES ($1, $2, $3, $4) RETURNING id",
-            params![user, &account_id, send_at, payload],
+            params![user, &v.account_id, v.send_at, v.payload],
         )
         .await?
         .ok_or_else(|| inboxora_core::Error::Internal("scheduled send insert returned no row".into()))?;
     let id: uuid::Uuid = row.get("id");
-    notify(s, user, &account_id);
+    notify(s, user, &v.account_id, false);
+    WAKE.notify_one();
     Ok(ok(json!({
         "ok": true,
-        "scheduled": { "id": id.to_string(), "sendAt": inboxora_core::json::js_iso(&send_at) },
+        "scheduled": { "id": id.to_string(), "sendAt": inboxora_core::json::js_iso(&v.send_at) },
     })))
+}
+
+/// `PATCH /mail/scheduled/:id` `{ sendAt?, payload? }`: move a scheduled (or failed) mail to a
+/// new time and/or replace its content. A failed mail is scheduled again.
+pub async fn update(State(s): State<AppState>, a: Auth, Path(id): Path<String>, b: Body) -> Result<Response> {
+    if !is_uuid(&id) {
+        return Ok(err(404, "Scheduled mail not found"));
+    }
+    let Some(row) =
+        s.db.opt(
+            "SELECT status, send_at, payload, account_id FROM scheduled_sends WHERE id = $1 AND user_id = $2",
+            params![&id, &a.user_id],
+        )
+        .await?
+    else {
+        return Ok(err(404, "Scheduled mail not found"));
+    };
+    if row.get::<_, String>("status") == "sending" {
+        return Ok(err(409, "This message is being sent right now"));
+    }
+    let old_account = row.get::<_, uuid::Uuid>("account_id").to_string();
+    let mut payload = match b.get("payload") {
+        Some(p @ Value::Object(_)) => p.clone(),
+        Some(_) => return Ok(err(400, "payload must be an object")),
+        None => row.get::<_, Value>("payload"),
+    };
+    let send_at = match b.get("sendAt") {
+        Some(v) => v.clone(),
+        None => json!(inboxora_core::json::js_iso(&row.get::<_, DateTime<Utc>>("send_at"))),
+    };
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("sendAt".into(), send_at);
+    }
+    let v = match validate(&s, &a.user_id, payload).await? {
+        Ok(v) => v,
+        Err(r) => return Ok(r),
+    };
+    let updated =
+        s.db.exec(
+            "UPDATE scheduled_sends SET send_at = $3, payload = $4, account_id = $5, status = 'scheduled', \
+               last_error = NULL, revision = revision + 1 \
+             WHERE id = $1 AND user_id = $2 AND status <> 'sending'",
+            params![&id, &a.user_id, v.send_at, v.payload, &v.account_id],
+        )
+        .await?;
+    if updated == 0 {
+        return Ok(err(409, "This message is being sent right now"));
+    }
+    notify(&s, &a.user_id, &v.account_id, false);
+    if old_account != v.account_id {
+        notify(&s, &a.user_id, &old_account, false);
+    }
+    WAKE.notify_one();
+    Ok(ok(json!({ "ok": true, "sendAt": inboxora_core::json::js_iso(&v.send_at) })))
 }
 
 /// `GET /mail/scheduled?accountId=`: the user's pending and failed scheduled mail.
@@ -106,15 +182,17 @@ pub async fn list(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response>
 }
 
 /// `GET /mail/scheduled/:id`: one scheduled mail with its body, for the preview.
-pub async fn detail(State(s): State<AppState>, a: Auth, Path(id): Path<String>) -> Result<Response> {
+pub async fn detail(State(s): State<AppState>, a: Auth, Path(id): Path<String>, q: Qs) -> Result<Response> {
     if !is_uuid(&id) {
         return Ok(err(404, "Scheduled mail not found"));
     }
+    // `?full=1` adds the whole stored request (attachments included) for editing in the composer.
+    let full = if query_string(&q, "full").as_deref() == Some("1") { ", payload" } else { "" };
     let row = s
         .db
         .json_opt(
             &format!(
-                "SELECT {SUMMARY}, payload->>'body' AS body, COALESCE((payload->>'bodyIsHtml')::boolean, false) AS body_is_html \
+                "SELECT {SUMMARY}, payload->>'body' AS body, COALESCE((payload->>'bodyIsHtml')::boolean, false) AS body_is_html{full} \
                  FROM scheduled_sends WHERE id = $1 AND user_id = $2"
             ),
             params![&id, &a.user_id],
@@ -149,7 +227,7 @@ pub async fn cancel(State(s): State<AppState>, a: Auth, Path(id): Path<String>) 
         });
     };
     let account: uuid::Uuid = row.get("account_id");
-    notify(&s, &a.user_id, &account.to_string());
+    notify(&s, &a.user_id, &account.to_string(), false);
     Ok(ok(json!({ "ok": true })))
 }
 
@@ -169,7 +247,7 @@ async fn send_due(s: &AppState) -> Result<()> {
             "UPDATE scheduled_sends SET status = 'sending' WHERE id IN ( \
                SELECT id FROM scheduled_sends WHERE status = 'scheduled' AND send_at <= NOW() \
                ORDER BY send_at LIMIT 5 FOR UPDATE SKIP LOCKED) \
-             RETURNING id, user_id, account_id, payload",
+             RETURNING id, user_id, account_id, payload, revision",
             params![],
         )
         .await?;
@@ -178,7 +256,9 @@ async fn send_due(s: &AppState) -> Result<()> {
         let user = row.get::<_, uuid::Uuid>("user_id").to_string();
         let account = row.get::<_, uuid::Uuid>("account_id").to_string();
         let payload: Value = row.get("payload");
-        let outcome = compose::send_as(s, user.clone(), Some(format!("scheduled:{id}")), Body(payload)).await;
+        let revision: i32 = row.get("revision");
+        let key = if revision == 0 { format!("scheduled:{id}") } else { format!("scheduled:{id}:{revision}") };
+        let outcome = compose::send_as(s, user.clone(), Some(key), Body(payload)).await;
         let failure = match outcome {
             Ok(res) if res.status().is_success() => None,
             Ok(res) => Some(error_text(res).await),
@@ -198,9 +278,23 @@ async fn send_due(s: &AppState) -> Result<()> {
                 .await?;
             }
         }
-        notify(s, &user, &account);
+        notify(s, &user, &account, failure.is_none());
     }
     Ok(())
+}
+
+/// How long to sleep before the next scheduled mail is due (at most [`MAX_SLEEP`]).
+async fn until_next(s: &AppState) -> Duration {
+    let next =
+        s.db.opt("SELECT MIN(send_at) AS next FROM scheduled_sends WHERE status = 'scheduled'", params![])
+            .await
+            .ok()
+            .flatten()
+            .and_then(|r| r.get::<_, Option<DateTime<Utc>>>("next"));
+    match next {
+        Some(at) => (at - Utc::now()).to_std().unwrap_or(Duration::ZERO).min(MAX_SLEEP),
+        None => MAX_SLEEP,
+    }
 }
 
 /// Start the worker. Rows a crash left in `sending` go back to `scheduled`: the idempotency
@@ -212,11 +306,15 @@ pub fn start_worker(s: AppState) {
         {
             tracing::warn!("Scheduled send recovery failed: {e}");
         }
-        let mut iv = tokio::time::interval(TICK);
         loop {
-            iv.tick().await;
             if let Err(e) = send_due(&s).await {
                 tracing::warn!("Scheduled send tick failed: {e}");
+            }
+            // At least a short pause, so a failing query cannot spin.
+            let wait = until_next(&s).await.max(Duration::from_millis(250));
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                () = WAKE.notified() => {}
             }
         }
     });

@@ -1054,7 +1054,8 @@
         "tomorrowMorning": "Mañana por la mañana",
         "tomorrowAfternoon": "Mañana por la tarde",
         "monday": "El lunes por la mañana"
-      }
+      },
+      "menuHeading": "Enviar más tarde"
     }
   },
   "contacts": {
@@ -1984,7 +1985,11 @@
     "editRecurringBody": "Este evento forma parte de una serie. ¿Qué quieres editar?",
     "editScopeSingle": "Solo esta repetición",
     "editScopeAll": "Toda la serie",
-    "sourcePickAddressBooks": "Elige las libretas de direcciones que quieres importar"
+    "sourcePickAddressBooks": "Elige las libretas de direcciones que quieres importar",
+    "invitationNotifyTitle": "¿Responder al organizador?",
+    "invitationNotifyBody": "Tu respuesta «{{answer}}» se guarda en tu calendario. ¿Avisar al organizador?",
+    "invitationNotifyYes": "Enviar respuesta",
+    "invitationNotifyNo": "No enviar"
   },
   "mailFolders": {
     "inbox": "Recibidos",
@@ -2047,8 +2052,14 @@
     "sendsAt": "Se envía: {{when}}",
     "sending": "Enviando…",
     "notYetSent": "Aún no enviado",
-    "discard": "Descartar",
-    "cancelSend": "Cancelar envío",
-    "failedAt": "Error al enviar ({{when}})"
+    "failedAt": "Error al enviar ({{when}})",
+    "discardEdits": "¿Descartar los cambios en este correo programado?",
+    "saved": "Correo programado actualizado",
+    "save": "Guardar",
+    "rescheduleTitle": "Cambiar hora de envío",
+    "reschedule": "Hora de envío",
+    "edit": "Editar",
+    "delete": "Eliminar correo programado",
+    "editTitle": "Editar correo programado"
   }
 }

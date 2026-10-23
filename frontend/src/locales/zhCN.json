@@ -1054,7 +1054,8 @@
         "tomorrowMorning": "明天上午",
         "tomorrowAfternoon": "明天下午",
         "monday": "周一上午"
-      }
+      },
+      "menuHeading": "稍后发送"
     }
   },
   "contacts": {
@@ -1984,7 +1985,11 @@
     "editRecurringBody": "此事件属于一个系列。要编辑什么？",
     "editScopeSingle": "仅此次",
     "editScopeAll": "整个系列",
-    "sourcePickAddressBooks": "选择要导入的通讯录"
+    "sourcePickAddressBooks": "选择要导入的通讯录",
+    "invitationNotifyTitle": "回复组织者？",
+    "invitationNotifyBody": "你的答复“{{answer}}”已保存到日历。是否通知组织者？",
+    "invitationNotifyYes": "发送答复",
+    "invitationNotifyNo": "不发送"
   },
   "mailFolders": {
     "inbox": "收件箱",
@@ -2047,8 +2052,14 @@
     "sendsAt": "发送时间：{{when}}",
     "sending": "正在发送…",
     "notYetSent": "尚未发送",
-    "discard": "丢弃",
-    "cancelSend": "取消发送",
-    "failedAt": "发送失败（{{when}}）"
+    "failedAt": "发送失败（{{when}}）",
+    "discardEdits": "放弃对此定时邮件的更改？",
+    "saved": "定时邮件已更新",
+    "save": "保存",
+    "rescheduleTitle": "更改发送时间",
+    "reschedule": "发送时间",
+    "edit": "编辑",
+    "delete": "删除定时邮件",
+    "editTitle": "编辑定时邮件"
   }
 }

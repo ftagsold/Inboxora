@@ -11,14 +11,17 @@ import {
 interface ScheduleSendDialogProps {
   onClose: () => void;
   onConfirm: (at: Date) => void;
+  /** Rescheduling: start from this time and confirm with "Save". */
+  initial?: Date | null;
+  busy?: boolean;
 }
 
-export default function ScheduleSendDialog({ onClose, onConfirm }: ScheduleSendDialogProps) {
+export default function ScheduleSendDialog({ onClose, onConfirm, initial: start = null, busy = false }: ScheduleSendDialogProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage || i18n.language;
   const now = useMemo(() => new Date(), []);
   const presets = useMemo(() => schedulePresets(now), [now]);
-  const initial = presets.find(p => p.key === 'tomorrowMorning')?.at ?? new Date(now.getTime() + 24 * 3600e3);
+  const initial = start ?? presets.find(p => p.key === 'tomorrowMorning')?.at ?? new Date(now.getTime() + 24 * 3600e3);
   const [day, setDay] = useState(dateKey(initial));
   const [time, setTime] = useState(timeKey(initial));
   const [month, setMonth] = useState(() => new Date(initial.getFullYear(), initial.getMonth(), 1));
@@ -32,9 +35,10 @@ export default function ScheduleSendDialog({ onClose, onConfirm }: ScheduleSendD
 
   return (
     <Dialog
-      title={t('compose.schedule.title')}
+      title={start ? t('scheduled.rescheduleTitle') : t('compose.schedule.title')}
       closeLabel={t('common.close')}
       onClose={onClose}
+      busy={busy}
       className="schedule-dialog"
       testId="schedule-send-dialog"
       footer={<>
@@ -46,10 +50,10 @@ export default function ScheduleSendDialog({ onClose, onConfirm }: ScheduleSendD
           <Button
             variant="primary"
             data-testid="schedule-send-confirm"
-            disabled={!chosen || tooSoon}
+            disabled={!chosen || tooSoon || busy}
             onClick={() => { if (chosen && !tooSoon) onConfirm(chosen); }}
           >
-            {t('compose.schedule.confirm')}
+            {start ? t('scheduled.save') : t('compose.schedule.confirm')}
           </Button>
         </div>
       </>}
@@ -62,6 +66,7 @@ export default function ScheduleSendDialog({ onClose, onConfirm }: ScheduleSendD
               type="button"
               role="listitem"
               className="schedule-preset"
+              disabled={busy}
               onClick={() => onConfirm(p.at)}
             >
               <span>{t(`compose.schedule.presets.${p.key}`)}</span>

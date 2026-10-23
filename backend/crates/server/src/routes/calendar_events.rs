@@ -1278,8 +1278,10 @@ async fn respond_invitation(
     let Some(event) = mi.event.as_ref().filter(|_| mi.inv.method == "REQUEST") else {
         return Ok(err(409, "This invitation cannot be answered"));
     };
+    // `notify: false` records the answer and updates the calendar without replying to the organizer.
+    let notify = b.get("notify") != Some(&Value::Bool(false));
     let organizer = organizer_address(mi.inv.organizer.as_deref());
-    if !organizer.contains('@') {
+    if notify && !organizer.contains('@') {
         return Ok(err(409, "The invitation has no organizer address to reply to"));
     }
     let mut cal: Option<WritableCalendar> = None;
@@ -1315,7 +1317,7 @@ async fn respond_invitation(
         ends_at: event.ends_at,
         all_day: event.all_day,
     };
-    if let Err(e) = send_reply(&s.db, account, &reply).await {
+    if notify && let Err(e) = send_reply(&s.db, account, &reply).await {
         tracing::error!("Calendar invitation reply failed: {e}");
         return Ok(err(502, "Could not send your reply to the organizer"));
     }

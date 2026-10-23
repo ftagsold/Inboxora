@@ -1054,7 +1054,8 @@
         "tomorrowMorning": "Morgen früh",
         "tomorrowAfternoon": "Morgen Nachmittag",
         "monday": "Montag früh"
-      }
+      },
+      "menuHeading": "Später senden"
     }
   },
   "contacts": {
@@ -1984,7 +1985,11 @@
     "editRecurringBody": "Dieser Termin gehört zu einer Serie. Was soll bearbeitet werden?",
     "editScopeSingle": "Nur dieser Termin",
     "editScopeAll": "Die gesamte Serie",
-    "sourcePickAddressBooks": "Zu importierende Adressbücher auswählen"
+    "sourcePickAddressBooks": "Zu importierende Adressbücher auswählen",
+    "invitationNotifyTitle": "Antwort an den Organisator senden?",
+    "invitationNotifyBody": "Deine Antwort „{{answer}}“ wird in deinem Kalender gespeichert. Soll der Organisator benachrichtigt werden?",
+    "invitationNotifyYes": "Antwort senden",
+    "invitationNotifyNo": "Nicht senden"
   },
   "mailFolders": {
     "inbox": "Posteingang",
@@ -2047,8 +2052,14 @@
     "sendsAt": "Wird gesendet: {{when}}",
     "sending": "Wird gesendet…",
     "notYetSent": "Noch nicht gesendet",
-    "discard": "Verwerfen",
-    "cancelSend": "Senden abbrechen",
-    "failedAt": "Senden fehlgeschlagen ({{when}})"
+    "failedAt": "Senden fehlgeschlagen ({{when}})",
+    "discardEdits": "Änderungen an dieser geplanten Mail verwerfen?",
+    "saved": "Geplante Mail aktualisiert",
+    "save": "Speichern",
+    "rescheduleTitle": "Sendezeit ändern",
+    "reschedule": "Sendezeit",
+    "edit": "Bearbeiten",
+    "delete": "Geplante Mail löschen",
+    "editTitle": "Geplante Mail bearbeiten"
   }
 }

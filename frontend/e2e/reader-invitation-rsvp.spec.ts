@@ -43,6 +43,7 @@ test('accept an invitation in the conversation reader: shows conflicts, replies,
   await expect(card.locator('[data-testid="calendar-invitation-conflict"]')).toContainText('Standup');
 
   await card.locator('[data-testid="calendar-invitation-accepted"]').click();
+  await page.getByTestId('calendar-invitation-notify-yes').click();
   await expect.poll(() => replies).toEqual([{ response: 'ACCEPTED', calendarId: 'calendar-personal' }]);
   await expect.poll(() => archived.length).toBe(1);
 });

@@ -1054,7 +1054,8 @@
         "tomorrowMorning": "Jutro rano",
         "tomorrowAfternoon": "Jutro po południu",
         "monday": "W poniedziałek rano"
-      }
+      },
+      "menuHeading": "Wyślij później"
     }
   },
   "contacts": {
@@ -1984,7 +1985,11 @@
     "editRecurringBody": "To wydarzenie należy do serii. Co chcesz edytować?",
     "editScopeSingle": "Tylko to wystąpienie",
     "editScopeAll": "Całą serię",
-    "sourcePickAddressBooks": "Wybierz książki adresowe do zaimportowania"
+    "sourcePickAddressBooks": "Wybierz książki adresowe do zaimportowania",
+    "invitationNotifyTitle": "Odpowiedzieć organizatorowi?",
+    "invitationNotifyBody": "Twoja odpowiedź „{{answer}}” zostanie zapisana w kalendarzu. Powiadomić organizatora?",
+    "invitationNotifyYes": "Wyślij odpowiedź",
+    "invitationNotifyNo": "Nie wysyłaj"
   },
   "mailFolders": {
     "inbox": "Odebrane",
@@ -2047,8 +2052,14 @@
     "sendsAt": "Wysyłka: {{when}}",
     "sending": "Wysyłanie…",
     "notYetSent": "Jeszcze nie wysłano",
-    "discard": "Odrzuć",
-    "cancelSend": "Anuluj wysyłkę",
-    "failedAt": "Wysyłanie nie powiodło się ({{when}})"
+    "failedAt": "Wysyłanie nie powiodło się ({{when}})",
+    "discardEdits": "Odrzucić zmiany w tej zaplanowanej wiadomości?",
+    "saved": "Zaplanowana wiadomość zaktualizowana",
+    "save": "Zapisz",
+    "rescheduleTitle": "Zmień czas wysyłki",
+    "reschedule": "Czas wysyłki",
+    "edit": "Edytuj",
+    "delete": "Usuń zaplanowaną wiadomość",
+    "editTitle": "Edytuj zaplanowaną wiadomość"
   }
 }

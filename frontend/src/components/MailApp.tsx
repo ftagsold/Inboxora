@@ -37,6 +37,7 @@ import { APP_NAME } from '../appName.ts';
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.tsx'));
+const ScheduledReader = lazy(() => import('./ScheduledReader.tsx'));
 
 const ComposeModal = lazy(() => import('./ComposeModal.tsx'));
 const AdminPanel   = lazy(() => import('./AdminPanel.tsx'));
@@ -92,7 +93,7 @@ export default function MailApp() {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
-    shortcuts, selectedMessageId, setSelectedMessage,
+    shortcuts, selectedMessageId, setSelectedMessage, selectedScheduledId,
     mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, addNotification,
     fontSize, showAppBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
@@ -372,7 +373,7 @@ export default function MailApp() {
   // string, so derive the literal union React's flexDirection requires.
   const currentLayoutDirection: 'row' | 'column' = currentLayout.direction === 'column' ? 'column' : 'row';
   const compactMail = compactLayout && currentLayoutDirection === 'row';
-  const readerOpen = Boolean(selectedMessageId || (conversationReaderViewEnabled && conversationId));
+  const readerOpen = Boolean(selectedMessageId || selectedScheduledId || (conversationReaderViewEnabled && conversationId));
 
   // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
@@ -887,11 +888,13 @@ export default function MailApp() {
           {showCalendar && <div data-testid="mobile-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
             <Suspense fallback={lazyFallback}><CalendarPage isActive={showCalendar} /></Suspense>
           </div>}
-          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !selectedScheduledId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
-          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
-            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
+          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || selectedScheduledId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
+            {selectedScheduledId
+              ? <Suspense fallback={lazyFallback}><ScheduledReader id={selectedScheduledId} onBack={closeReader} /></Suspense>
+              : <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />}
           </div>
           {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
           </div>
@@ -936,7 +939,9 @@ export default function MailApp() {
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: compactMail && !readerOpen ? 'none' : 'flex', flexDirection: 'column' }}>
                 {compactMail && <div className="tablet-reader-back"><Button variant="ghost" onClick={closeReader} aria-label={t('common.back')}>‹ {t('common.back')}</Button></div>}
-                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
+                {selectedScheduledId
+                  ? <Suspense fallback={lazyFallback}><ScheduledReader id={selectedScheduledId} /></Suspense>
+                  : <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />}
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayoutDirection === 'row' && rightSidebarContent != null && (
