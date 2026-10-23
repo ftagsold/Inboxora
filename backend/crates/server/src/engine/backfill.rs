@@ -270,6 +270,7 @@ impl Engine {
             let host = account.host();
             let _slot = SlotGuard::acquire(&self.bg_sem, &host).await;
             let profile = account.profile();
+            self.prime_folder_counts(account).await;
             self.backfill_messages(account, "INBOX").await;
             // Archive, Sent, Trash, Drafts, Junk, then the rest (smallest first).
             let folders = self.folders_by_priority(account, false).await.unwrap_or_default();
@@ -284,6 +285,44 @@ impl Engine {
         self.broadcast(json!({ "type": "backfill_all_complete", "accountId": account.id() }), Some(account.user_id()));
         let (e, a) = (self.clone(), account.clone());
         tokio::spawn(async move { e.refresh_bulk_flags(&a).await });
+    }
+
+    /// Server message counts (STATUS) of every folder the backfill covers, so the preload screen
+    /// knows the account's size up front instead of growing it folder by folder. Folders the
+    /// backfill skips are zeroed: they never count towards it.
+    async fn prime_folder_counts(self: &Arc<Self>, account: &Account) {
+        let profile = account.profile();
+        let folders = self.folders_by_priority(account, true).await.unwrap_or_default();
+        let Ok(Some(row)) = load_account(&self.db, account.id()).await else { return };
+        let Ok((_, mut c)) = self
+            .open_client(&row, "Folder count connect", super::limits::Prio::Other, super::limits::Kind::Background)
+            .await
+        else {
+            return;
+        };
+        for (path, _) in folders {
+            let count = if skips_folder(profile, &path) {
+                Some(0)
+            } else {
+                match c.status(&path).await {
+                    Ok(st) => st.messages.map(i64::from),
+                    Err(e) => {
+                        tracing::debug!("Folder count {}/{path}: {e}", account.log());
+                        None
+                    }
+                }
+            };
+            if let Some(n) = count {
+                let _ = self
+                    .db
+                    .exec(
+                        "UPDATE folders SET total_count = $3 WHERE account_id = $1 AND path = $2",
+                        params![account.id(), &path, n],
+                    )
+                    .await;
+            }
+        }
+        c.logout().await;
     }
 
     /// `refreshBulkFlags`: evaluate list headers for rows whose `is_bulk` is still unknown.

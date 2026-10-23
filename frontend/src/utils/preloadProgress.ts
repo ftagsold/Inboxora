@@ -7,6 +7,7 @@ export interface PreloadEventDetail {
   state?: PreloadAccountStatus['state'];
   done?: number;
   total?: number;
+  messages?: number;
   folder?: string | null;
   error?: string | null;
 }
@@ -23,6 +24,7 @@ export function applyPreloadEvent(status: PreloadStatus, ev: PreloadEventDetail)
       state: ev.state ?? a.state,
       done: typeof ev.done === 'number' ? ev.done : a.done,
       total: typeof ev.total === 'number' ? ev.total : a.total,
+      messages: typeof ev.messages === 'number' ? ev.messages : a.messages,
       folder: ev.folder !== undefined ? ev.folder : a.folder,
       error: ev.error !== undefined ? ev.error : a.error,
     };

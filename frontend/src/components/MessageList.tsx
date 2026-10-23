@@ -3531,6 +3531,8 @@ export default function MessageList() {
           ref={listRef}
           onScroll={handleScroll}
           onKeyDown={handleListKeyDown}
+          // A click on the empty space below the last row closes the open message.
+          onClick={e => { if (e.target === e.currentTarget && !isMobile && !selectionMode) setSelectedMessage(null); }}
           tabIndex={0}
           style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', outline: 'none', overscrollBehavior: 'contain' }}
         >
@@ -4668,7 +4670,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               </>
             )}
           </div>
-          {!selectionMode && unreadCount > 0 && <div data-testid="unread-dot" style={avatarUnreadDot} />}
+          <div style={avatarDotSlot}>{!selectionMode && unreadCount > 0 && <div className="unread-dot" data-testid="unread-dot" style={avatarUnreadDot} />}</div>
           </div>
         )}
 
@@ -5082,7 +5084,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               </>
             )}
           </div>
-          {!selectionMode && !message.is_read && <div data-testid="unread-dot" style={avatarUnreadDot} />}
+          <div style={avatarDotSlot}>{!selectionMode && !message.is_read && <div className="unread-dot" data-testid="unread-dot" style={avatarUnreadDot} />}</div>
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -5221,8 +5223,7 @@ function RowMenuButton({ onOpen, label }: RowMenuButtonProps) {
   );
 }
 
-// Avatar plus the unread dot centred under it; the dot is absolute so it never moves the row.
-const avatarColumn: React.CSSProperties = { position: 'relative', flexShrink: 0, width: 36 };
-const avatarUnreadDot: React.CSSProperties = {
-  position: 'absolute', top: 42, left: 14, width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)',
-};
+// Avatar plus the unread dot, centred both ways in the space the row leaves below the avatar.
+const avatarColumn: React.CSSProperties = { alignSelf: 'stretch', flexShrink: 0, width: 36, display: 'flex', flexDirection: 'column', alignItems: 'center' };
+const avatarDotSlot: React.CSSProperties = { flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+const avatarUnreadDot: React.CSSProperties = { width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' };

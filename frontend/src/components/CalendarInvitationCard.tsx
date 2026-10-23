@@ -6,6 +6,7 @@ import { formatInvitationRange } from '../utils/invitationTime.ts';
 import { invitationConflicts } from '../utils/invitationConflicts.ts';
 import type { ConflictCandidate } from '../utils/invitationConflicts.ts';
 import { isWritableCalendarSource } from './calendarView.ts';
+import { toAppError } from '../utils/errors.ts';
 import type { CSSProperties } from 'react';
 
 interface WritableCalendar {
@@ -32,6 +33,9 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
   const [calendars, setCalendars] = useState<WritableCalendar[]>([]);
   const [calendarId, setCalendarId] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Why loading failed: 404 means no calendar data matches this message (event deleted, or the
+  // attachment unreadable); anything else carries the server's reason.
+  const [loadFailure, setLoadFailure] = useState<{ status?: number; reason: string } | null>(null);
   const [saving, setSaving] = useState<InvitationResponse | 'remove' | null>(null);
   // Derived from the server's `localEvent` / `response` so a reload shows the same state.
   const [localEvent, setLocalEvent] = useState<Record<string, unknown> | null>(null);
@@ -42,7 +46,7 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
 
   useEffect(() => {
     let cancelled = false;
-    setInvitation(null); setError(null); setRemoved(false); setLocalEvent(null); setResponse(null); setConflicts(null);
+    setInvitation(null); setError(null); setLoadFailure(null); setRemoved(false); setLocalEvent(null); setResponse(null); setConflicts(null);
     Promise.all([api.calendar.getInvitation(messageId), api.calendar.listCalendars()]).then(([result, list]) => {
       if (cancelled) return;
       const writable = (list.calendars || []).filter((calendar: WritableCalendar) => !calendar.read_only && isWritableCalendarSource(calendar.source));
@@ -59,7 +63,12 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
           .then((events: { events?: ConflictCandidate[] }) => { if (!cancelled) setConflicts(invitationConflicts(loaded, events.events || [], messageId)); })
           .catch(() => { if (!cancelled) setConflicts([]); });
       }
-    }).catch(() => { if (!cancelled) setError('load'); });
+    }).catch((err: unknown) => {
+      if (cancelled) return;
+      const e = toAppError(err);
+      setLoadFailure({ status: e.status, reason: e.message });
+      setError('load');
+    });
     return () => { cancelled = true; };
   }, [messageId, retry]);
 
@@ -94,8 +103,10 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
 
   if (error === 'load' && !invitation) {
     return <div className="msg-notice" data-testid="calendar-invitation-card" role="alert" style={noticeStyle}>
-      <span style={{ flex: 1 }}>{t('calendar.invitationLoadFailed')}</span>
-      <Button onClick={() => setRetry(value => value + 1)}>{t('common.retry')}</Button>
+      <span style={{ flex: 1 }}>{loadFailure?.status === 404
+        ? t('calendar.invitationNotFound')
+        : t('calendar.invitationLoadFailedReason', { reason: loadFailure?.reason || t('calendar.invitationUnknownReason') })}</span>
+      {loadFailure?.status !== 404 && <Button onClick={() => setRetry(value => value + 1)}>{t('common.retry')}</Button>}
     </div>;
   }
   if (!invitation) return null;
@@ -116,7 +127,9 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
       {answers.map(answer => <span key={answer.email} data-testid="calendar-invitation-reply" style={{ color: 'var(--text-primary)' }}>
         {answer.name || answer.email} · {replyLabel(answer.partstat)}
       </span>)}
-      {invitation.recordedInCalendar === true && <span role="status">{t('calendar.invitationReplyRecorded')}</span>}
+      {invitation.recordedInCalendar === true
+        ? <span role="status">{t('calendar.invitationReplyRecorded')}</span>
+        : <span role="status" data-testid="calendar-invitation-reply-orphan">{t('calendar.invitationReplyNoEvent')}</span>}
     </div>;
   }
 

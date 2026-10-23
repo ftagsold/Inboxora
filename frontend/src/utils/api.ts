@@ -51,6 +51,8 @@ export interface PreloadAccountStatus {
   state: PreloadState;
   done: number;
   total: number;
+  /** Messages in the account; `total` counts each twice while the account is still indexed. */
+  messages?: number;
   folder?: string | null;
   error?: string | null;
 }

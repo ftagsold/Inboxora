@@ -50,6 +50,8 @@ pub struct Status {
     pub state: State,
     pub done: u64,
     pub total: u64,
+    /// Messages in the account (`total` counts them twice while indexing comes first).
+    pub messages: u64,
     pub folder: Option<String>,
     pub error: Option<String>,
     #[serde(skip)]
@@ -98,6 +100,7 @@ impl Engine {
                 state: State::Running,
                 done: 0,
                 total: 0,
+                messages: 0,
                 folder: None,
                 error: None,
                 updated_ms: 0,
@@ -117,6 +120,7 @@ impl Engine {
                 "state": snapshot.state,
                 "done": snapshot.done,
                 "total": snapshot.total,
+                "messages": snapshot.messages,
                 "folder": snapshot.folder,
                 "error": snapshot.error,
             }),
@@ -152,11 +156,9 @@ impl Engine {
         let key = format!("{}:{}", account.id(), if cold { "cold" } else { "warm" });
         let Some(_running) = self.claim(|s| &mut s.preload_running, &key) else { return };
         let started = Instant::now();
-        if cold {
-            self.wait_for_initial_backfill(account).await;
-        }
+        let indexed = cold && self.wait_for_initial_backfill(account).await;
         let prio = if cold { Prio::PreloadCold } else { Prio::Preload };
-        let r = self.preload_inner(account, cold, prio).await;
+        let r = self.preload_inner(account, cold, prio, indexed).await;
         match r {
             Ok((total, fetched, failed)) => {
                 if cold {
@@ -193,11 +195,14 @@ impl Engine {
 
     /// A new account is indexed (backfilled) first; its user waits on the preload screen with
     /// the indexing progress (rows indexed of the server's message count) instead of opening
-    /// empty folders.
-    async fn wait_for_initial_backfill(&self, account: &Account) {
+    /// empty folders. Indexing fills the first half of the one progress bar, loading the
+    /// display fields the second half. Returns whether indexing ran.
+    async fn wait_for_initial_backfill(&self, account: &Account) -> bool {
         // The backfill task is spawned just before this preload; give it a moment to claim.
         tokio::time::sleep(Duration::from_millis(500)).await;
+        let mut ran = false;
         while self.st.lock().backfill_all_running.contains(account.id()) {
+            ran = true;
             let counts = self
                 .db
                 .opt(
@@ -213,9 +218,11 @@ impl Engine {
                 self.set_preload(
                     account,
                     |s| {
+                        let total = total.max(done);
                         s.state = State::Running;
-                        s.total = total.max(done);
+                        s.total = total * 2;
                         s.done = done;
+                        s.messages = total;
                         s.folder = None;
                     },
                     false,
@@ -223,9 +230,16 @@ impl Engine {
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
+        ran
     }
 
-    async fn preload_inner(self: &Arc<Self>, account: &Account, cold: bool, prio: Prio) -> EResult<(u64, u64, u64)> {
+    async fn preload_inner(
+        self: &Arc<Self>,
+        account: &Account,
+        cold: bool,
+        prio: Prio,
+        indexed: bool,
+    ) -> EResult<(u64, u64, u64)> {
         let rows = self
             .db
             .rows(
@@ -244,11 +258,21 @@ impl Engine {
             });
         }
         let total = rows.len() as u64;
+        // After indexing, this pass is the second half of the bar.
+        let base = if indexed { total } else { 0 };
         if cold {
             self.set_preload(
                 account,
                 |s| {
-                    *s = Status { state: State::Running, done: 0, total, folder: None, error: None, updated_ms: 0 };
+                    *s = Status {
+                        state: State::Running,
+                        done: base,
+                        total: base + total,
+                        messages: total,
+                        folder: None,
+                        error: None,
+                        updated_ms: 0,
+                    };
                 },
                 true,
             );
@@ -305,11 +329,11 @@ impl Engine {
                     i += part.len();
                     done += part.len() as u64;
                     if cold {
-                        self.set_preload(account, |s| s.done = done, false);
+                        self.set_preload(account, |s| s.done = base + done, false);
                     }
                 }
                 if cold {
-                    self.set_preload(account, |s| s.done = done, false);
+                    self.set_preload(account, |s| s.done = base + done, false);
                 }
             }
         }
@@ -495,6 +519,7 @@ impl Engine {
                     "state": state,
                     "done": st.as_ref().map_or(0, |s| s.done),
                     "total": st.as_ref().map_or(0, |s| s.total),
+                    "messages": st.as_ref().map_or(0, |s| s.messages),
                     "folder": st.as_ref().and_then(|s| s.folder.clone()),
                     "error": st.as_ref().and_then(|s| s.error.clone()),
                 })

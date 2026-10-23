@@ -91,7 +91,7 @@ async fn list_calendars(State(s): State<AppState>, auth: Auth) -> Result<Respons
         "source": "contacts",
         "external_url": null,
         "read_only": true,
-        "display_visible": a.get("displayVisible") != Some(&Value::Bool(false)),
+        "display_visible": a.get("displayVisible") == Some(&Value::Bool(true)),
     }));
     Ok(ok(json!({ "calendars": rows })))
 }

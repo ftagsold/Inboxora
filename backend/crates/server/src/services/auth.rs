@@ -198,13 +198,9 @@ pub async fn authenticate_dav(db: &Db, username: &str, password: &str) -> Result
     Ok(Some((user_id, id.to_string())))
 }
 
-/// `ensureUserDavResources`.
+/// `ensureUserDavResources`: the default address book. No calendar is created; people add
+/// their own or subscribe to their account's.
 pub async fn ensure_user_dav_resources(q: &impl Q, user_id: &str) -> Result<()> {
     q.exec("INSERT INTO address_books (user_id, name, source) VALUES ($1, 'Personal', 'local') ON CONFLICT (user_id, name) DO NOTHING", params![user_id]).await?;
-    q.exec(
-        "INSERT INTO calendars (user_id, owner_user_id, name, source, read_only) VALUES ($1, $1, 'Personal', 'local', false) ON CONFLICT (user_id, name) DO NOTHING",
-        params![user_id],
-    )
-    .await?;
     Ok(())
 }

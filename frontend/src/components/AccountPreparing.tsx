@@ -126,7 +126,9 @@ function lineText(t: (k: string, o?: Record<string, unknown>) => string, a: Prel
   if (a.state === 'failed') return t('preload.failed');
   if (a.state === 'done') return t('preload.done');
   if (!a.total) return t('preload.waiting');
-  const count = t('preload.progress', { done: a.done.toLocaleString(), total: a.total.toLocaleString() });
+  // One bar for the whole account: the size, not a per-phase count that restarts.
+  const messages = a.messages || a.total;
+  const count = t('preload.messages', { count: messages, total: messages.toLocaleString() });
   return a.folder ? `${count} · ${t('preload.folder', { folder: a.folder })}` : count;
 }
 
