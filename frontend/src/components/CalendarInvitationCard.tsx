@@ -100,6 +100,9 @@ export default function CalendarInvitationCard({ messageId, onResponded }: { mes
     try {
       await api.calendar.removeInvitation(messageId);
       setLocalEvent(null); setRemoved(true); notifyCalendarChanged();
+      // The cancellation is dealt with once the event is gone: archive the mail (only now,
+      // a failed removal above throws and keeps it).
+      onResponded?.();
     } catch { setError('save'); }
     finally { setSaving(null); }
   };

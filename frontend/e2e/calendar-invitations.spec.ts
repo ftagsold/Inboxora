@@ -80,6 +80,11 @@ test('a cancelled invitation is actionable and withdraws the added copy', async 
   test.skip(testInfo.project.name !== 'chromium-desktop', 'reader coverage');
   await fixtureApi; await setupV3(page); page.__conversationMatrix = '00';
   const removals = [];
+  const archived = [];
+  await page.route(url => /\/api\/mail\/(messages\/bulk-archive|conversations\/[^/]+\/archive)$/.test(url.pathname), route => {
+    archived.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ json: { ok: true, action: 'archive', affectedIds: [], affectedCount: 1 } });
+  });
   await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Cancelled invitation</p>', text: '', calendarInvitation: true, attachments: [] } }));
   await page.route('**/api/calendar/invitations/*', route => {
     if (route.request().method() === 'DELETE') { removals.push(route.request().url()); return route.fulfill({ json: { removed: true } }); }
@@ -95,11 +100,9 @@ test('a cancelled invitation is actionable and withdraws the added copy', async 
   await expect(invitation).toContainText('Wydarzenie anulowane');
   await expect(invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true })).toHaveCount(0);
   await invitation.getByRole('button', { name: 'Usuń z kalendarza', exact: true }).click();
-  // Once the copy is gone there is nothing left to withdraw, so the panel falls back to the
-  // plain explanation of the cancellation.
-  await expect(invitation.getByRole('status')).toHaveText('Organizator anulował to wydarzenie.');
-  await expect(invitation.getByRole('button', { name: 'Usuń z kalendarza', exact: true })).toHaveCount(0);
-  expect(removals).toHaveLength(1);
+  // Once the copy is gone the cancellation has served its purpose: the mail is archived.
+  await expect.poll(() => removals.length).toBe(1);
+  await expect.poll(() => archived.length).toBe(1);
 });
 
 test('a cancelled invitation that was never added explains itself without an action', async ({ page, fixtureApi }, testInfo) => {

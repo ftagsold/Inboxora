@@ -1067,6 +1067,31 @@ fn imported_uid(inv: &Invitation) -> String {
     format!("mail-{}", crypto::sha256_hex(key))
 }
 
+/// The local uids an invitation may have been imported under: organizers write their address as
+/// `mailto:`/`MAILTO:` and in varying case, and a cancellation need not match the invitation.
+fn imported_uid_variants(inv: &Invitation) -> Vec<String> {
+    let address = organizer_address(inv.organizer.as_deref());
+    let mut spellings = vec![inv.organizer.clone()];
+    for o in [
+        inv.organizer.as_deref().map(str::to_lowercase),
+        Some(format!("mailto:{address}")),
+        Some(format!("MAILTO:{address}")),
+        Some(format!("mailto:{}", address.to_lowercase())),
+        Some(format!("MAILTO:{}", address.to_lowercase())),
+    ] {
+        if !spellings.contains(&o) {
+            spellings.push(o);
+        }
+    }
+    spellings
+        .into_iter()
+        .map(|organizer| {
+            let key = json!([inv.uid, organizer, inv.recurrence_id]).to_string();
+            format!("mail-{}", crypto::sha256_hex(key))
+        })
+        .collect()
+}
+
 /// The calendar copy of this invitation: imported from this message, or (for an update or a
 /// cancellation) from an earlier message about the same event.
 async fn imported_event(
@@ -1077,9 +1102,9 @@ async fn imported_event(
 ) -> Result<Option<Map<String, Value>>> {
     s.db.json_opt(
         "SELECT id, calendar_id, invitation_sequence, starts_at, ends_at, all_day FROM calendar_events \
-         WHERE user_id = $2 AND (source_message_id = $1 OR (uid = $3 AND invite_account_id IS NULL)) \
+         WHERE user_id = $2 AND (source_message_id = $1 OR (uid = ANY($3::text[]) AND invite_account_id IS NULL)) \
          ORDER BY (source_message_id = $1) DESC, created_at ASC LIMIT 1",
-        params![message, user, inv.map(imported_uid)],
+        params![message, user, inv.map(imported_uid_variants).unwrap_or_default()],
     )
     .await
 }
@@ -1159,19 +1184,35 @@ async fn remove_invitation(State(s): State<AppState>, a: Auth, Path(message): Pa
     let Some(local) = imported_event(&s, &message, user, Some(&mi.inv)).await? else {
         return Ok(err(404, "This invitation was not added to a calendar"));
     };
-    if mi.inv.sequence < local.get("invitation_sequence").and_then(Value::as_i64).unwrap_or(0) {
-        return Ok(err(409, "This cancellation is older than the event already in the calendar"));
-    }
-    let removed =
+    // No sequence check: removal is the user's explicit choice, and cancellations often omit
+    // SEQUENCE (read as 0) while the accepted copy carries the organizer's latest one.
+    let calendar_id = local.get("calendar_id").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let cal = match writable(&s.db, user, &calendar_id).await? {
+        Ok(c) => c,
+        Err(r) => return Ok(r),
+    };
+    let Some(row) =
         s.db.opt(
-            "DELETE FROM calendar_events WHERE id = $1 AND user_id = $2 AND invite_account_id IS NULL RETURNING id",
+            "DELETE FROM calendar_events WHERE id = $1 AND user_id = $2 AND invite_account_id IS NULL \
+             RETURNING uid, remote_href, remote_etag",
             params![local.get("id").and_then(Value::as_str), user],
         )
-        .await?;
-    if removed.is_none() {
+        .await?
+    else {
         return Ok(err(409, "This event can no longer be removed automatically"));
+    };
+    // A CalDAV calendar must lose the event on the server too, or the next sync restores it.
+    let uid: String = row.get("uid");
+    let href = row.get::<_, Option<String>>("remote_href").and_then(|h| crypto::decrypt(&h));
+    let etag: Option<String> = row.get("remote_etag");
+    if let Some(remote) = push_if_external(&s.db, &cal, &uid, Action::Delete, None, Some((href, etag))).await
+        && remote.get("ok") == Some(&Value::Bool(false))
+    {
+        let why = remote.get("message").or_else(|| remote.get("error")).and_then(Value::as_str).unwrap_or("");
+        tracing::warn!("Invitation removal: calendar server kept {uid}: {why}");
+        return Ok(err(502, "The calendar server did not delete the event"));
     }
-    Ok(ok(json!({ "removed": true, "calendarId": local.get("calendar_id") })))
+    Ok(ok(json!({ "removed": true, "calendarId": calendar_id })))
 }
 
 /// `importInvitationEvent`: add or refresh the local copy (with the user's PARTSTAT when given).
