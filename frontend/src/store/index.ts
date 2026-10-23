@@ -10,7 +10,7 @@ import {
   normalizeThemeMode,
   themeTone,
   THEME_MODES, isThemeName } from '../themes.ts';
-import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, isThemeFont } from '../fonts.ts';
+import { applyFontSet, applyFontSize, DEFAULT_FONT, effectiveFontSet, isRetroFont, isThemeFont } from '../fonts.ts';
 import type { GtdSections , GtdRemovalSnapshot } from '../utils/gtd.ts';
 import { applyLayout, normalizeLayout } from '../layouts.ts';
 import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.ts';
@@ -1198,9 +1198,9 @@ export const useStore = create<StoreState>()((set, get) => ({
     // If a retro font was left as the saved choice, a non-retro theme must not keep it —
     // normalise the stored choice so it can't "stick" (and the font picker stays honest).
     if (!isThemeFont(theme) && isRetroFont(get().fontSet)) {
-      localStorage.setItem('mailflow_font', 'default');
-      set({ fontSet: 'default' });
-      schedulePrefSave({ font: 'default' });
+      localStorage.setItem('mailflow_font', DEFAULT_FONT);
+      set({ fontSet: DEFAULT_FONT });
+      schedulePrefSave({ font: DEFAULT_FONT });
     }
     // Retro themes bring their own font; other themes fall back to the saved choice.
     applyFontSet(effectiveFontSet(theme, get().fontSet));
@@ -1233,7 +1233,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
 
   // Font
-  fontSet: localStorage.getItem('mailflow_font') || 'default',
+  fontSet: localStorage.getItem('mailflow_font') || DEFAULT_FONT,
   setFontSet: (fontSet: string) =>{
     localStorage.setItem('mailflow_font', fontSet);
     set({ fontSet });

@@ -1980,10 +1980,6 @@
     "important": "重要邮件"
   },
   "layouts": {
-    "focused": {
-      "label": "专注",
-      "description": "使用窄邮件列表，留出更多阅读空间。"
-    },
     "compact": {
       "label": "紧凑",
       "description": "较小的行可以同时显示更多邮件。"
@@ -2015,5 +2011,9 @@
     "waiting": "正在连接邮件服务器…",
     "done": "就绪",
     "failed": "暂时无法加载——打开邮件时会自动加载。"
+  },
+  "backendReconnecting": {
+    "title": "正在重新连接…",
+    "body": "Inboxora 暂时无法连接到服务器。服务器恢复后将自动重新连接。"
   }
 }

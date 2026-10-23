@@ -1980,10 +1980,6 @@
     "important": "Důležité"
   },
   "layouts": {
-    "focused": {
-      "label": "Soustředění",
-      "description": "Více místa pro čtení a úzký seznam zpráv."
-    },
     "compact": {
       "label": "Kompaktní",
       "description": "Menší řádky zobrazí více zpráv najednou."
@@ -2015,5 +2011,9 @@
     "waiting": "Připojování k poštovnímu serveru…",
     "done": "Připraveno",
     "failed": "Teď se nepodařilo načíst — zprávy se načtou při otevření."
+  },
+  "backendReconnecting": {
+    "title": "Obnovování připojení…",
+    "body": "Inboxora se teď nemůže spojit se serverem. Připojení se obnoví automaticky, jakmile bude server znovu dostupný."
   }
 }

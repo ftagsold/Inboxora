@@ -1980,10 +1980,6 @@
     "important": "Importants"
   },
   "layouts": {
-    "focused": {
-      "label": "Concentration",
-      "description": "Plus de place pour lire avec une liste étroite."
-    },
     "compact": {
       "label": "Compact",
       "description": "Des lignes réduites affichent davantage de messages."
@@ -2015,5 +2011,9 @@
     "waiting": "Connexion au serveur de messagerie…",
     "done": "Prêt",
     "failed": "Chargement impossible pour l’instant — les messages se chargent à l’ouverture."
+  },
+  "backendReconnecting": {
+    "title": "Reconnexion…",
+    "body": "Inboxora ne parvient pas à joindre son serveur pour le moment. La connexion sera rétablie automatiquement dès qu'il sera de nouveau disponible."
   }
 }

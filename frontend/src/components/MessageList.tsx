@@ -5223,7 +5223,8 @@ function RowMenuButton({ onOpen, label }: RowMenuButtonProps) {
   );
 }
 
-// Avatar plus the unread dot, centred both ways in the space the row leaves below the avatar.
+// Avatar plus the unread dot. The dot sits at the bottom of the row, vertically centred on
+// the snippet line (the text column's last line, 12px): half a line box minus half the dot.
 const avatarColumn: React.CSSProperties = { alignSelf: 'stretch', flexShrink: 0, width: 36, display: 'flex', flexDirection: 'column', alignItems: 'center' };
-const avatarDotSlot: React.CSSProperties = { flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+const avatarDotSlot: React.CSSProperties = { flex: 1, minHeight: 0, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', fontSize: 12, paddingBottom: 'calc(0.5lh - 4px)' };
 const avatarUnreadDot: React.CSSProperties = { width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' };

@@ -1980,10 +1980,6 @@
     "important": "Important"
   },
   "layouts": {
-    "focused": {
-      "label": "Focused",
-      "description": "More space for reading, with a narrow message list."
-    },
     "compact": {
       "label": "Compact",
       "description": "Smaller rows show more messages at once."
@@ -2015,5 +2011,9 @@
     "waiting": "Connecting to your mail server…",
     "done": "Ready",
     "failed": "Could not be loaded now — messages load as you open them."
+  },
+  "backendReconnecting": {
+    "title": "Reconnecting…",
+    "body": "Inboxora can't reach its server right now. It reconnects automatically as soon as the server is back."
   }
 }

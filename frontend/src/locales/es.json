@@ -1980,10 +1980,6 @@
     "important": "Importantes"
   },
   "layouts": {
-    "focused": {
-      "label": "Enfoque",
-      "description": "Más espacio para leer y una lista de mensajes estrecha."
-    },
     "compact": {
       "label": "Compacto",
       "description": "Las filas pequeñas muestran más mensajes a la vez."
@@ -2015,5 +2011,9 @@
     "waiting": "Conectando con tu servidor de correo…",
     "done": "Lista",
     "failed": "No se pudo cargar ahora: los mensajes se cargan al abrirlos."
+  },
+  "backendReconnecting": {
+    "title": "Reconectando…",
+    "body": "Inboxora no puede conectar con su servidor en este momento. Se reconectará automáticamente en cuanto vuelva a estar disponible."
   }
 }

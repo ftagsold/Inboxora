@@ -3,12 +3,13 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useStore } from './store/index.ts';
 import { api } from './utils/api.ts';
 import { applyTheme, getInitialTheme } from './themes.ts';
-import { applyFontSet, effectiveFontSet } from './fonts.ts'; // still used for the instant localStorage apply on mount
+import { applyFontSet, DEFAULT_FONT, effectiveFontSet } from './fonts.ts'; // still used for the instant localStorage apply on mount
 import { applyLayout } from './layouts.ts';
 import { savedPanelWidth } from './utils/panelWidth.ts';
 import LoginPage from './components/LoginPage.tsx';
 import MailApp from './components/MailApp.tsx';
 import LockScreen from './components/LockScreen.tsx';
+import BackendReconnecting from './components/BackendReconnecting.tsx';
 
 export default function App() {
   const { user, setUser, loadPreferences, isLocked, setLocked } = useStore();
@@ -56,7 +57,7 @@ export default function App() {
     // first paint already matches the chosen appearance and the OS colour scheme.
     const bootTheme = getInitialTheme();
     applyTheme(bootTheme);
-    applyFontSet(effectiveFontSet(bootTheme, localStorage.getItem('mailflow_font') || 'default'));
+    applyFontSet(effectiveFontSet(bootTheme, localStorage.getItem('mailflow_font') || DEFAULT_FONT));
     applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedPanelWidth());
 
     // Handle OAuth popup callback
@@ -122,10 +123,13 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/register" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/*" element={user ? (isLocked ? <LockScreen /> : <MailApp />) : <Navigate to="/login" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/register" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/*" element={user ? (isLocked ? <LockScreen /> : <MailApp />) : <Navigate to="/login" replace />} />
+      </Routes>
+      <BackendReconnecting />
+    </>
   );
 }

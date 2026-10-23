@@ -10,6 +10,7 @@ import { ensureNativePushRegistered } from '../utils/nativePush.ts';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.ts';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.ts';
 import { recordDiagEvent } from '../utils/diagEvents.ts';
+import { reportBackendFailure, reportBackendOk } from '../utils/backendStatus.ts';
 
 
 async function _forwardNativeNewMailNotification(notification: { title?: string; body?: string; [key: string]: unknown }) {
@@ -417,6 +418,7 @@ export function useWebSocket() {
       const wasReconnect = hasConnectedBefore.current;
       hasConnectedBefore.current = true;
       reconnectAttempt.current = 0;
+      reportBackendOk();
       ws._lastActivity = Date.now();
       // Ping every 30s. If no message (including the server's pong) has arrived in ~2.5 intervals,
       // the socket is half-open — common after sleep/network blips, where onclose never fires and
@@ -454,6 +456,7 @@ export function useWebSocket() {
     ws.onclose = (event) => {
       clearInterval(ws._pingInterval);
       if (!mountedRef.current || NO_RECONNECT_CODES.has(event.code)) return;
+      reportBackendFailure();
       const attempt = reconnectAttempt.current;
       const delay = Math.min(BACKOFF_BASE * 2 ** attempt, BACKOFF_MAX);
       const jitter = Math.random() * 0.3 * delay;
@@ -496,6 +499,15 @@ export function useWebSocket() {
     };
     const pushed = (event: MessageEvent) => { if (event.data?.type === 'inboxora_mail_changed') revive(); };
     const countsChanged = () => refreshUnreadCounts();
+    // The health probe saw the backend come back: reconnect now instead of after the backoff.
+    const backendUp = () => {
+      const ws = wsRef.current;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+      clearTimeout(reconnectTimer.current);
+      reconnectAttempt.current = 0;
+      connect();
+    };
+    window.addEventListener('inboxora:backend_up', backendUp);
     navigator.serviceWorker?.addEventListener('message', pushed);
     window.addEventListener('inboxora:unread_changed', countsChanged);
     restorePushSubscription();
@@ -510,6 +522,7 @@ export function useWebSocket() {
       window.removeEventListener('inboxora:unread_changed', countsChanged);
       document.removeEventListener('visibilitychange', revive);
       window.removeEventListener('online', revive);
+      window.removeEventListener('inboxora:backend_up', backendUp);
     };
   }, [connect]);
 

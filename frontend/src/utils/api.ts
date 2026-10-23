@@ -2,6 +2,7 @@ import type { StoreMessageRow } from '../store/index.ts';
 import type { GtdFolderMap } from './gtd.ts';
 import { getAuthEpoch, isCurrentAuthEpoch } from './authEpoch.ts';
 import { getBody, putBody } from './mailCache.ts';
+import { isGatewayFailure, reportBackendFailure, reportBackendOk } from './backendStatus.ts';
 
 const BASE = '/api';
 
@@ -135,7 +136,15 @@ async function request(method: string, path: string, body: unknown = undefined, 
   if (body) opts.body = JSON.stringify(body);
   // Capture before fetch so a late response cannot emit an auth event into a newer SPA session.
   const requestAuthEpoch = getAuthEpoch();
-  const res = await fetch(BASE + path, opts);
+  let res: Response;
+  try {
+    res = await fetch(BASE + path, opts);
+  } catch (err) {
+    if (!isAbortError(err)) reportBackendFailure();
+    throw err;
+  }
+  if (isGatewayFailure(res.status)) reportBackendFailure();
+  else reportBackendOk();
   if (!res.ok) {
     if (res.status === 423 && isCurrentAuthEpoch(requestAuthEpoch)) {
       // Server-enforced screen lock (#235) — surface the lock overlay from current-session calls only.

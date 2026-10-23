@@ -1980,10 +1980,6 @@
     "important": "Ważne"
   },
   "layouts": {
-    "focused": {
-      "label": "Skupienie",
-      "description": "Więcej miejsca na czytanie i wąska lista wiadomości."
-    },
     "compact": {
       "label": "Zwarty",
       "description": "Mniejsze wiersze pozwalają wyświetlić więcej wiadomości."
@@ -2015,5 +2011,9 @@
     "waiting": "Łączenie z serwerem poczty…",
     "done": "Gotowe",
     "failed": "Nie udało się teraz wczytać — wiadomości wczytają się po otwarciu."
+  },
+  "backendReconnecting": {
+    "title": "Ponowne łączenie…",
+    "body": "Inboxora nie może teraz połączyć się z serwerem. Połączenie zostanie przywrócone automatycznie, gdy serwer znów będzie dostępny."
   }
 }

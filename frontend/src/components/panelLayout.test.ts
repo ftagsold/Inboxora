@@ -188,7 +188,7 @@ test('the stacked layout preset still defines the shared panel width', t => {
   const { properties } = stubDom();
   applyLayout('vertical');
   assert.equal(properties.get('--list-width'), `${PANEL_WIDTH_DEFAULT}px`);
-  applyLayout('focused', 500);
+  applyLayout('compact', 500);
   assert.equal(properties.get('--list-width'), '500px');
 });
 

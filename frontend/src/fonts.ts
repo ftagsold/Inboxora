@@ -417,8 +417,11 @@ export const FONT_SETS = {
   },
 };
 
+// The font set used when the user has not picked one.
+export const DEFAULT_FONT = 'technical';
+
 // Untyped lookup view of FONT_SETS: callers may hold an arbitrary saved key, and the
-// runtime already falls back to FONT_SETS.default for unknown keys.
+// runtime already falls back to DEFAULT_FONT for unknown keys.
 const FONT_SETS_BY_KEY: Record<string, (typeof FONT_SETS)[keyof typeof FONT_SETS]> = FONT_SETS;
 
 // Fonts are self-hosted and declared up front in public/fonts/fonts.css (loaded from
@@ -434,7 +437,7 @@ export function loadFontSet(_fontKey?: string): void {
 // are already present, so the browser lazy-loads only the active set's files.
 export function applyFontSet(fontKey: string) {
   if (typeof document === 'undefined') return; // no-op without a DOM (SSR / tests)
-  const set = FONT_SETS_BY_KEY[fontKey] || FONT_SETS.default;
+  const set = FONT_SETS_BY_KEY[fontKey] || FONT_SETS_BY_KEY[DEFAULT_FONT];
   const root = document.documentElement;
   for (const [key, value] of Object.entries(set.vars)) {
     root.style.setProperty(key, String(value));
@@ -466,7 +469,7 @@ export function isRetroFont(key: string) { return RETRO_FONTS.has(key); }
 // theme (that's the "font won't change back" bug), so fall back to the default in that case.
 export function effectiveFontSet(theme: string, savedFont: string) {
   if (THEME_FONT_BY_THEME[theme]) return THEME_FONT_BY_THEME[theme];
-  return isRetroFont(savedFont) ? 'default' : (savedFont || 'default');
+  return isRetroFont(savedFont) ? DEFAULT_FONT : (savedFont || DEFAULT_FONT);
 }
 
 /** Whether a value is a theme that overrides the font (THEME_FONT is looked up dynamically). */

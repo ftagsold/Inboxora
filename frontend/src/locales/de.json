@@ -1980,10 +1980,6 @@
     "important": "Wichtig"
   },
   "layouts": {
-    "focused": {
-      "label": "Fokussiert",
-      "description": "Mehr Platz zum Lesen mit einer schmalen Nachrichtenliste."
-    },
     "compact": {
       "label": "Kompakt",
       "description": "Kleinere Zeilen zeigen mehr Nachrichten auf einmal."
@@ -2015,5 +2011,9 @@
     "waiting": "Verbindung zum Mailserver wird aufgebaut …",
     "done": "Bereit",
     "failed": "Konnte gerade nicht geladen werden – Nachrichten laden beim Öffnen."
+  },
+  "backendReconnecting": {
+    "title": "Verbindung wird wiederhergestellt…",
+    "body": "Inboxora erreicht den Server gerade nicht. Die Verbindung wird automatisch wiederhergestellt, sobald er wieder verfügbar ist."
   }
 }

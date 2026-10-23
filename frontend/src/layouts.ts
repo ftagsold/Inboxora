@@ -7,15 +7,6 @@ import type { TFunction } from 'i18next';
 // rowPy / rowPx: vertical / horizontal padding inside each message row
 
 export const LAYOUTS = {
-  focused: {
-    label: 'Focused',
-    description: 'Minimal list panel, maximum reading area',
-    direction: 'row',
-    listWidth: 210,
-    rowPy: 8,
-    rowPx: 10,
-  },
-
   compact: {
     label: 'Compact',
     description: 'Dense rows — fit more messages at once',
@@ -88,7 +79,6 @@ export function applyLayout(layoutKey: string, customListWidth: number | undefin
 // Labels are resolved at render time so changing the language updates open menus.
 export function localizedLayout(key: string, t: TFunction): { label: string; description: string } {
   const labels: Record<string, () => [string, string]> = {
-    focused: () => [t('layouts.focused.label'), t('layouts.focused.description')],
     compact: () => [t('layouts.compact.label'), t('layouts.compact.description')],
     comfortable: () => [t('layouts.comfortable.label'), t('layouts.comfortable.description')],
     wide: () => [t('layouts.wide.label'), t('layouts.wide.description')],
