@@ -133,7 +133,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await swipe(starredRow, 120, 230);
       await expect.poll(() => page.__starActions.length).toBeGreaterThan(0);
       await expect.poll(() => page.__starActions.at(-1).body.starred).toBe(false);
-      await expect(starredRow.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(starredRow.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
     });
 
     test('read and star update immediately, roll back failures, and keep the newest read intent', async ({ page, fixtureApi }, testInfo) => {
@@ -180,7 +180,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect.poll(() => page.__starStarts.length).toBe(5);
       releaseStar();
       await expect.poll(() => page.__starActions.length).toBe(5);
-      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
       expect(page.__starActions.filter(action => action.id === 'conversation-gmail-copy-3')).toHaveLength(1);
     });
 
@@ -204,7 +204,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect.poll(() => page.__bulkReadStarts.length).toBe(5);
       await expect.poll(() => page.__starStarts.length).toBe(5);
       expect(page.__starStarts.every(action => action.body?.starred === false)).toBe(true);
-      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
       await expect(sender).toHaveCSS('font-weight', '400');
     });
 
@@ -228,7 +228,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect.poll(() => page.__bulkReadStarts.length).toBe(5);
       await expect.poll(() => page.__starStarts.length).toBe(5);
       expect(page.__starStarts.every(action => action.body?.starred === false)).toBe(true);
-      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
       await expect(sender).toHaveCSS('font-weight', '400');
     });
 
@@ -241,17 +241,17 @@ for (const viewport of [DESKTOP, 'mobile']) {
       const release = holdThreadResolutions(page);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /gwiazd|star/i);
-      await expect(row.locator('[data-thread-row-star="true"]')).toBeVisible();
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toBeVisible();
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /gwiazd|star/i);
-      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
       await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
       release[1]();
       await expect.poll(() => page.__starStarts.length).toBe(5);
       release[0]();
       await expect.poll(() => page.__starActions.length).toBe(5);
       expect(page.__starActions.map(action => action.body.starred)).toEqual([false, false, false, false, false]);
-      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
     });
 
     test('reversed cold star resolutions preserve unstar then star newest intent', async ({ page, fixtureApi }, testInfo) => {
@@ -262,10 +262,10 @@ for (const viewport of [DESKTOP, 'mobile']) {
       const release = holdThreadResolutions(page);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /gwiazd|star/i);
-      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /gwiazd|star/i);
-      await expect(row.locator('[data-thread-row-star="true"]')).toBeVisible();
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toBeVisible();
       await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
       release[1]();
       await expect.poll(() => page.__starStarts.length).toBe(5);
@@ -273,7 +273,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       release[0]();
       await expect.poll(() => page.__starActions.length).toBe(5);
       expect(page.__starActions.every(action => action.body.starred === true)).toBe(true);
-      await expect(row.locator('[data-thread-row-star="true"]')).toBeVisible();
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toBeVisible();
     });
 
     test('stale cold star resolution failure leaves the newest intent visible', async ({ page, fixtureApi }, testInfo) => {
@@ -287,12 +287,12 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await chooseMenuItem(page, /gwiazd|star/i);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /gwiazd|star/i);
-      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
       release[0]();
       release[1]();
       await expect.poll(() => page.__starStarts.length).toBe(5);
       expect(page.__starStarts.every(action => action.body.starred === false)).toBe(true);
-      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(row.locator('[data-thread-row-star="true"][data-starred]')).toHaveCount(0);
     });
 
     test('failed no-op copies do not drift read counters', async ({ page, fixtureApi }, testInfo) => {

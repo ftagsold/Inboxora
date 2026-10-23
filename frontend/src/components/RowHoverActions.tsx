@@ -21,7 +21,8 @@ interface RowHoverActionsProps<M extends { [key: string]: unknown }> {
   background: string;
   deleteTitleKey?: string;
   onMarkRead: (event: React.MouseEvent, message: M) => void;
-  onStar: (event: React.MouseEvent, message: M) => void;
+  /** Omitted where the row shows its own star (the mail list puts it next to the date). */
+  onStar?: (event: React.MouseEvent, message: M) => void;
   onDelete: (event: React.MouseEvent, message: M) => void;
   onMove: (event: React.MouseEvent, message: M) => void;
   rowActionCtx?: PluginSlotContext;
@@ -54,13 +55,15 @@ export default function RowHoverActions<M extends { [key: string]: unknown } = S
         )}
       </ActionBtn>
 
-      <ActionBtn title={message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')} onClick={ (e: React.MouseEvent) => onStar(e, message)}>
-        <svg width="13" height="13" viewBox="0 0 24 24"
-          fill={message.is_starred ? 'var(--amber)' : 'none'}
-          stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="2">
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-        </svg>
-      </ActionBtn>
+      {onStar && (
+        <ActionBtn title={message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')} onClick={ (e: React.MouseEvent) => onStar(e, message)}>
+          <svg width="13" height="13" viewBox="0 0 24 24"
+            fill={message.is_starred ? 'var(--amber)' : 'none'}
+            stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </ActionBtn>
+      )}
 
       <ActionBtn title={t(deleteTitleKey)} onClick={ (e: React.MouseEvent) => onDelete(e, message)}>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

@@ -231,3 +231,7 @@ button, input, textarea, select { font-family: inherit; }
 .send-split-menu svg { color: var(--text-secondary); flex-shrink: 0; }
 .scheduled-row { transition: background .1s; }
 .scheduled-row:hover, .scheduled-row:focus-visible { background: var(--bg-hover); outline: none; }
+/* Mail list star: always right of the date; a quiet outline until starred. */
+.row-star { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin: -3px -4px -3px 0; padding: 0; border: none; border-radius: 5px; background: transparent; color: var(--text-tertiary); opacity: .55; cursor: pointer; transition: opacity .12s, color .12s, background .12s; }
+.row-star:hover, .row-star:focus-visible { opacity: 1; color: var(--amber); background: var(--bg-hover); outline: none; }
+.row-star[data-starred] { opacity: 1; }

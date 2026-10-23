@@ -4739,18 +4739,8 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
                 </svg>
               ) : null}
-              {message.is_starred && (
-                <button
-                  data-thread-row-star="true"
-                  onClick={e => { e.stopPropagation(); onStar?.(e, message); }}
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--amber)" stroke="var(--amber)" strokeWidth="2">
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                  </svg>
-                </button>
-              )}
               <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>{formatDate(message.date, i18n.resolvedLanguage || i18n.language)}</span>
+              <RowStar starred={!!message.is_starred} data-thread-row-star="true" onToggle={e => onStar?.(e, message)} />
               {isMobile && !selectionMode && onContextMenu && (
                 <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />
               )}
@@ -4784,7 +4774,6 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             background="var(--bg-elevated)"
             deleteTitleKey="message.delete"
             onMarkRead={onMarkRead}
-            onStar={onStar}
             onDelete={onDelete}
             onMove={onMove}
             rowActionCtx={{ message }}
@@ -5135,19 +5124,10 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
               </svg>
             ) : null}
-            {message.is_starred && (
-              <button
-                onClick={e => { e.stopPropagation(); onStar?.(e, message); }}
-                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-              >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--amber)" stroke="var(--amber)" strokeWidth="2">
-                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                </svg>
-              </button>
-            )}
             <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>
               {formatDate(message.date, i18n.resolvedLanguage || i18n.language)}
             </span>
+            <RowStar starred={!!message.is_starred} onToggle={e => onStar?.(e, message)} />
             {isMobile && !selectionMode && onContextMenu && (
               <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />
             )}
@@ -5188,7 +5168,6 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           background="var(--bg-elevated)"
           deleteTitleKey="common.delete"
           onMarkRead={onMarkRead}
-          onStar={onStar}
           onDelete={onDelete}
           onMove={onMove}
           rowActionCtx={{ message }}
@@ -5228,6 +5207,29 @@ function BulkBtn({ children, onClick, title, disabled = false, danger = false }:
 // Mobile-only per-message overflow ("⋯") button. Touch devices have no
 // right-click, so this is how a list row reaches the full labeled context menu
 // (Snooze, Reply, Move, Star, Select, etc.). Desktop keeps native right-click.
+/** The always-visible star right of a row's date: outlined when off, amber when on. */
+function RowStar({ starred, onToggle, ...rest }: { starred: boolean; onToggle: (event: React.MouseEvent) => void; 'data-thread-row-star'?: string }) {
+  const { t } = useTranslation();
+  const label = starred ? t('contextMenu.unstar') : t('contextMenu.star');
+  return (
+    <button
+      type="button"
+      {...rest}
+      className="row-star"
+      data-starred={starred || undefined}
+      aria-pressed={starred}
+      aria-label={label}
+      title={label}
+      onClick={e => { e.stopPropagation(); onToggle(e); }}
+      onDoubleClick={e => e.stopPropagation()}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill={starred ? 'var(--amber)' : 'none'} stroke={starred ? 'var(--amber)' : 'currentColor'} strokeWidth="2" strokeLinejoin="round">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </svg>
+    </button>
+  );
+}
+
 function RowMenuButton({ onOpen, label }: RowMenuButtonProps) {
   return (
     <button
