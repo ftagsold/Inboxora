@@ -26,6 +26,7 @@ pub mod push;
 pub mod push_dispatch;
 pub mod remote_dav;
 pub mod retention;
+pub mod scheduled_send;
 pub mod sender_favicon;
 pub mod smtp;
 pub mod totp;

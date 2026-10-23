@@ -829,14 +829,18 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
     }}>
       {/* Header */}
       <div style={{
-        paddingTop: 'calc(var(--sat) + 14px)',
-        paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
+        // Centred at y = 28: the logo and name sit on the same 28px centre
+        // line as the first header row of the mail list, calendar and contacts. 16px left
+        // puts the logo on the sidebar's icon column (centre x = 28, see ICON_COLUMN).
+        // (The row is 31px and the 1px border counts toward the 56px, hence the half pixels.)
+        paddingTop: 'calc(var(--sat) + 12.5px)',
+        paddingBottom: 11.5, paddingLeft: 16, paddingRight: 12,
         display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
         minHeight: 56, flexShrink: 0,
       }}>
         {!sidebarCollapsed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <LogoMark size={24} />
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 0 }}>
               <span style={{
@@ -881,12 +885,12 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
           onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
           className="btn-press"
           style={{
-            width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px',
+            width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px 10px 10px',
             background: 'var(--accent)', border: 'none', borderRadius: 8,
             color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
             cursor: 'pointer', display: 'flex', alignItems: 'center',
             justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-            gap: 8, transition: 'opacity 0.15s',
+            gap: 10, transition: 'opacity 0.15s',
           }}
           onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.opacity = '0.85'}
           onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.opacity = '1'}
@@ -927,8 +931,8 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                   the expand toggle, and a button cannot nest inside a button. */}
               <div
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: sidebarCollapsed ? '8px' : '7px 10px',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: sidebarCollapsed ? '8px' : '7px 10px 7px 12px',
                   borderRadius: 7, cursor: 'pointer',
                   background: isSelected && selectedFolder === 'INBOX'
                     ? 'var(--bg-hover)' : 'transparent',
@@ -966,11 +970,13 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                     {(account.name || account.email_address || '?').charAt(0).toUpperCase()}
                   </div>
                 ) : (
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: account.color ?? undefined, flexShrink: 0,
-                    boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
-                  }} />
+                  <span style={iconSlot}>
+                    <span style={{
+                      width: 8, height: 8, borderRadius: '50%',
+                      background: account.color ?? undefined, flexShrink: 0,
+                      boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
+                    }} />
+                  </span>
                 )}
 
                 {!sidebarCollapsed && (
@@ -1031,20 +1037,20 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
               {/* Folder tree */}
               {expanded && !sidebarCollapsed && (() => {
                 // Aligns a depth-0 folder's icon with the account row's leading dot
-                // (10px, that row's own padding-left). The expand chevron for a parent
-                // folder is positioned absolutely into the gutter this reserves, rather
-                // than taking up flow space before the icon, so it never pushes the
-                // icon/label right of that alignment.
-                const BASE_INDENT = 10;
+                // (12px, that row's own padding-left: the sidebar icon column). The expand
+                // chevron for a parent folder is positioned absolutely into the gutter this
+                // reserves, rather than taking up flow space before the icon, so it never
+                // pushes the icon/label right of that alignment.
+                const BASE_INDENT = 12;
                 const DEPTH_INDENT = 14;
                 const CHEVRON_GUTTER = 16;
 
                 const createFolderInput = (indent: number) => (
                   <div style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
+                    display: 'flex', alignItems: 'center', gap: 10,
                     padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
                   }}>
-                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>{ICONS.folder}</span>
+                    <span style={{ ...iconSlot, color: 'var(--text-tertiary)' }}>{ICONS.folder}</span>
                     <input
                       ref={createInputRef}
                       value={createName}
@@ -1150,7 +1156,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                       <div
                         className="sidebar-folder-row"
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 6, position: 'relative',
+                          display: 'flex', alignItems: 'center', gap: 10, position: 'relative',
                           padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
                           cursor: isRenaming ? 'default' : 'pointer',
                           background: (msgDragTarget === `${account.id}:${folder.path}`) ? 'var(--accent-dim)' : isFolderSelected ? 'var(--bg-hover)' : 'transparent',
@@ -1210,7 +1216,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                           </button>
                         )}
 
-                        <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
+                        <span style={{ ...iconSlot, color: 'var(--text-tertiary)' }}>
                           {folderIcon(folder.path, folder.special_use, account.folder_mappings)}
                         </span>
 
@@ -1303,7 +1309,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                       <button
                         onClick={() => toggleShowHidden(account.id)}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 6,
+                          display: 'flex', alignItems: 'center', gap: 10,
                           padding: `4px 10px 4px ${BASE_INDENT}px`, borderRadius: 7,
                           background: 'none', border: 'none', cursor: 'pointer',
                           color: showingHidden ? 'var(--accent)' : 'var(--text-tertiary)',
@@ -1312,12 +1318,12 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                         onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-secondary)'}
                         onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-tertiary)'}
                       >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <span style={iconSlot}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           {showingHidden
                             ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
                             : <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>
                           }
-                        </svg>
+                        </svg></span>
                         {showingHidden ? t('sidebar.hideHidden') : t('sidebar.hiddenFolders', { count: accountHiddenPaths.length })}
                       </button>
                     )}
@@ -1328,7 +1334,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                         <button
                           onClick={() => handleStartCreateFolder(account.id)}
                           style={{
-                            display: 'flex', alignItems: 'center', gap: 8,
+                            display: 'flex', alignItems: 'center', gap: 10,
                             padding: `5px 10px 5px ${BASE_INDENT}px`, borderRadius: 7,
                             background: 'none', border: 'none', cursor: 'pointer',
                             color: 'var(--text-tertiary)', fontSize: 11, width: '100%',
@@ -1337,9 +1343,9 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                           onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.color = 'var(--text-secondary)'}
                           onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.color = 'var(--text-tertiary)'}
                         >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <span style={iconSlot}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                          </svg>
+                          </svg></span>
                           {t('sidebar.newFolder')}
                         </button>
                       )
@@ -1471,8 +1477,8 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                       }
                     }}
                     style={{
-                      display: 'flex', alignItems: 'center',
-                      gap: 8, padding: '7px 10px',
+                      display: 'flex', alignItems: 'center', position: 'relative',
+                      gap: 10, padding: '7px 10px 7px 12px',
                       borderRadius: 7, cursor: 'pointer',
                       touchAction: 'pan-y',
                       background: (msgDragTarget === `${accountId}:${path}`) ? 'var(--accent-dim)' : isActive ? 'var(--bg-hover)' : 'transparent',
@@ -1488,7 +1494,8 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                       <span
                         draggable={!isMobile}
                         onDragStart={!isMobile ? () => { setFavDragIdx(idx); setFavDropIdx(null); } : undefined}
-                        style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex', opacity: 0.4, cursor: isMobile ? 'default' : 'grab' }}
+                        // In the left gutter, so the folder icon stays on the icon column.
+                        style={{ position: 'absolute', left: 1, top: '50%', marginTop: -7, color: 'var(--text-tertiary)', display: 'flex', opacity: 0.4, cursor: isMobile ? 'default' : 'grab' }}
                       >
                         <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
                           <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
@@ -1497,7 +1504,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                         </svg>
                       </span>
                     )}
-                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
+                    <span style={{ ...iconSlot, color: 'var(--text-tertiary)' }}>
                       {folderIcon(path, folderObj?.special_use, account.folder_mappings)}
                     </span>
                     {isRenamingThis ? (
@@ -1826,7 +1833,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             style={{
               width: '100%', border: 0, textAlign: 'left', color: 'var(--text-primary)',
               display: 'flex', alignItems: 'center',
-              gap: 8, padding: sidebarCollapsed ? '7px' : '7px 10px',
+              gap: 6, padding: sidebarCollapsed ? '7px' : '7px 10px 7px 8px',
               borderRadius: 8, cursor: 'pointer',
               background: userMenuOpen ? 'var(--bg-hover)' : 'transparent',
               transition: 'background 0.1s',
@@ -1836,10 +1843,10 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (!userMenuOpen) e.currentTarget.style.background = 'transparent'; }}
           >
             {user?.avatar ? (
-              <img src={user.avatar} alt="" style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+              <img src={user.avatar} alt="" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
             ) : (
               <div style={{
-                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
                 background: 'var(--accent)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 12, fontWeight: 700, color: 'var(--accent-text)',
@@ -2035,6 +2042,10 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
   );
 }
 
+// Every sidebar row puts its icon in a 16px slot starting 12px into the 8px-padded nav, so
+// icons share one column (centre x = 28) and labels one left edge (x = 46, after a 10px gap).
+const iconSlot: React.CSSProperties = { width: 16, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' };
+
 function NavItem({ testId, icon, label, active, collapsed, badge = 0, onClick }: { testId: string; icon?: ReactNode; label: string; active: boolean; collapsed: boolean; badge?: number; onClick: () => void }) {
   return (
     <div
@@ -2049,7 +2060,7 @@ function NavItem({ testId, icon, label, active, collapsed, badge = 0, onClick }:
       aria-label={collapsedTooltip(label, collapsed)}
       style={{
         display: 'flex', alignItems: 'center',
-        gap: 8, padding: collapsed ? '9px' : '8px 10px',
+        gap: 10, padding: collapsed ? '9px' : '8px 10px 8px 12px',
         borderRadius: 7, cursor: 'pointer',
         background: active ? 'var(--accent-dim)' : 'transparent',
         color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
@@ -2064,7 +2075,7 @@ function NavItem({ testId, icon, label, active, collapsed, badge = 0, onClick }:
         if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }
       }}
     >
-      <span style={{ flexShrink: 0, display: 'inline-flex', color: active ? 'var(--accent)' : 'inherit' }}>{icon}</span>
+      <span style={{ ...iconSlot, color: active ? 'var(--accent)' : 'inherit' }}>{icon}</span>
       {!collapsed && (
         <>
           <span style={{ fontSize: 13, fontWeight: active ? 500 : 400, flex: 1 }}>{label}</span>

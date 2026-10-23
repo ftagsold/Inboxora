@@ -188,3 +188,46 @@ button, input, textarea, select { font-family: inherit; }
   to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { .app-menu { animation: none; } }
+
+/* Scheduled send picker: presets on the left, month calendar + time on the right. */
+.schedule-dialog.ui-dialog { width: min(560px, 100%); }
+.schedule-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 18px; }
+.schedule-presets { display: flex; flex-direction: column; gap: 4px; }
+.schedule-preset { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 11px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-primary); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); }
+.schedule-preset:hover { background: var(--bg-hover); border-color: var(--border-subtle); }
+.schedule-preset-time { font-size: 11.5px; font-weight: 400; color: var(--text-tertiary); }
+.schedule-picker { display: flex; flex-direction: column; gap: 10px; padding-left: 18px; border-left: 1px solid var(--border-subtle); }
+.schedule-month { display: flex; align-items: center; justify-content: space-between; }
+.schedule-month-label { font-size: 13px; font-weight: 600; text-transform: capitalize; }
+.schedule-nav { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.schedule-nav:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.schedule-nav:disabled { opacity: .35; cursor: default; }
+.schedule-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.schedule-weekday { padding: 2px 0 4px; font-size: 10.5px; font-weight: 600; color: var(--text-tertiary); text-align: center; text-transform: uppercase; letter-spacing: .03em; }
+.schedule-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border: none; border-radius: 50%; background: transparent; color: var(--text-primary); font-size: 12.5px; font-variant-numeric: tabular-nums; cursor: pointer; transition: background var(--motion-fast); }
+.schedule-day:hover:not(:disabled):not(.is-selected) { background: var(--bg-hover); }
+.schedule-day.is-outside { color: var(--text-tertiary); }
+.schedule-day.is-today { box-shadow: inset 0 0 0 1px var(--accent); }
+.schedule-day.is-selected { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.schedule-day:disabled { color: var(--text-tertiary); opacity: .4; cursor: default; }
+.schedule-time { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--text-secondary); }
+.schedule-time input { width: 110px; padding: 6px 9px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; color-scheme: light dark; }
+.schedule-time input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.schedule-summary { flex: 1; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+@media (max-width: 560px) {
+  .schedule-body { grid-template-columns: 1fr; }
+  .schedule-picker { padding-left: 0; padding-top: 14px; border-left: none; border-top: 1px solid var(--border-subtle); }
+}
+
+/* Split send button: main action + a separated arrow that opens the send options. */
+.send-split { position: relative; display: inline-flex; align-items: stretch; border-radius: 7px; }
+.send-split-main { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.send-split-toggle { display: inline-flex; align-items: center; justify-content: center; width: 30px; padding: 0; border: none; border-left: 1px solid color-mix(in srgb, var(--accent-text) 28%, transparent); border-radius: 0 7px 7px 0; background: var(--accent); color: var(--accent-text); cursor: pointer; transition: opacity .15s, background .15s; }
+.send-split-toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, black); }
+.send-split-toggle:disabled { opacity: .6; cursor: not-allowed; }
+.send-split-menu { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 30; min-width: 210px; padding: 4px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--bg-elevated); box-shadow: var(--shadow-modal); animation: modal-enter var(--motion-fast) var(--ease-emphasized); }
+.send-split-menu button { display: flex; width: 100%; align-items: center; gap: 9px; padding: 8px 10px; border: none; border-radius: 6px; background: transparent; color: var(--text-primary); font-size: 13px; text-align: left; cursor: pointer; }
+.send-split-menu button:hover, .send-split-menu button:focus-visible { background: var(--bg-hover); outline: none; }
+.send-split-menu svg { color: var(--text-secondary); flex-shrink: 0; }
+.scheduled-row { transition: background .1s; }
+.scheduled-row:hover, .scheduled-row:focus-visible { background: var(--bg-hover); outline: none; }

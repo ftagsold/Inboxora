@@ -1037,6 +1037,24 @@
     "recipientMenu": {
       "copy": "Copiar dirección",
       "copyAll": "Copiar todas en este campo"
+    },
+    "schedule": {
+      "title": "Programar envío",
+      "summary": "Se enviará: {{when}}",
+      "tooSoon": "Elige una hora al menos un minuto en el futuro",
+      "confirm": "Programar envío",
+      "prevMonth": "Mes anterior",
+      "nextMonth": "Mes siguiente",
+      "time": "Hora",
+      "options": "Más opciones de envío",
+      "menuItem": "Enviar más tarde…",
+      "scheduledTitle": "Programado para {{when}}",
+      "presets": {
+        "laterToday": "Más tarde hoy",
+        "tomorrowMorning": "Mañana por la mañana",
+        "tomorrowAfternoon": "Mañana por la tarde",
+        "monday": "El lunes por la mañana"
+      }
     }
   },
   "contacts": {
@@ -2021,5 +2039,16 @@
     "body": "Tu sesión para {{email}} ha caducado o se ha revocado. Inicia sesión de nuevo para seguir recibiendo correo.",
     "later": "Más tarde",
     "signIn": "Iniciar sesión con {{provider}}"
+  },
+  "scheduled": {
+    "heading": "Programados ({{n}})",
+    "noRecipient": "(sin destinatario)",
+    "failed": "Error al enviar",
+    "sendsAt": "Se envía: {{when}}",
+    "sending": "Enviando…",
+    "notYetSent": "Aún no enviado",
+    "discard": "Descartar",
+    "cancelSend": "Cancelar envío",
+    "failedAt": "Error al enviar ({{when}})"
   }
 }

@@ -600,7 +600,17 @@ fn uploaded_bytes(attachments: Option<&Value>) -> u64 {
 }
 
 pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Body) -> Result<Response> {
-    let user = a.user_id.clone();
+    let idem_key: Option<String> =
+        headers.get("x-idempotency-key").and_then(|v| v.to_str().ok()).map(|k| k.chars().take(128).collect());
+    if b.get("sendAt").is_some_and(|v| !v.is_null()) {
+        return crate::services::scheduled_send::schedule(&s, &a.user_id, b.0).await;
+    }
+    send_as(&s, a.user_id, idem_key, b).await
+}
+
+/// Send `b` (a `POST /send` body) as `user`; also used by the scheduled-send worker, which
+/// passes a stable idempotency key so a crash mid-send can never dispatch the mail twice.
+pub async fn send_as(s: &AppState, user: String, idem_key: Option<String>, b: Body) -> Result<Response> {
     let priority = b.str("priority").unwrap_or("normal");
     let Some(account_id) =
         b.get("accountId").filter(|v| inboxora_core::json::truthy(Some(v))).map(inboxora_mail::text::js_string)
@@ -613,8 +623,6 @@ pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Bod
     if b.get("editedSignatureIsHtml").is_some_and(|v| !v.is_boolean()) {
         return Ok(err(400, "editedSignatureIsHtml must be a boolean"));
     }
-    let idem_key: Option<String> =
-        headers.get("x-idempotency-key").and_then(|v| v.to_str().ok()).map(|k| k.chars().take(128).collect());
     let redis_key = idem_key.as_ref().map(|k| format!("send_idem:{user}:{k}"));
 
     if let Some(att) = b.get("attachments") {
@@ -666,7 +674,7 @@ pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Bod
     }
     let subject = header_value(b.get("subject"));
 
-    let Some(account) = account_for_user(&s, &account_id, &user).await? else {
+    let Some(account) = account_for_user(s, &account_id, &user).await? else {
         return Ok(err(404, "Account not found"));
     };
     let prefs = s.db.opt("SELECT preferences FROM users WHERE id = $1", params![&user]).await?;
@@ -677,7 +685,7 @@ pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Bod
     let input_html = body_is_html == Some(true);
     let output_html = body_is_html.unwrap_or(!plaintext);
     let alias = nonempty(b.get("aliasId"));
-    let sender = match resolve_sender(&s, &account, alias.as_deref()).await {
+    let sender = match resolve_sender(s, &account, alias.as_deref()).await {
         Ok(v) => v,
         Err((st, m)) => return Ok(err(st, &m)),
     };
@@ -697,7 +705,7 @@ pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Bod
     let forwarded = if forwarded_refs.is_empty() {
         vec![]
     } else {
-        match fetch_forwarded(&s, &user, &forwarded_refs, uploaded_bytes(b.get("attachments"))).await {
+        match fetch_forwarded(s, &user, &forwarded_refs, uploaded_bytes(b.get("attachments"))).await {
             Ok(f) => f,
             Err((st, m)) => {
                 return Ok(err(st, if m.is_empty() { "Failed to fetch forwarded attachments" } else { &m }));
@@ -820,7 +828,7 @@ pub async fn send(State(s): State<AppState>, a: Auth, headers: HeaderMap, b: Bod
     let mut intent: Option<Intent> = None;
     if let Some(key) = &idem_key {
         let token = uuid::Uuid::new_v4().to_string();
-        match claim_intent(&s, &user, key, &fingerprint, &token).await {
+        match claim_intent(s, &user, key, &fingerprint, &token).await {
             Err(_) => return Ok(err(503, "Sending is temporarily unavailable. Please try again shortly.")),
             Ok(Claim::Completed(r)) => return Ok(ok(r)),
             Ok(Claim::Mismatch) => return Ok(err(409, "This idempotency key belongs to a different message.")),

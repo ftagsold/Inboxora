@@ -1037,6 +1037,24 @@
     "recipientMenu": {
       "copy": "Kopiuj adres",
       "copyAll": "Kopiuj wszystkie adresy z tego pola"
+    },
+    "schedule": {
+      "title": "Zaplanuj wysłanie",
+      "summary": "Zostanie wysłana: {{when}}",
+      "tooSoon": "Wybierz czas co najmniej minutę od teraz",
+      "confirm": "Zaplanuj wysłanie",
+      "prevMonth": "Poprzedni miesiąc",
+      "nextMonth": "Następny miesiąc",
+      "time": "Godzina",
+      "options": "Więcej opcji wysyłania",
+      "menuItem": "Wyślij później…",
+      "scheduledTitle": "Zaplanowano na {{when}}",
+      "presets": {
+        "laterToday": "Później dzisiaj",
+        "tomorrowMorning": "Jutro rano",
+        "tomorrowAfternoon": "Jutro po południu",
+        "monday": "W poniedziałek rano"
+      }
     }
   },
   "contacts": {
@@ -2021,5 +2039,16 @@
     "body": "Logowanie dla {{email}} wygasło lub zostało cofnięte. Zaloguj się ponownie, aby dalej otrzymywać pocztę.",
     "later": "Później",
     "signIn": "Zaloguj przez {{provider}}"
+  },
+  "scheduled": {
+    "heading": "Zaplanowane ({{n}})",
+    "noRecipient": "(brak odbiorcy)",
+    "failed": "Wysyłanie nie powiodło się",
+    "sendsAt": "Wysyłka: {{when}}",
+    "sending": "Wysyłanie…",
+    "notYetSent": "Jeszcze nie wysłano",
+    "discard": "Odrzuć",
+    "cancelSend": "Anuluj wysyłkę",
+    "failedAt": "Wysyłanie nie powiodło się ({{when}})"
   }
 }

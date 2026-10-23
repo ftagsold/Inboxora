@@ -55,6 +55,11 @@ pub fn router() -> Router<AppState> {
         .route("/messages/{id}/category", patch(single::set_category))
         .route("/messages/{id}/unsubscribe", post(single::unsubscribe))
         .route("/send", post(compose::send))
+        .route("/scheduled", get(crate::services::scheduled_send::list))
+        .route(
+            "/scheduled/{id}",
+            get(crate::services::scheduled_send::detail).delete(crate::services::scheduled_send::cancel),
+        )
         .route("/draft", post(compose::save_draft))
         .route("/draft/{uid}", axum::routing::delete(compose::delete_draft))
         .route("/conversations", get(conversations::list))

@@ -6,6 +6,8 @@ import type { ChangeEvent } from 'react';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.ts';
 import { isDraftSnapshotCurrent } from '../utils/draftSaveAcknowledgement.ts';
 import { useTranslation } from 'react-i18next';
+import ScheduleSendDialog from './ScheduleSendDialog.tsx';
+import { formatScheduled } from '../utils/scheduleSend.ts';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
@@ -199,7 +201,7 @@ function parseChips(val: unknown): string[] {
 }
 
 export default function ComposeModal() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail: preferredPlaintext } = useStore();
   // A persisted draft owns its editor format; profile preference only seeds new compose sessions.
   const [bodyIsHtml] = useState(() => resolveComposeBodyIsHtml(composeData?.bodyIsHtml, preferredPlaintext));
@@ -369,6 +371,10 @@ export default function ComposeModal() {
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
   const idempotencyKeyRef = useRef<string | null>(null);
+  // The "send later" time of the send waiting on an empty-subject / attachment confirmation.
+  const scheduledAtRef = useRef<Date | null>(null);
+  const [showSendMenu, setShowSendMenu] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldPositionCursorRef = useRef(isReply || isForward);
@@ -789,8 +795,10 @@ export default function ComposeModal() {
     setAiPanel(null);
   };
 
-  const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
+  const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false, sendAt = null }: { skipSubjectWarn?: boolean; skipAttachWarn?: boolean; sendAt?: Date | null } = {}) => {
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
+    // Remembered so the empty-subject / forgotten-attachment confirmations keep the schedule.
+    scheduledAtRef.current = sendAt;
     const sentDraftIdentity = draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
       ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity }
       : null;
@@ -860,8 +868,24 @@ export default function ComposeModal() {
         ...(fwdAttachments.length ? {
           forwardedAttachments: fwdAttachments.map(a => ({ messageId: a.messageId, part: a.part })),
         } : {}),
+        ...(sendAt ? { sendAt: sendAt.toISOString() } : {}),
       }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
       if (!isCurrentSession()) return;
+      if (sendAt) {
+        idempotencyKeyRef.current = null;
+        closeCompose();
+        if (sentDraftIdentity) {
+          api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity).catch(() => {});
+        }
+        const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
+        addNotification({
+          title: t('compose.schedule.scheduledTitle', { when: formatScheduled(sendAt, i18n.resolvedLanguage || i18n.language) }),
+          body: subject || t('common.noSubject'),
+          onAction: () => { if (isCurrentSession()) setSelectedAccount(accountId, sentFolder); },
+          actionLabel: t('compose.sent.action'),
+        });
+        return;
+      }
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
       const rejectedRecipients = Array.isArray(sendResult?.rejected) ? sendResult.rejected.map(String) : [];
@@ -1298,6 +1322,20 @@ export default function ComposeModal() {
               </svg>
             </button>
             <button
+              type="button"
+              aria-label={t('compose.schedule.menuItem')}
+              onClick={() => setShowSchedule(true)}
+              disabled={sending || !hasRecipients}
+              style={{
+                background: 'none', border: 'none', padding: '4px 8px',
+                cursor: sending || !hasRecipients ? 'default' : 'pointer', display: 'flex', alignItems: 'center',
+                color: 'var(--text-tertiary)', opacity: sending || !hasRecipients ? 0.5 : 1,
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>
+            </button>
+            <button
               onClick={() => { void handleSend(); }}
               disabled={sending || !hasRecipients}
               style={{
@@ -1712,6 +1750,13 @@ export default function ComposeModal() {
       )}
 
       {/* Empty subject warning sheet */}
+      {showSchedule && (
+        <ScheduleSendDialog
+          onClose={() => setShowSchedule(false)}
+          onConfirm={at => { setShowSchedule(false); void handleSend({ sendAt: at }); }}
+        />
+      )}
+
       {showEmptySubjectWarn && (
         <>
           <div
@@ -1730,7 +1775,7 @@ export default function ComposeModal() {
               {t('compose.emptySubject.title')}
             </div>
             <button
-              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true, sendAt: scheduledAtRef.current }); }}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
               {t('compose.emptySubject.sendAnyway')}
@@ -1767,7 +1812,7 @@ export default function ComposeModal() {
               {t('compose.forgottenAttachment.body')}
             </div>
             <button
-              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true, sendAt: scheduledAtRef.current }); }}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
               {t('compose.forgottenAttachment.sendAnyway')}
@@ -2240,23 +2285,45 @@ export default function ComposeModal() {
         padding: '10px 14px', borderTop: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
       }}>
-        <button
-          onClick={() => { void handleSend(); }}
-          disabled={sending || !hasRecipients}
-          title={sending ? undefined : t('compose.sendTooltip')}
-          style={{
-            padding: '8px 20px', background: 'var(--accent)',
-            border: 'none', borderRadius: 7, color: 'var(--accent-text)',
-            fontSize: 13, fontWeight: 500,
-            cursor: sending || !hasRecipients ? 'not-allowed' : 'pointer',
-            opacity: sending || !hasRecipients ? 0.6 : 1,
-            display: 'flex', alignItems: 'center', gap: 6,
-            transition: 'opacity 0.15s',
-          }}
-        >
-          {sending ? sendSpinner : sendIcon}
-          {sending ? t('compose.sending') : t('compose.send')}
-        </button>
+        <div className="send-split">
+          <button
+            className="send-split-main"
+            onClick={() => { void handleSend(); }}
+            disabled={sending || !hasRecipients}
+            title={sending ? undefined : t('compose.sendTooltip')}
+            style={{
+              padding: '8px 18px', background: 'var(--accent)',
+              border: 'none', borderRadius: 7, color: 'var(--accent-text)',
+              fontSize: 13, fontWeight: 500,
+              cursor: sending || !hasRecipients ? 'not-allowed' : 'pointer',
+              opacity: sending || !hasRecipients ? 0.6 : 1,
+              display: 'flex', alignItems: 'center', gap: 6,
+              transition: 'opacity 0.15s',
+            }}
+          >
+            {sending ? sendSpinner : sendIcon}
+            {sending ? t('compose.sending') : t('compose.send')}
+          </button>
+          <button
+            type="button"
+            className="send-split-toggle"
+            data-testid="send-options"
+            aria-label={t('compose.schedule.options')}
+            aria-haspopup="menu"
+            aria-expanded={showSendMenu}
+            disabled={sending || !hasRecipients}
+            onClick={() => setShowSendMenu(v => !v)}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 15 12 9 18 15" /></svg>
+          </button>
+          {showSendMenu && (
+            <SendOptionsMenu
+              onClose={() => setShowSendMenu(false)}
+              onSchedule={() => { setShowSendMenu(false); setShowSchedule(true); }}
+              label={t('compose.schedule.menuItem')}
+            />
+          )}
+        </div>
 
         {plaintextCompose && (
           <button
@@ -2319,7 +2386,14 @@ export default function ComposeModal() {
     </div>
 
     {/* Empty subject warning dialog */}
-    {showEmptySubjectWarn && (
+    {showSchedule && (
+        <ScheduleSendDialog
+          onClose={() => setShowSchedule(false)}
+          onConfirm={at => { setShowSchedule(false); void handleSend({ sendAt: at }); }}
+        />
+      )}
+
+      {showEmptySubjectWarn && (
       <>
         <div
           onClick={() => setShowEmptySubjectWarn(false)}
@@ -2342,7 +2416,7 @@ export default function ComposeModal() {
               {t('compose.emptySubject.cancel')}
             </button>
             <button
-              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true, sendAt: scheduledAtRef.current }); }}
               style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {t('compose.emptySubject.sendAnyway')}
@@ -2379,7 +2453,7 @@ export default function ComposeModal() {
               {t('compose.forgottenAttachment.cancel')}
             </button>
             <button
-              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true, sendAt: scheduledAtRef.current }); }}
               style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {t('compose.forgottenAttachment.sendAnyway')}
@@ -3204,6 +3278,30 @@ function AttachmentChips({ attachments, onRemove, mobile = false }: { attachment
           </button>
         </span>
       ))}
+    </div>
+  );
+}
+
+/** The send button's options menu, opening upwards; closes on Escape or an outside click. */
+function SendOptionsMenu({ onClose, onSchedule, label }: { onClose: () => void; onSchedule: () => void; label: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const down = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (ref.current && !ref.current.contains(target) && !ref.current.parentElement?.contains(target)) onClose();
+    };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key, true);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key, true); };
+  }, [onClose]);
+  return (
+    <div ref={ref} className="send-split-menu" role="menu">
+      <button type="button" role="menuitem" data-testid="send-later" onClick={onSchedule}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>
+        {label}
+      </button>
     </div>
   );
 }

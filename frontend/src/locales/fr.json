@@ -1037,6 +1037,24 @@
     "recipientMenu": {
       "copy": "Copier l'adresse",
       "copyAll": "Tout copier dans ce champ"
+    },
+    "schedule": {
+      "title": "Programmer l'envoi",
+      "summary": "Sera envoyé : {{when}}",
+      "tooSoon": "Choisissez une heure au moins une minute plus tard",
+      "confirm": "Programmer l'envoi",
+      "prevMonth": "Mois précédent",
+      "nextMonth": "Mois suivant",
+      "time": "Heure",
+      "options": "Plus d'options d'envoi",
+      "menuItem": "Envoyer plus tard…",
+      "scheduledTitle": "Programmé pour {{when}}",
+      "presets": {
+        "laterToday": "Plus tard aujourd'hui",
+        "tomorrowMorning": "Demain matin",
+        "tomorrowAfternoon": "Demain après-midi",
+        "monday": "Lundi matin"
+      }
     }
   },
   "contacts": {
@@ -2021,5 +2039,16 @@
     "body": "Votre connexion pour {{email}} a expiré ou a été révoquée. Reconnectez-vous pour continuer à recevoir vos e-mails.",
     "later": "Plus tard",
     "signIn": "Se connecter avec {{provider}}"
+  },
+  "scheduled": {
+    "heading": "Programmés ({{n}})",
+    "noRecipient": "(aucun destinataire)",
+    "failed": "Échec de l'envoi",
+    "sendsAt": "Envoi : {{when}}",
+    "sending": "Envoi en cours…",
+    "notYetSent": "Pas encore envoyé",
+    "discard": "Supprimer",
+    "cancelSend": "Annuler l'envoi",
+    "failedAt": "Échec de l'envoi ({{when}})"
   }
 }

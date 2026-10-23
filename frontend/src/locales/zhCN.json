@@ -1037,6 +1037,24 @@
     "recipientMenu": {
       "copy": "复制地址",
       "copyAll": "复制此栏全部"
+    },
+    "schedule": {
+      "title": "定时发送",
+      "summary": "将于 {{when}} 发送",
+      "tooSoon": "请选择至少一分钟之后的时间",
+      "confirm": "定时发送",
+      "prevMonth": "上个月",
+      "nextMonth": "下个月",
+      "time": "时间",
+      "options": "更多发送选项",
+      "menuItem": "稍后发送…",
+      "scheduledTitle": "已定时：{{when}}",
+      "presets": {
+        "laterToday": "今天稍后",
+        "tomorrowMorning": "明天上午",
+        "tomorrowAfternoon": "明天下午",
+        "monday": "周一上午"
+      }
     }
   },
   "contacts": {
@@ -2021,5 +2039,16 @@
     "body": "{{email}} 的登录已过期或已被撤销。请重新登录以继续接收邮件。",
     "later": "稍后",
     "signIn": "使用 {{provider}} 登录"
+  },
+  "scheduled": {
+    "heading": "已定时（{{n}}）",
+    "noRecipient": "（无收件人）",
+    "failed": "发送失败",
+    "sendsAt": "发送时间：{{when}}",
+    "sending": "正在发送…",
+    "notYetSent": "尚未发送",
+    "discard": "丢弃",
+    "cancelSend": "取消发送",
+    "failedAt": "发送失败（{{when}}）"
   }
 }

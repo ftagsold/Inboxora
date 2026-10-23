@@ -1037,6 +1037,24 @@
     "recipientMenu": {
       "copy": "Copy address",
       "copyAll": "Copy all in this field"
+    },
+    "schedule": {
+      "title": "Schedule send",
+      "summary": "Will be sent {{when}}",
+      "tooSoon": "Pick a time at least a minute from now",
+      "confirm": "Schedule send",
+      "prevMonth": "Previous month",
+      "nextMonth": "Next month",
+      "time": "Time",
+      "options": "More send options",
+      "menuItem": "Send later…",
+      "scheduledTitle": "Scheduled for {{when}}",
+      "presets": {
+        "laterToday": "Later today",
+        "tomorrowMorning": "Tomorrow morning",
+        "tomorrowAfternoon": "Tomorrow afternoon",
+        "monday": "Monday morning"
+      }
     }
   },
   "contacts": {
@@ -2021,5 +2039,16 @@
     "body": "Your sign-in for {{email}} has expired or was revoked. Sign in again to keep receiving mail.",
     "later": "Later",
     "signIn": "Sign in with {{provider}}"
+  },
+  "scheduled": {
+    "heading": "Scheduled ({{n}})",
+    "noRecipient": "(no recipient)",
+    "failed": "Sending failed",
+    "sendsAt": "Sends {{when}}",
+    "sending": "Sending…",
+    "notYetSent": "Not sent yet",
+    "discard": "Discard",
+    "cancelSend": "Cancel send",
+    "failedAt": "Sending failed ({{when}})"
   }
 }

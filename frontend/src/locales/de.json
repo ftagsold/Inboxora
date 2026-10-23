@@ -1037,6 +1037,24 @@
     "recipientMenu": {
       "copy": "Adresse kopieren",
       "copyAll": "Alle in diesem Feld kopieren"
+    },
+    "schedule": {
+      "title": "Senden planen",
+      "summary": "Wird gesendet: {{when}}",
+      "tooSoon": "Wähle einen Zeitpunkt mindestens eine Minute in der Zukunft",
+      "confirm": "Senden planen",
+      "prevMonth": "Vorheriger Monat",
+      "nextMonth": "Nächster Monat",
+      "time": "Uhrzeit",
+      "options": "Weitere Sendeoptionen",
+      "menuItem": "Später senden…",
+      "scheduledTitle": "Geplant für {{when}}",
+      "presets": {
+        "laterToday": "Später heute",
+        "tomorrowMorning": "Morgen früh",
+        "tomorrowAfternoon": "Morgen Nachmittag",
+        "monday": "Montag früh"
+      }
     }
   },
   "contacts": {
@@ -2021,5 +2039,16 @@
     "body": "Deine Anmeldung für {{email}} ist abgelaufen oder wurde widerrufen. Melde dich erneut an, um weiter E-Mails zu empfangen.",
     "later": "Später",
     "signIn": "Mit {{provider}} anmelden"
+  },
+  "scheduled": {
+    "heading": "Geplant ({{n}})",
+    "noRecipient": "(kein Empfänger)",
+    "failed": "Senden fehlgeschlagen",
+    "sendsAt": "Wird gesendet: {{when}}",
+    "sending": "Wird gesendet…",
+    "notYetSent": "Noch nicht gesendet",
+    "discard": "Verwerfen",
+    "cancelSend": "Senden abbrechen",
+    "failedAt": "Senden fehlgeschlagen ({{when}})"
   }
 }

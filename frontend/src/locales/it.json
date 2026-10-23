@@ -1037,6 +1037,24 @@
     "recipientMenu": {
       "copy": "Copia indirizzo",
       "copyAll": "Copia tutti in questo campo"
+    },
+    "schedule": {
+      "title": "Programma invio",
+      "summary": "Verrà inviato: {{when}}",
+      "tooSoon": "Scegli un orario almeno un minuto nel futuro",
+      "confirm": "Programma invio",
+      "prevMonth": "Mese precedente",
+      "nextMonth": "Mese successivo",
+      "time": "Ora",
+      "options": "Altre opzioni di invio",
+      "menuItem": "Invia più tardi…",
+      "scheduledTitle": "Programmato per {{when}}",
+      "presets": {
+        "laterToday": "Più tardi oggi",
+        "tomorrowMorning": "Domani mattina",
+        "tomorrowAfternoon": "Domani pomeriggio",
+        "monday": "Lunedì mattina"
+      }
     }
   },
   "contacts": {
@@ -2021,5 +2039,16 @@
     "body": "L'accesso per {{email}} è scaduto o è stato revocato. Accedi di nuovo per continuare a ricevere la posta.",
     "later": "Più tardi",
     "signIn": "Accedi con {{provider}}"
+  },
+  "scheduled": {
+    "heading": "Programmati ({{n}})",
+    "noRecipient": "(nessun destinatario)",
+    "failed": "Invio non riuscito",
+    "sendsAt": "Invio: {{when}}",
+    "sending": "Invio in corso…",
+    "notYetSent": "Non ancora inviato",
+    "discard": "Elimina",
+    "cancelSend": "Annulla invio",
+    "failedAt": "Invio non riuscito ({{when}})"
   }
 }

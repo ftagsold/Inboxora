@@ -66,6 +66,7 @@ type WsIncomingMessage =
   | { type: 'folders_synced'; accountId: string }
   | { type: 'account_error'; accountId: string; error?: string }
   | { type: 'account_reauth_required'; accountId: string; oidcProviderId?: string | null }
+  | { type: 'scheduled_changed'; accountId: string }
   | { type: 'backfill_all_start'; accountId: string }
   | { type: 'backfill_progress'; accountId: string; synced: number; total: number | null }
   | { type: 'backfill_complete'; accountId: string }
@@ -110,7 +111,7 @@ function isWsMessageFlagChange(value: unknown): value is WsMessageFlagChange {
 
 function isCoreMessageType(value: string): value is CoreMessageType {
   return value === 'new_messages' || value === 'exists_hint' || value === 'account_connected'
-    || value === 'folders_synced' || value === 'account_error' || value === 'account_reauth_required' || value === 'backfill_all_start'
+    || value === 'folders_synced' || value === 'account_error' || value === 'account_reauth_required' || value === 'scheduled_changed' || value === 'backfill_all_start'
     || value === 'backfill_progress' || value === 'backfill_complete' || value === 'backfill_all_complete'
     || value === 'folder_updated' || value === 'sync_complete' || value === 'folder_emptied'
     || value === 'snooze_wakeup' || value === 'flags_synced' || value === 'message_flags';
@@ -126,7 +127,7 @@ function isWsIncomingMessage(value: unknown): value is WsIncomingMessage {
         && isOptionalNumber(value.alertCount);
     case 'exists_hint': return typeof value.accountId === 'string' && typeof value.delta === 'number';
     case 'account_connected': case 'folders_synced': case 'backfill_all_start': case 'backfill_complete':
-    case 'backfill_all_complete': case 'snooze_wakeup': case 'flags_synced': return typeof value.accountId === 'string';
+    case 'backfill_all_complete': case 'snooze_wakeup': case 'flags_synced': case 'scheduled_changed': return typeof value.accountId === 'string';
     case 'account_error': return typeof value.accountId === 'string' && isOptionalString(value.error);
     case 'account_reauth_required': return typeof value.accountId === 'string' && (value.oidcProviderId === null || isOptionalString(value.oidcProviderId));
     case 'backfill_progress': return typeof value.accountId === 'string' && typeof value.synced === 'number' && (typeof value.total === 'number' || value.total === null);
@@ -274,6 +275,12 @@ export function useWebSocket() {
 
       case 'account_error': {
         updateAccount(data.accountId, { sync_error: data.error });
+        break;
+      }
+
+      case 'scheduled_changed': {
+        // A scheduled mail was added, cancelled, sent or failed: the Sent folder's list refetches.
+        window.dispatchEvent(new CustomEvent('inboxora:scheduled_changed', { detail: { accountId: data.accountId } }));
         break;
       }
 

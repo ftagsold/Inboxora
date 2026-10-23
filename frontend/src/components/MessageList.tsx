@@ -3,8 +3,10 @@ import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import MobileFloatingAction from './MobileFloatingAction.tsx';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import i18n from '../i18n.ts';
-import { folderLabel } from '../utils/folderLabels.ts';
-import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
+import { folderLabel, folderRole } from '../utils/folderLabels.ts';
+// Loaded on first visit to a Sent folder; keeps its dialog code out of the main chunk.
+const ScheduledSection = lazy(() => import('./ScheduledSection.tsx'));
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.ts';
 import { api } from '../utils/api.ts';
@@ -312,6 +314,11 @@ export default function MessageList() {
   // While a GTD tab is selected the list body shows that section instead of the
   // folder listing. Same visibility envelope as the tab strip (INBOX, no search).
   const showGtdTab = gtdActive && !!activeGtdTab && selectedFolder === 'INBOX' && !searchQuery.trim();
+  // Scheduled mail is listed at the top of the account's Sent folder.
+  const showScheduled = !!selectedAccountId && !searchQuery.trim() && folderRole(
+    (folders[selectedAccountId] || []).find(f => f.path === selectedFolder) || { path: selectedFolder },
+    selectedAccount?.folder_mappings,
+  ) === 'sent';
   // Unread badge per GTD tab, from the shared sections store (Waiting merged).
   const gtdTabUnread = (() => {
     const map: Record<string, number> = {};
@@ -2891,6 +2898,10 @@ export default function MessageList() {
 
   const accountColor = selectedAccount?.color || 'currentColor';
   const showInboxIcon = !isUnified && selectedFolder === 'INBOX' && !searchQuery.trim();
+  // Header icons share the rows' avatar column (36px + 10px gap); narrow rows have no avatar.
+  const headerIconSlot: React.CSSProperties = isNarrow
+    ? { display: 'inline-flex', flexShrink: 0, marginRight: 6 }
+    : { display: 'inline-flex', flexShrink: 0, width: 36, marginRight: 10, justifyContent: 'center' };
 
   const label = searchQuery.trim()
     ? t('messageList.searchTitle', { query: searchQuery })
@@ -2940,12 +2951,14 @@ export default function MessageList() {
 
       {/* ── Desktop header ──────────────────────────────────────────────── */}
       {!isMobile && <div style={{
-        padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)',
+        // Title row: 12px + 32px, centred on the sidebar header's 28px line. The sides follow
+        // the rows' padding so header icons sit on the avatar column and text on the text column.
+        padding: '12px var(--layout-row-px, 16px) 10px', borderBottom: '1px solid var(--border-subtle)',
         boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
       }}>
         {/* Title row: label + count + sync (always fits) */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: isNarrow ? 6 : 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', minHeight: 32, marginBottom: isNarrow ? 6 : 10 }}>
           <h2 style={{
             margin: 0, fontSize: 15, fontWeight: 600,
             color: 'var(--text-primary)',
@@ -2954,15 +2967,19 @@ export default function MessageList() {
             display: 'flex', alignItems: 'center',
           }}>
             {isUnified && !searchQuery ? (
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-              </svg>
+              <span style={headerIconSlot}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+                  <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+                </svg>
+              </span>
             ) : showInboxIcon ? (
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={accountColor} strokeWidth="2">
-                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-              </svg>
+              <span style={headerIconSlot}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={accountColor} strokeWidth="2">
+                  <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+                  <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+                </svg>
+              </span>
             ) : label}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
@@ -3246,9 +3263,9 @@ export default function MessageList() {
         {/* Search */}
         <div style={{ position: 'relative' }}>
           <div style={{
-            position: 'absolute', left: 10, top: '50%',
+            position: 'absolute', left: isNarrow ? 10 : 11, top: '50%',
             transform: 'translateY(-50%)', color: 'var(--text-tertiary)',
-            pointerEvents: 'none',
+            pointerEvents: 'none', display: 'flex',
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -3261,7 +3278,9 @@ export default function MessageList() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{
-              width: '100%', padding: '8px 10px 8px 32px',
+              // Wide rows: the icon centres on the avatar column (11 + 7 = 18px in) and the
+              // text starts on the row text column (36 + 10 = 46px in, less the 1px border).
+              width: '100%', padding: isNarrow ? '8px 10px 8px 32px' : '8px 10px 8px 45px',
               background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
               borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
               outline: 'none', boxSizing: 'border-box',
@@ -3578,6 +3597,7 @@ export default function MessageList() {
               )}
             </div>
           )}
+        {showScheduled && selectedAccountId && <Suspense fallback={null}><ScheduledSection accountId={selectedAccountId} /></Suspense>}
         {/* ── Folder search results ─────────────────────────── */}
         {folderSearchResults.length > 0 && (
           <div style={{ borderBottom: '1px solid var(--border)' }}>
@@ -4591,7 +4611,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         onContextMenu={!isMobile ? (e => onContextMenu?.(e, message)) : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 10,
-          padding: '11px 14px', cursor: 'pointer',
+          padding: 'var(--layout-row-py, 11px) var(--layout-row-px, 14px)', cursor: 'pointer',
           background: rowBg, transition: 'background 0.1s',
           position: 'relative',
           willChange: isMobile ? 'transform' : undefined,
@@ -4615,7 +4635,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           ) : (
             unreadCount > 0 && !showAvatar && (
               <div className="unread-dot" style={{
-                position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+                position: 'absolute', left: 3, top: 'calc(50% - 3.5px)',
                 width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)',
               }} />
             )
@@ -4670,7 +4690,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               </>
             )}
           </div>
-          <div style={avatarDotSlot}>{!selectionMode && unreadCount > 0 && <div className="unread-dot" data-testid="unread-dot" style={avatarUnreadDot} />}</div>
+          <div style={avatarDotSlot}>{!showMessagePreviews && !selectionMode && unreadCount > 0 && <div className="unread-dot" data-testid="unread-dot" style={avatarUnreadDot} />}</div>
           </div>
         )}
 
@@ -4744,13 +4764,16 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           }}>
             {message.subject || t('common.noSubject')}
           </div>
-          {/* Row 3: snippet */}
+          {/* Row 3: snippet (the unread dot sits on this line, centred under the avatar) */}
           {showMessagePreviews && (
-            <div style={{
-              fontSize: 12, color: 'var(--text-tertiary)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              {message.snippet || ''}
+            <div style={{ position: 'relative' }}>
+              {showAvatar && !selectionMode && unreadCount > 0 && <div className="unread-dot" data-testid="unread-dot" style={snippetUnreadDot} />}
+              <div style={{
+                fontSize: 12, color: 'var(--text-tertiary)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {message.snippet || '\u00a0'}
+              </div>
             </div>
           )}
         </div>
@@ -5026,7 +5049,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         ) : (
           !message.is_read && !showAvatar && (
             <div className="unread-dot" style={{
-              position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+              position: 'absolute', left: 3, top: 'calc(50% - 3.5px)',
               width: 7, height: 7, borderRadius: '50%',
               background: 'var(--accent)',
             }} />
@@ -5084,7 +5107,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               </>
             )}
           </div>
-          <div style={avatarDotSlot}>{!selectionMode && !message.is_read && <div className="unread-dot" data-testid="unread-dot" style={avatarUnreadDot} />}</div>
+          <div style={avatarDotSlot}>{!showMessagePreviews && !selectionMode && !message.is_read && <div className="unread-dot" data-testid="unread-dot" style={avatarUnreadDot} />}</div>
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -5141,9 +5164,10 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           {message.subject || t('message.noSubject')}
         </div>
 
-        {/* Row 3: Snippet */}
+        {/* Row 3: Snippet (the unread dot sits on this line, centred under the avatar) */}
         {showMessagePreviews && (
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+            {showAvatar && !selectionMode && !message.is_read && <div className="unread-dot" data-testid="unread-dot" style={snippetUnreadDot} />}
             <span style={{
               fontSize: 12, color: 'var(--text-tertiary)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -5223,8 +5247,11 @@ function RowMenuButton({ onOpen, label }: RowMenuButtonProps) {
   );
 }
 
-// Avatar plus the unread dot. The dot sits at the bottom of the row, vertically centred on
-// the snippet line (the text column's last line, 12px): half a line box minus half the dot.
+// Avatar plus, when previews are hidden, the unread dot centred in the space below it.
 const avatarColumn: React.CSSProperties = { alignSelf: 'stretch', flexShrink: 0, width: 36, display: 'flex', flexDirection: 'column', alignItems: 'center' };
-const avatarDotSlot: React.CSSProperties = { flex: 1, minHeight: 0, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', fontSize: 12, paddingBottom: 'calc(0.5lh - 4px)' };
+const avatarDotSlot: React.CSSProperties = { flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+// With previews the dot sits on the snippet line: vertically centred on it, horizontally
+// centred under the avatar (36px column + 10px gap: its centre is 28px left of the text).
+// No transform: the pulse animation owns `transform`.
+const snippetUnreadDot: React.CSSProperties = { position: 'absolute', left: -32, top: 'calc(50% - 4px)', width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', pointerEvents: 'none' };
 const avatarUnreadDot: React.CSSProperties = { width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' };

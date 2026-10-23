@@ -133,7 +133,8 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   </aside>;
 }
 
-const panel: CSSProperties = { boxSizing: 'border-box', flexShrink: 0, padding: 14, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-primary)', overflow: 'auto' };
+// 13px top centres the 30px heading on the sidebar header's 28px line; 16px sides match the mail list.
+const panel: CSSProperties = { boxSizing: 'border-box', flexShrink: 0, padding: '13px 16px 14px', borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-primary)', overflow: 'auto' };
 const miniMonth: CSSProperties = { display: 'grid', gap: 2, padding: 8, marginBottom: 16, background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8 };
 const miniMonthHeading: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12, fontWeight: 600, padding: '2px 4px 6px' }; const miniMonthNavigation: CSSProperties = { display: 'flex', gap: 2 }; const miniMonthButton: CSSProperties = { minWidth: 28, minHeight: 28, padding: 0, border: '1px solid var(--border-subtle)', borderRadius: 6, background: 'transparent', color: 'var(--accent)', cursor: 'pointer', fontSize: 18, fontWeight: 650, lineHeight: 1 };
 const weekdayGrid: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', textAlign: 'center', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, padding: '3px 0' };

@@ -933,6 +933,9 @@ const LOCALE_SPECIFIC_KEYS = new Set(
 // found by a plain text search of the source. Add here to suppress false
 // "unused key" failures.
 const DYNAMIC_KEYS = new Set([
+  // Scheduled-send presets: t(`compose.schedule.presets.${preset.key}`).
+  'compose.schedule.presets.laterToday', 'compose.schedule.presets.tomorrowMorning',
+  'compose.schedule.presets.tomorrowAfternoon', 'compose.schedule.presets.monday',
   // Calendar weekday labels and work-hours copy are selected from preference values.
   'calendar.day0', 'calendar.day1', 'calendar.day2', 'calendar.day3',
   'calendar.day4', 'calendar.day5', 'calendar.day6', 'calendar.workDays',

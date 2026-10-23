@@ -1037,6 +1037,24 @@
     "recipientMenu": {
       "copy": "Kopírovat adresu",
       "copyAll": "Kopírovat všechny adresy v tomto poli"
+    },
+    "schedule": {
+      "title": "Naplánovat odeslání",
+      "summary": "Bude odesláno: {{when}}",
+      "tooSoon": "Vyberte čas alespoň minutu od teď",
+      "confirm": "Naplánovat odeslání",
+      "prevMonth": "Předchozí měsíc",
+      "nextMonth": "Další měsíc",
+      "time": "Čas",
+      "options": "Další možnosti odeslání",
+      "menuItem": "Odeslat později…",
+      "scheduledTitle": "Naplánováno na {{when}}",
+      "presets": {
+        "laterToday": "Později dnes",
+        "tomorrowMorning": "Zítra ráno",
+        "tomorrowAfternoon": "Zítra odpoledne",
+        "monday": "V pondělí ráno"
+      }
     }
   },
   "contacts": {
@@ -2021,5 +2039,16 @@
     "body": "Přihlášení pro {{email}} vypršelo nebo bylo odvoláno. Přihlaste se znovu, abyste dál dostávali poštu.",
     "later": "Později",
     "signIn": "Přihlásit přes {{provider}}"
+  },
+  "scheduled": {
+    "heading": "Naplánováno ({{n}})",
+    "noRecipient": "(bez příjemce)",
+    "failed": "Odeslání se nezdařilo",
+    "sendsAt": "Odeslání: {{when}}",
+    "sending": "Odesílání…",
+    "notYetSent": "Zatím neodesláno",
+    "discard": "Zahodit",
+    "cancelSend": "Zrušit odeslání",
+    "failedAt": "Odeslání se nezdařilo ({{when}})"
   }
 }

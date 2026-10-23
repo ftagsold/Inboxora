@@ -590,6 +590,12 @@ export const api = {
   deleteDraft: (accountId: string, uid: number, folder: string, uidValidity: number) =>
     request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}&uidValidity=${encodeURIComponent(uidValidity)}`),
 
+  // Scheduled send
+  getScheduled:    (accountId: string | null = null) =>
+    request('GET', `/mail/scheduled${accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''}`),
+  getScheduledMail: (id: string) => request('GET', `/mail/scheduled/${encodeURIComponent(id)}`),
+  cancelScheduled: (id: string) => request('DELETE', `/mail/scheduled/${encodeURIComponent(id)}`),
+
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),
   addToBlockList:        (email: string) => request('POST',   '/block-list', { emailAddress: email }),

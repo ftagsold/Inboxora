@@ -625,7 +625,10 @@ impl Engine {
         self.st.lock().reauth_pending.remove(account.id());
         match self
             .db
-            .exec("UPDATE email_accounts SET sync_error = NULL, reauth_required = false WHERE id = $1", params![account.id()])
+            .exec(
+                "UPDATE email_accounts SET sync_error = NULL, reauth_required = false WHERE id = $1",
+                params![account.id()],
+            )
             .await
         {
             Ok(_) => {
