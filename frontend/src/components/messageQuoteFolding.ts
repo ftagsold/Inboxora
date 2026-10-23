@@ -1,15 +1,71 @@
-const FORWARD_MARKER_RE = /^(?:[-–—]{2,}\s*)?(?:forwarded message|forwarded mail|begin forwarded message|przekazana wiadomość|wiadomość przekazana)(?:\s*[-–—]{2,})?:?/i;
-const REPLY_MARKER_RE = /^(?:on\s+.+\s+wrote:|dnia\s+.+\s+napisa(?:ł|ła|li|ły)?\(?(?:a)?\)?:|am\s+.+\s+schrieb(?:\s+.+)?:|le\s+.+\s+a écrit\s*:|el\s+.+\s+escribió:|il\s+.+\s+ha scritto:|-{2,}\s*(?:original message|ursprüngliche nachricht|wiadomość oryginalna|message d'origine|mensaje original|messaggio originale|исходное сообщение)\s*-{2,})/i;
+const FORWARD_MARKER_RE = /^(?:[-–—]{2,}\s*)?(?:forwarded message|forwarded mail|begin forwarded message|weitergeleitete nachricht|anfang der weitergeleiteten nachricht|message transféré|début du message réexpédié|mensaje reenviado|messaggio inoltrato|doorgestuurd bericht|vidarebefordrat meddelande|videresendt meddelelse|mensagem encaminhada|przekazana wiadomość|wiadomość przekazana|пересылаемое сообщение)(?:\s*[-–—]{2,})?:?/i;
+// Attribution and separator lines that open quoted history, as written by Gmail, Apple Mail,
+// Thunderbird, Outlook, Android and webmailers in the common languages (patterns after
+// mailgun/talon and unquotemail).
+const REPLY_MARKER_RE = new RegExp([
+  String.raw`^on\s.+\s(?:wrote|sent)\s*:`,
+  String.raw`^dnia\s+.+\s+napisa(?:ł|ła|li|ły)?\(?(?:a)?\)?:`,
+  String.raw`^w dniu\s.+\s(?:napisał|napisała|napisał\(a\)|użytkownik.+napisał)`,
+  String.raw`^am\s+.+\s+schrieb(?:\s+.+)?:`,
+  String.raw`^le\s+.+\s+a écrit\s*:`,
+  String.raw`^el\s+.+\s+escribió\s*:`,
+  String.raw`^em\s+.+\s+escreveu\s*:`,
+  String.raw`^il\s+.+\s+ha scritto\s*:`,
+  String.raw`^op\s+.+\s+(?:schreef|verzond|geschreven)(?:\s+.+)?:`,
+  String.raw`^(?:den|på)\s+.+\s+skrev(?:\s+.+)?:`,
+  String.raw`^vào\s+.+\s+đã viết\s*:`,
+  String.raw`^[-–—]{2,}\s*(?:original message|reply message|ursprüngliche nachricht|originalnachricht|antwort nachricht|wiadomość oryginalna|message d'origine|message original|mensaje original|mensagem original|messaggio originale|oorspronkelijk bericht|ursprungligt meddelande|oprindelig meddelelse|opprinnelig melding|alkuperäinen viesti|původní zpráva|исходное сообщение|оригинальное сообщение)\s*[-–—]{2,}`,
+  // Android / Samsung: "---- Name wrote ----", "-------- Original message --------".
+  String.raw`^[-–—]{2,}.*\b(?:wrote|original message)\b.*[-–—]{2,}$`,
+].join('|'), 'i');
+// A short attribution line ending in "wrote:" (or a translation) that names a date or address:
+// "Max <max@example.test> schrieb:", "2026年10月16日 19:57 Maria <m@x> 写道：".
+const WROTE_SUFFIX_RE = /(?:wrote|schrieb|a écrit|escribió|escreveu|ha scritto|schreef|skrev|kirjoitti|napisał\(a\)|napisał|napisała|napsal\(a\)|napsal|napsala|написал\(а\)|написал|написала|пише|yazdı|írta|έγραψε|đã viết|写道|寫道|님이 작성|のメッセージ|が書きました)\s*[:：]$/i;
 // "16.10.2026 19:57:53 Maria Tagsold <maria@example.test>:" — a date and time, the sender
 // and their address, then a colon (no "wrote"), as some clients and webmailers emit.
-const DATED_SENDER_MARKER_RE = /^\d{1,4}[./-]\d{1,2}[./-]\d{1,4},?\s+(?:um\s+|at\s+)?\d{1,2}:\d{2}(?::\d{2})?\b.*<[^<>\s@]+@[^<>\s]+>\s*:$/i;
+const DATED_SENDER_MARKER_RE = /^(?:\S{2,10},?\s+)?\d{1,4}(?:[./-]|年)\s?\d{1,2}(?:[./-]|月)\s?\d{1,4}日?(?:\([^)]{1,4}\))?,?\s+(?:um\s+|at\s+|à\s+|a las\s+|alle\s+|om\s+|kl\.?\s+)?\d{1,2}:\d{2}(?::\d{2})?\b.*<[^<>\s@]+@[^<>\s]+>\s*[:：]$/i;
 // The header block Outlook, Exchange and many other clients put above quoted history:
 // "From: …" followed within a few lines by "Sent:/Date: …" (in the common languages).
-const HEADER_FROM_RE = /^(?:from|von|de|od|da|от|发件人)\s*[:：]/i;
-const HEADER_SENT_LABELS = '(?:sent|date|gesendet|datum|envoyé|enviado|fecha|wysłano|data|inviato|отправлено|发送时间)';
+const HEADER_FROM_RE = /^(?:from|von|de|od|da|van|från|fra|lähettäjä|kimden|feladó|от|від|差出人|发件人|寄件者|보낸 사람)\s*[:：]/i;
+const HEADER_SENT_LABELS = '(?:sent|date|subject|gesendet|datum|betreff|envoyé|objet|enviado|enviada|fecha|asunto|assunto|wysłano|data|temat|inviato|oggetto|verzonden|onderwerp|skickat|ämne|sendt|emne|lähetetty|aihe|odesláno|předmět|gönderildi|tarih|konu|elküldve|dátum|tárgy|отправлено|дата|тема|надіслано|送信日時|件名|发送时间|主题|寄件日期|主旨|보낸 날짜|제목)';
 const HEADER_SENT_RE = new RegExp(`^${HEADER_SENT_LABELS}\\s*[:：]`, 'i');
 // HTML header blocks separate their lines with <br>, which textContent flattens into one line.
 const HEADER_SENT_INLINE_RE = new RegExp(`(?<![\\p{L}\\p{N}])${HEADER_SENT_LABELS}\\s*[:：]`, 'iu');
+// A rule line some clients put above the header block ("________________", "-----").
+const SEPARATOR_LINE_RE = /^(?:_{8,}|-{8,}|={8,})$/;
+
+// Elements that wrap quoted history themselves (each folds on its own).
+const QUOTE_WRAPPER_SELECTORS = [
+  '.gmail_quote',
+  '.gmail_quote_container',
+  '.x_gmail_quote',
+  '.moz-quote-container',
+  '.yahoo_quoted',
+  '[id^="yahoo_quoted"]',
+  '.protonmail_quote',
+  '.zmail_extra',
+  '.front-blockquote',
+  '#OLK_SRC_BODY_SECTION',
+  '[id^="mail-editor-reference-message-container"]',
+  'blockquote[type="cite"]',
+];
+// Elements that open quoted history: they and everything after them in the document fold.
+const QUOTE_START_SELECTORS = [
+  '[id$="divRplyFwdMsg"]',
+  '.OutlookMessageHeader',
+  '#appendonsend',
+  'hr#stopSpelling',
+  'hr#zwchr',
+  '.moz-cite-prefix',
+  '.gmail_attr',
+  // Outlook desktop's header block separator (border colour differs by version/theme).
+  'div[style*="border-top:solid #E1E1E1"]',
+  'div[style*="border-top: solid #E1E1E1"]',
+  'div[style*="border-top:solid #B5C4DF"]',
+  'div[style*="border-top: solid #B5C4DF"]',
+  'div[style*="border-top-color: rgb(229, 229, 229)"]',
+];
+const BLOCK_SELECTOR = 'p, div, blockquote, pre, table, section, article, font, center, span';
 
 function normalizedLines(value: unknown = ''): string[] {
   return String(value)
@@ -24,12 +80,20 @@ export function startsWithForwardMarker(value: unknown = ''): boolean {
   return FORWARD_MARKER_RE.test(normalizedLines(value)[0] || '');
 }
 
+function isAttributionLine(line: string): boolean {
+  if (line.length > 300) return false;
+  if (DATED_SENDER_MARKER_RE.test(line)) return true;
+  return WROTE_SUFFIX_RE.test(line) && /\d|@/.test(line);
+}
+
 /** Whether quoted history starts at `lines[index]` (normalized, non-empty lines). */
 function replyStartsAt(lines: string[], index: number): boolean {
   const line = lines[index] || '';
+  const joined = `${line} ${lines[index + 1] || ''}`;
   // A marker may be wrapped onto two lines ("On Tue, … at 10:00,\nName <x> wrote:").
-  if (REPLY_MARKER_RE.test(line) || REPLY_MARKER_RE.test(`${line} ${lines[index + 1] || ''}`)) return true;
-  if (DATED_SENDER_MARKER_RE.test(line)) return true;
+  if (REPLY_MARKER_RE.test(line) || REPLY_MARKER_RE.test(joined)) return true;
+  if (isAttributionLine(line) || (line.length < 200 && /\d|@/.test(line) && isAttributionLine(joined))) return true;
+  if (SEPARATOR_LINE_RE.test(line)) return HEADER_FROM_RE.test(lines[index + 1] || '') && replyStartsAt(lines, index + 1);
   if (!HEADER_FROM_RE.test(line)) return false;
   return lines.slice(index + 1, index + 5).some(next => HEADER_SENT_RE.test(next)) || HEADER_SENT_INLINE_RE.test(line.slice(0, 400));
 }
@@ -37,6 +101,12 @@ function replyStartsAt(lines: string[], index: number): boolean {
 export function startsWithReplyMarker(value: unknown = ''): boolean {
   const lines = normalizedLines(value).slice(0, 8);
   return [0, 1, 2, 3].some(index => index < lines.length && replyStartsAt(lines, index));
+}
+
+/** Stricter than `startsWithReplyMarker`: the marker must be the element's first line. */
+function beginsWithReplyMarker(value: unknown = ''): boolean {
+  const lines = normalizedLines(value).slice(0, 6);
+  return lines.length > 0 && replyStartsAt(lines, 0);
 }
 
 /** Labels and callback for one quote expander. */
@@ -51,16 +121,18 @@ function uniqueTopLevel<T extends Element>(elements: T[]): T[] {
   return ordered.filter(element => !ordered.some(other => other !== element && other.contains(element)));
 }
 
-function quoteElements(doc: Document): HTMLElement[] {
-  const explicit = [...doc.querySelectorAll<HTMLElement>([
-    '.gmail_quote',
-    '.gmail_quote_container',
-    '.moz-quote-container',
-    '.yahoo_quoted',
-    'blockquote[type="cite"]',
-    '#divRplyFwdMsg',
-    '.OutlookMessageHeader',
-  ].join(','))];
+// Node.DOCUMENT_POSITION_FOLLOWING, spelled out so this also runs where no DOM globals exist.
+const DOCUMENT_POSITION_FOLLOWING = 4;
+const ELEMENT_NODE = 1;
+const TEXT_NODE = 3;
+
+function documentOrder(left: Element, right: Element): number {
+  if (left === right) return 0;
+  return left.compareDocumentPosition(right) & DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+}
+
+function quoteWrappers(doc: Document): HTMLElement[] {
+  const explicit = [...doc.querySelectorAll<HTMLElement>(QUOTE_WRAPPER_SELECTORS.join(','))];
   const markedBlockquotes = [...doc.querySelectorAll<HTMLElement>('blockquote')]
     .filter(element => startsWithReplyMarker(element.textContent));
   return [...new Set([...explicit, ...markedBlockquotes])];
@@ -71,72 +143,84 @@ function protectedForwardRoots(doc: Document): HTMLElement[] {
     .filter(element => startsWithForwardMarker(element.textContent));
 }
 
+/** The earliest element in document order whose own text opens with a reply marker. */
+function structuralStart(doc: Document, protectedSet: Set<Element>): HTMLElement | null {
+  for (const element of doc.body.querySelectorAll<HTMLElement>(BLOCK_SELECTOR)) {
+    if (protectedSet.has(element)) continue;
+    const text = element.textContent || '';
+    if (!text.trim() || startsWithForwardMarker(text)) continue;
+    // Ancestors come first in document order, so the first hit is the outermost element
+    // that starts exactly at the marker — never a wrapper with new content above it.
+    if (beginsWithReplyMarker(text)) return element;
+  }
+  return null;
+}
+
+/** Pull a rule line or attribution sibling directly above `start` into the folded region. */
+function widenStart(start: HTMLElement): HTMLElement {
+  let current = start;
+  for (let step = 0; step < 2; step += 1) {
+    const previous = current.previousElementSibling as HTMLElement | null;
+    if (!previous) break;
+    const text = (previous.textContent || '').replace(/\u00a0/g, ' ').trim();
+    const isRule = previous.tagName === 'HR' || (text !== '' && SEPARATOR_LINE_RE.test(text));
+    const isAttribution = previous.matches('.gmail_attr, .moz-cite-prefix') || (text !== '' && beginsWithReplyMarker(text));
+    if (!isRule && !isAttribution) break;
+    current = previous;
+  }
+  return current;
+}
+
+/** `start` plus everything after it in the document, as foldable elements. */
+function tailFrom(doc: Document, start: HTMLElement): HTMLElement[] {
+  const nodes: HTMLElement[] = [start];
+  let node: Element | null = start;
+  while (node && node !== doc.body) {
+    let sibling = node.nextSibling;
+    while (sibling) {
+      const next = sibling.nextSibling;
+      if (sibling.nodeType === ELEMENT_NODE) {
+        nodes.push(sibling as HTMLElement);
+      } else if (sibling.nodeType === TEXT_NODE && (sibling.textContent || '').trim()) {
+        // A bare text node can't carry the collapse class: wrap it.
+        const span = doc.createElement('span');
+        sibling.parentNode?.insertBefore(span, sibling);
+        span.append(sibling);
+        nodes.push(span);
+      }
+      sibling = next;
+    }
+    node = node.parentElement;
+  }
+  return nodes;
+}
+
 function candidateGroups(doc: Document, protectedForwards: HTMLElement[]): HTMLElement[][] {
-  const protectedSet = new Set(protectedForwards);
+  const protectedSet = new Set<Element>(protectedForwards);
   // A forwarded envelope remains visible, but quote candidates nested inside it are
   // still eligible. Filtering forward roots before top-level de-duplication is what
   // preserves Gmail's hierarchical behaviour for forwards containing old replies.
-  const explicit = quoteElements(doc)
+  const wrappers = uniqueTopLevel(quoteWrappers(doc)
     .filter(element => !protectedSet.has(element))
-    .filter(element => !startsWithForwardMarker(element.textContent));
-  const explicitTop = uniqueTopLevel(explicit);
-  const explicitGroups = explicitTop.map(element => [element]);
-  // Structural fold: detect reply markers ("On ... wrote:", "Dnia ... napisał(a):") in
-  // block elements that have NO provider quote wrapper (.gmail_quote, blockquote, etc.).
-  // Gmail, Apple Mail, Thunderbird and many clients emit plain <p>/<div> with the marker
-  // as the first visible line, followed by the entire historical subtree. Without this,
-  // MailFlow displays the complete reply chain.
-  // One expander per historical region: the marker's top-level ancestor and ALL following
-  // top-level siblings collapse into a single group (returned as one array).
-  // Skip structural roots already covered by explicit wrappers to avoid double toggles.
-  const structuralGroup = structuralQuoteRoots(doc, protectedSet, explicitTop);
-  const groups = [...explicitGroups];
-  if (structuralGroup.length) groups.push(structuralGroup);
+    .filter(element => !startsWithForwardMarker(element.textContent)));
+  // One expander per historical region: the first start marker (an Outlook header block,
+  // an attribution line, a separator) and everything after it collapse together, at any
+  // nesting depth — Outlook and Word wrap the whole body, history included, in one div.
+  const starts = [
+    ...[...doc.querySelectorAll<HTMLElement>(QUOTE_START_SELECTORS.join(','))]
+      .filter(element => !protectedSet.has(element) && !startsWithForwardMarker(element.textContent)),
+    structuralStart(doc, protectedSet),
+  ].filter((element): element is HTMLElement => element !== null)
+    .filter(element => !wrappers.some(wrapper => wrapper.contains(element)))
+    .sort(documentOrder);
+  const start = starts[0];
+  if (!start) return wrappers.map(wrapper => [widenStart(wrapper)]);
+  const tail = tailFrom(doc, widenStart(start));
+  const inTail = (element: Element) => tail.some(node => node === element || node.contains(element));
+  const groups = wrappers.filter(wrapper => !inTail(wrapper)).map(wrapper => [widenStart(wrapper)]);
+  groups.push(tail);
   return groups;
 }
-
-function structuralQuoteRoots(doc: Document, protectedSet: Set<Element>, explicitElements: HTMLElement[] = []): HTMLElement[] {
-  const roots: HTMLElement[] = [];
-  const seen = new Set<HTMLElement>();
-  const topLevel = [...doc.body.querySelectorAll<HTMLElement>(':scope > *')];
-  for (let index = 0; index < topLevel.length; index += 1) {
-    const element = topLevel[index];
-    if (protectedSet.has(element) || seen.has(element)) continue;
-    // Skip if this top-level element is already covered by an explicit wrapper (e.g.
-    // .gmail_quote) — those get their own toggle via explicitGroups.
-    if (explicitElements.some(explicit => explicit === element || explicit.contains(element) || element.contains(explicit))) continue;
-    // A top-level element is a quote root if it (or a descendant block) starts with a
-    // reply marker. This catches both <p>On ... wrote:</p> at top level and <div>...
-    // <p>On ... wrote:</p> ...</div> where the <div> is the top-level container.
-    if (elementStartsWithReplyMarker(element)) {
-      roots.push(element);
-      seen.add(element);
-      // Collapse the entire remaining historical region: this element AND all following
-      // top-level siblings. One expander for one historical region.
-      for (let tail = index + 1; tail < topLevel.length; tail += 1) {
-        const sibling = topLevel[tail];
-        if (!seen.has(sibling)) { roots.push(sibling); seen.add(sibling); }
-      }
-      break;
-    }
-  }
-  return roots;
-}
-
-function elementStartsWithReplyMarker(element: Element): boolean {
-  // Check the element's own visible text first (for <p>On ... wrote:</p> at top level).
-  if (startsWithReplyMarker(element.textContent || '')) return true;
-  // Then check descendant block elements (for <div><p>On ... wrote:</p>...</div>).
-  // Only inspect block elements — inline <span> fragments are part of the current message.
-  const blocks = element.querySelectorAll('p, div, span, blockquote, pre, table');
-  for (const block of blocks) {
-    if (startsWithReplyMarker(block.textContent || '')) return true;
-  }
-  return false;
-}
-
-// Node.DOCUMENT_POSITION_FOLLOWING, spelled out so this also runs where no DOM globals exist.
-const DOCUMENT_POSITION_FOLLOWING = 4;
 
 function hasContentBefore(doc: Document, element: Element): boolean {
   const range = doc.createRange();
@@ -188,7 +272,7 @@ export function plainTextBoundary(text: unknown): number {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].replace(/\u00a0/g, ' ').trim();
     const following = lines.slice(index, index + 6).map(candidate => candidate.replace(/\u00a0/g, ' ').replace(/[\t ]+/g, ' ').trim()).filter(Boolean);
-    if (line && replyStartsAt(following, 0)) return offset;
+    if (line && !startsWithForwardMarker(line) && replyStartsAt(following, 0)) return offset;
     if (/^>/.test(line)) {
       const quotedTail = lines.slice(index).filter(candidate => candidate.trim()).every(candidate => /^\s*>/.test(candidate));
       const quotedCount = lines.slice(index).filter(candidate => /^\s*>/.test(candidate)).length;
@@ -235,7 +319,7 @@ export function installMessageQuoteFolding(doc: Document, {
   const candidates = candidateGroups(doc, protectedForwards);
   // Nothing written above the first quoted region: the message *is* that history (a forward,
   // or a mail sent on unchanged), so folding it would leave only the toggle.
-  const first = candidates.map(group => group[0]).sort((left, right) => left.compareDocumentPosition(right) & DOCUMENT_POSITION_FOLLOWING ? -1 : 1)[0];
+  const first = candidates.map(group => group[0]).sort(documentOrder)[0];
   const groups = first && hasContentBefore(doc, first) ? candidates : [];
   groups.forEach((elements, index) => installGroup(doc, elements, index, { showLabel, hideLabel, onChange }));
   return { count: groups.length, protectedForwardCount: protectedForwards.length };

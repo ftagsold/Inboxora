@@ -159,3 +159,47 @@ export function carryMeta(fresh: StoreMessageRow[], previous: StoreMessageRow[])
     return { ...r, ...meta, meta_pending: false } as StoreMessageRow;
   });
 }
+
+/** A row of any remembered view, by id (rows leave the store before their move is sent). */
+export function lookupRow(id: string): StoreMessageRow | null {
+  for (const view of memory.values()) {
+    const row = view.rows.find(r => String(r.id) === id);
+    if (row) return row;
+  }
+  return null;
+}
+
+/** Rewrite one cached view (memory and IndexedDB); `edit` returns null for no change. */
+async function editView(key: string, edit: (view: CachedView) => CachedView | null): Promise<void> {
+  const inMemory = memory.get(key);
+  const view = inMemory ?? await getView(key);
+  if (!view) return;
+  const next = edit(view);
+  if (!next) return;
+  if (inMemory || memory.has(key)) memory.set(key, next);
+  await putView(key, next.rows, next.total, next.seq);
+}
+
+/** Insert rows into the cached views named by `keys`, in date order. */
+export function insertIntoViews(keys: string[], rows: StoreMessageRow[]): void {
+  for (const key of keys) {
+    void editView(key, view => {
+      const present = new Set(view.rows.map(r => String(r.id)));
+      const fresh = rows.filter(r => !present.has(String(r.id)));
+      if (!fresh.length) return null;
+      return { ...view, rows: [...fresh, ...view.rows].sort(compareRows), total: view.total + fresh.length };
+    });
+  }
+}
+
+/** Remove rows by id from the cached views named by `keys`. */
+export function removeFromViews(keys: string[], ids: string[]): void {
+  const gone = new Set(ids);
+  for (const key of keys) {
+    void editView(key, view => {
+      const rows = view.rows.filter(r => !gone.has(String(r.id)));
+      if (rows.length === view.rows.length) return null;
+      return { ...view, rows, total: Math.max(0, view.total - (view.rows.length - rows.length)) };
+    });
+  }
+}

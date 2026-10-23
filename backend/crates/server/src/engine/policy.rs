@@ -273,9 +273,17 @@ pub const BODY_PREFETCH_PARTS: [&str; 8] = ["1", "1.1", "1.2", "2", "2.1", "2.2"
 pub const FLAG_SCAN_TIMEOUT_MS: u64 = 20_000;
 pub const DELTA_SCAN_UID_WINDOW: u64 = 5000;
 pub const DEFAULT_SYNC_INTERVAL_MS: u64 = 15_000;
+/// Every this many interval ticks INBOX is re-read on the persistent connection even while
+/// IDLE pushes its changes (catches a silently dropped connection).
+pub const FULL_TICK_EVERY: u64 = 8;
+/// With NOTIFY, other folders are polled by STATUS only every this many ticks.
+pub const NOTIFY_TICK_EVERY: u64 = 8;
+/// INBOX flags are polled every this many ticks where STATUS can't show flag changes.
+pub const FLAG_POLL_EVERY: u64 = 4;
 pub const DEFAULT_FOLDER_SYNC_INTERVAL_MS: u64 = 15 * 60_000;
 pub const STALE_SYNC_WARN_MS: u64 = 5 * 60_000;
-pub const STALENESS_CHECK_MS: u64 = 3 * 60_000;
+/// Fresh-login probe for deaf IDLE connections; STATUS checks on the pool catch missed mail sooner.
+pub const STALENESS_CHECK_MS: u64 = 15 * 60_000;
 pub const SYNC_HUNG_MS: u64 = 30_000;
 pub const FLAG_PUSH_RECONCILE_MS: u64 = 15_000;
 pub const FLAG_PUSH_MAX_ATTEMPTS: u32 = 40;

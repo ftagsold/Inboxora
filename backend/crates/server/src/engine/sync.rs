@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+
 use inboxora_core::params;
 use inboxora_core::pg::{Db, Q};
 use inboxora_imap::{Client, FetchQuery, Message};
@@ -813,17 +813,6 @@ impl Engine {
         }
     }
 
-    /// The post-tick flag poll (`setImmediate` after the tick released its sync lock).
-    pub async fn sync_flags_for_range_after(self: &Arc<Self>, account: &Account) {
-        for _ in 0..100 {
-            if !self.st.lock().syncing.contains(account.id()) {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        self.sync_flags_for_range(account).await;
-    }
-
     /// `syncFolderOnDemand`: the newest 100 messages of one folder over a pooled connection.
     pub async fn sync_folder_on_demand(self: &Arc<Self>, account: &Account, folder: &str) {
         let key = format!("{}:{folder}", account.id());
@@ -849,57 +838,9 @@ impl Engine {
         }
     }
 
-    /// `_syncOtherFolders`: every non-INBOX selectable folder on one pooled connection, in
-    /// priority order (Archive, Sent, Trash, Drafts, Junk, then the rest, smallest first). A
-    /// folder whose connection died goes back in the queue and is retried on a fresh lease.
-    pub async fn sync_other_folders(self: &Arc<Self>, account: &Account) {
-        let Some(_g) = self.claim(|s| &mut s.other_folders_syncing, account.id()) else { return };
-        let run = async {
-            let mut queue: std::collections::VecDeque<(String, super::limits::Prio)> =
-                self.folders_by_priority(account, false).await?.into_iter().collect();
-            let Some(first) = queue.front().map(|f| f.1) else {
-                return Ok::<_, EngineError>(());
-            };
-            let host = account.host();
-            let _slot = super::connect::SlotGuard::acquire(&self.bg_sem, &host).await;
-            let mut lease = self.lease_with(account, first).await?;
-            let mut synced = false;
-            let mut retries = 0;
-            while let Some((folder, prio)) = queue.pop_front() {
-                let key = format!("{}:{folder}", account.id());
-                let Some(_od) = self.claim(|s| &mut s.on_demand_syncing, &key) else { continue };
-                match self.sync_messages(account, lease.client(), &folder, 50, false, true).await {
-                    Ok(_) => synced = true,
-                    Err(e) => {
-                        tracing::warn!("Periodic folder sync failed for {}/{folder}: {e}", account.log());
-                        if !lease.client().is_usable() {
-                            self.note_conn_failure(account, lease.client(), &e.0).await;
-                            lease.evict();
-                            drop(lease);
-                            retries += 1;
-                            if retries > 3 {
-                                break;
-                            }
-                            queue.push_front((folder, prio));
-                            lease = self.lease_with(account, prio).await?;
-                        }
-                    }
-                }
-            }
-            if synced {
-                self.broadcast(json!({ "type": "folders_synced", "accountId": account.id() }), Some(account.user_id()));
-            }
-            Ok(())
-        };
-        if let Err(e) = run.await {
-            tracing::warn!("Periodic other-folders sync failed for {}: {e}", account.log());
-        }
-    }
-
-    /// `reconcileDeletes`: drop rows whose UIDs the server no longer has.
+    /// `reconcileDeletes`: drop rows whose UIDs the server no longer has, in every folder.
     pub async fn reconcile_deletes(self: &Arc<Self>, account: &Account) -> EResult<()> {
         let Some(_g) = self.claim(|s| &mut s.reconciling, account.id()) else { return Ok(()) };
-        let started: DateTime<Utc> = Utc::now();
         let rows = self
             .db
             .rows(
@@ -911,66 +852,25 @@ impl Engine {
         if rows.is_empty() {
             return Ok(());
         }
-        let folders: Vec<String> = rows.iter().map(|r| r.get::<_, String>("folder")).collect();
-        let mut server: Vec<(String, HashSet<i64>)> = Vec::new();
-        {
-            let mut lease = match self.lease_with(account, super::limits::Prio::Other).await {
-                Ok(l) => l,
+        let mut lease = match self.lease_with(account, super::limits::Prio::Other).await {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::warn!("Reconcile connection error for {}: {e}", account.log());
+                return Ok(());
+            }
+        };
+        let mut deleted = 0usize;
+        for folder in rows.iter().map(|r| r.get::<_, String>("folder")) {
+            match self.reconcile_folder(account, lease.client(), &folder).await {
+                Ok(n) => deleted += n,
                 Err(e) => {
-                    tracing::warn!("Reconcile connection error for {}: {e}", account.log());
-                    return Ok(());
-                }
-            };
-            for folder in folders {
-                let c = lease.client();
-                let r = async {
-                    c.select(&folder).await?;
-                    c.search_uids("ALL").await
-                }
-                .await;
-                match r {
-                    Ok(uids) => server.push((folder, uids.into_iter().map(i64::from).collect())),
-                    Err(e) => {
-                        tracing::warn!("Reconcile: could not open {}/{folder}: {e}", account.log());
-                        if e.is_fatal() {
-                            lease.evict();
-                            tracing::warn!("Reconcile connection error for {}: {e}", account.log());
-                            return Ok(());
-                        }
+                    tracing::warn!("Reconcile: could not open {}/{folder}: {e}", account.log());
+                    if !lease.client().is_usable() {
+                        lease.evict();
+                        return Ok(());
                     }
                 }
             }
-        }
-        let mut deleted = 0usize;
-        for (folder, set) in server {
-            let db_rows = self
-                .db
-                .rows(
-                    "SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND (synced_at IS NULL OR synced_at < $3)",
-                    params![account.id(), &folder, started],
-                )
-                .await?;
-            let orphans: Vec<i64> = db_rows
-                .iter()
-                .map(|r| r.get::<_, i64>("uid"))
-                .filter(|u| !set.contains(u) && !self.is_move_uid_guarded(account.id(), &folder, *u))
-                .collect();
-            if orphans.is_empty() {
-                continue;
-            }
-            tracing::info!(
-                "Reconcile: removing {} server-deleted message(s) from {}/{folder}",
-                orphans.len(),
-                account.log()
-            );
-            self.db
-                .exec(
-                    "DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[]) AND (synced_at IS NULL OR synced_at < $4)",
-                    params![account.id(), &folder, orphans.clone(), started],
-                )
-                .await?;
-            recount_folder(&self.db, account.id(), &folder).await?;
-            deleted += orphans.len();
         }
         if deleted > 0 {
             self.broadcast(json!({ "type": "sync_complete", "accountId": account.id() }), Some(account.user_id()));

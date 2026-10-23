@@ -104,6 +104,8 @@ pub enum Event {
     Expunge { path: String, seq: u32 },
     Vanished { path: String, uids: Vec<u32> },
     Flags { path: String, seq: u32, uid: Option<u32>, flags: Vec<String> },
+    /// An unsolicited STATUS for another mailbox (RFC 5465 NOTIFY): its contents changed.
+    MailboxChanged { path: String },
     Closed,
 }
 
@@ -584,6 +586,11 @@ impl Client {
 
     /// Mailbox-state bookkeeping for unsolicited data (shared by every command and IDLE).
     fn track(&mut self, resp: &Response<'static>, in_fetch: bool) {
+        if let Response::MailboxData(MailboxDatum::Status { mailbox, .. }) = resp {
+            let path = self.decode_path(mailbox);
+            self.emit(Event::MailboxChanged { path });
+            return;
+        }
         let Some(mb) = self.selected.as_mut() else { return };
         match resp {
             Response::MailboxData(MailboxDatum::Exists(n)) => {
@@ -918,6 +925,35 @@ impl Client {
 
     pub async fn noop(&mut self) -> Result<()> {
         self.run("NOOP").await.map(|_| ())
+    }
+
+    /// RFC 5465 NOTIFY: report changes to every personal mailbox as unsolicited responses
+    /// (EXISTS/EXPUNGE/FETCH for the selected one, STATUS for the rest), during IDLE too.
+    /// Returns false when the server lacks NOTIFY or refuses both event sets.
+    pub async fn notify_personal(&mut self) -> Result<bool> {
+        if !self.caps.contains("NOTIFY") {
+            return Ok(false);
+        }
+        for cmd in [
+            "NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) (personal (MessageNew MessageExpunge FlagChange MailboxName))",
+            "NOTIFY SET (selected (MessageNew MessageExpunge)) (personal (MessageNew MessageExpunge))",
+        ] {
+            match self.run(cmd).await {
+                Ok(_) => return Ok(true),
+                Err(e @ Error::Command { .. }) => tracing::debug!("{cmd} refused: {e}"),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(false)
+    }
+
+    /// Leave the selected mailbox (UNSELECT, else nothing), so STATUS can be asked of it.
+    pub async fn unselect(&mut self) -> Result<()> {
+        if self.selected.is_some() && self.caps.contains("UNSELECT") {
+            self.run("UNSELECT").await?;
+            self.selected = None;
+        }
+        Ok(())
     }
 
     pub async fn status(&mut self, path: &str) -> Result<Status_> {

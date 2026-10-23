@@ -180,11 +180,17 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       const read = typeof copy.id === 'string' ? pendingReadState(copy.id) : undefined;
       return read === undefined ? copy : { ...copy, is_read: read, isRead: read };
     });
+    // The open copy left this folder elsewhere (moved or deleted on another device or client):
+    // close the reader instead of keeping its header with a body that no longer resolves.
+    if (native && selectedCopyId && !physical.some((copy: ConversationCopyRef) => String(copy.id) === String(selectedCopyId))) {
+      useStore.getState().setSelectedMessage(null);
+      return;
+    }
     const nativeMessages = nativeThreadToReaderMessages(physical, selectedAccountId);
     setData(previous => !previous ? previous : { ...previous, ...ce, logicalMessages: native
       ? mergeThreadWithConversation(ce?.logicalMessages || [], nativeMessages)
       : ce.logicalMessages || previous.logicalMessages });
-  }, [conversationId, nativeThreadId, nativeFolder, selectedAccountId, data]);
+  }, [conversationId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, data]);
   const handleActionComplete = useCallback(async (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => {
     const { action, copyId, logicalMessageId, isRead, isStarred } = mutation || {};
     if (typeof action === 'string' && ['delete', 'archive', 'move', 'spam', 'ham'].includes(action) && copyId) {

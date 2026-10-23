@@ -15,7 +15,7 @@ use regex::Regex;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::engine::search::FolderScope;
+use crate::engine::search::{FolderScope, TextCond, TextField};
 use crate::http::limit::Windows;
 use crate::http::{Auth, Qs};
 use crate::routes::contacts::{query_int, query_string};
@@ -146,6 +146,26 @@ pub fn imap_criteria(filters: &[Filter], terms: &[Term]) -> Vec<String> {
     out
 }
 
+/// The substring conditions matching [`imap_criteria`], for the cached-field scan.
+pub fn text_conditions(filters: &[Filter], terms: &[Term]) -> Vec<TextCond> {
+    let mut out = Vec::new();
+    for f in filters {
+        let field = match f.key.as_str() {
+            "from" => TextField::From,
+            "subject" => TextField::Subject,
+            "to" => TextField::To,
+            _ => continue,
+        };
+        out.push(TextCond::new(field, &f.value, f.negate));
+    }
+    for t in terms.iter().take(10) {
+        if inboxora_mail::text::js_len(&t.value) >= 2 {
+            out.push(TextCond::new(TextField::Any, &t.value, t.negate));
+        }
+    }
+    out
+}
+
 /// `resolveAccountScope`: one owned account, or every account in the unified inbox.
 pub fn resolve_account_scope(
     accounts: &[(String, Option<bool>)],
@@ -243,7 +263,15 @@ async fn search(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response
             FolderScope::AllButTrash => conditions.push(TRASH_EXCLUSION.into()),
         }
     } else {
-        let ids = s.mail.search_ids(&target_ids, &scope, &criteria.join(" "), HITS_PER_FOLDER).await;
+        let conds = text_conditions(&filters, &terms);
+        let joined = criteria.join(" ");
+        let (server, cached) = tokio::join!(
+            s.mail.search_ids(&target_ids, &scope, &joined, HITS_PER_FOLDER),
+            s.mail.search_cached(&target_ids, &scope, &conds),
+        );
+        let mut ids = server;
+        let known: std::collections::HashSet<Uuid> = ids.iter().copied().collect();
+        ids.extend(cached.into_iter().filter(|id| !known.contains(id)));
         if ids.is_empty() {
             return Ok(ok(json!({ "messages": [], "query": raw })));
         }

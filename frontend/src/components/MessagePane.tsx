@@ -293,6 +293,20 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const message = allMessages.find(m => m.id === selectedMessageId)
     ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
 
+  // The open message dropped out of the loaded rows (moved or deleted on another device):
+  // close the reader so it never shows a header whose body no longer resolves.
+  const seenMessageIdRef = useRef<string | null>(null);
+  const messagePresent = Boolean(message);
+  useEffect(() => {
+    if (mode === 'conversation' || windowMode || !selectedMessageId) return;
+    if (messagePresent) {
+      seenMessageIdRef.current = selectedMessageId;
+    } else if (seenMessageIdRef.current === selectedMessageId && !searchQuery.trim()) {
+      seenMessageIdRef.current = null;
+      setSelectedMessage(null);
+    }
+  }, [mode, windowMode, selectedMessageId, messagePresent, searchQuery, setSelectedMessage]);
+
   // Compose lives in the mobile top bar now that the reader owns it (the shell's
   // fallback compose row is hidden while the reader is open). Target the account of
   // the open message/conversation copy, matching the list header's compose action.

@@ -39,6 +39,9 @@ import { toAppError } from '../utils/errors.ts';
 import { anchorRefreshedRows, hasMorePages } from '../utils/listPaging.ts';
 import { carryMeta, cursorOf, hydratePendingRows, mergeChanges, patchRows, recallView, rememberView } from '../utils/listCache.ts';
 import { forgetMessages, viewKey } from '../utils/mailCache.ts';
+import { installMovePreview, withPendingMoves, type ViewParams } from '../utils/pendingMoves.ts';
+
+installMovePreview();
 import { prefetchInboxes, prefetchUnreadBodies } from '../utils/listPrefetch.ts';
 import { createSessionOperationGuard } from '../utils/sessionOperationGuard.ts';
 import { legacySignatureHtmlToText } from '../utils/legacySignatureText.ts';
@@ -465,7 +468,7 @@ export default function MessageList() {
 
   // The view the list shows, as the browser cache keys it; read through a ref so the cache
   // helpers below stay stable.
-  const viewParamsRef = useRef<Record<string, unknown>>({});
+  const viewParamsRef = useRef<ViewParams>({ account: '', folder: 'INBOX', unread: false, threaded: false, category: '' });
   viewParamsRef.current = {
     account: selectedAccountId || '',
     folder: selectedAccountId ? selectedFolder : 'INBOX',
@@ -541,7 +544,7 @@ export default function MessageList() {
           (data: { messages: StoreMessageRow[]; total: number; seq?: number }) => {
             if (cancelled) return;
             console.info(`[perf] messages load ${Date.now() - __t0}ms unified=${!selectedAccountId} count=${data.messages.length} total=${data.total} cached=${cached?.rows.length ?? 0}`);
-            const rows = carryMeta(data.messages, cached?.rows || []);
+            const rows = withPendingMoves(viewParamsRef.current, carryMeta(data.messages, cached?.rows || []));
             setMessagesTotal(data.total);
             setMessages(applyReadGuard(rows));
             setMessagesOffset(rows.length);
@@ -676,7 +679,7 @@ export default function MessageList() {
             viewSeqRef.current = data.seq || viewSeqRef.current;
             // If the unread filter is on and the currently open message was just marked
             // read, the server won't return it — preserve it so the user can keep reading.
-            const fresh = carryMeta(data.messages, previousRows);
+            const fresh = withPendingMoves(viewParamsRef.current, carryMeta(data.messages, previousRows));
             const anchored = sm === 'paginated' ? fresh
               : previousRows.length ? anchorRefreshedRows(previousRows, fresh) : fresh.slice(0, ps);
             let msgs = applyDeleteGuard(applyReadGuard(anchored));

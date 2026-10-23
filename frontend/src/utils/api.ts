@@ -97,6 +97,30 @@ export function toSearchParams(params: QueryParams): string {
   return search.toString();
 }
 
+/** Where a move sends messages: a folder path, or the account's Archive/Trash folder. */
+export type MoveTarget = { folder: string } | { special: 'archive' | 'trash' };
+/** Called as a move starts; the returned callback runs with the server's outcome. */
+export type MoveObserver = (ids: string[], target: MoveTarget) => ((ok: boolean) => void) | void;
+let moveObserver: MoveObserver | null = null;
+
+/** Register the observer that previews moves in the destination folder (optimistic UI). */
+export function observeMoves(observer: MoveObserver | null): void {
+  moveObserver = observer;
+}
+
+async function observedMove<T>(ids: string[], target: MoveTarget, call: () => Promise<T>): Promise<T> {
+  let settle: ((ok: boolean) => void) | void = undefined;
+  try { settle = moveObserver?.(ids, target); } catch { /* the preview is best-effort */ }
+  try {
+    const result = await call();
+    settle?.(true);
+    return result;
+  } catch (err) {
+    settle?.(false);
+    throw err;
+  }
+}
+
 async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}) {
   const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
   if (body) headers['Content-Type'] = 'application/json';
@@ -380,10 +404,10 @@ export const api = {
   bulkRead: (ids: string[], read: boolean) => request('POST', '/mail/messages/bulk-read', { ids, read }),
   markStarred: (id: string, starred: boolean) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId: string, folder: string) => request('POST', '/mail/mark-all-read', { accountId, folder }),
-  deleteMessage: (id: string) => request('DELETE', `/mail/messages/${id}`),
-  bulkDelete: (ids: string[]) => request('POST', '/mail/messages/bulk-delete', { ids }),
-  bulkMove: (ids: string[], folder: string) => request('POST', '/mail/messages/bulk-move', { ids, folder }),
-  bulkArchive: (ids: string[]) => request('POST', '/mail/messages/bulk-archive', { ids }),
+  deleteMessage: (id: string) => observedMove([id], { special: 'trash' }, () => request('DELETE', `/mail/messages/${id}`)),
+  bulkDelete: (ids: string[]) => observedMove(ids, { special: 'trash' }, () => request('POST', '/mail/messages/bulk-delete', { ids })),
+  bulkMove: (ids: string[], folder: string) => observedMove(ids, { folder }, () => request('POST', '/mail/messages/bulk-move', { ids, folder })),
+  bulkArchive: (ids: string[]) => observedMove(ids, { special: 'archive' }, () => request('POST', '/mail/messages/bulk-archive', { ids })),
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
 
   // Mailbox cleanup (read-only analysis; actual cleanup reuses bulkDelete above).

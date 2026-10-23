@@ -79,3 +79,31 @@ describe('dated sender reply markers', () => {
     assert.equal(startsWithReplyMarker('Wäre es denn vom 13. auf den 14.11. möglich?'), false);
   });
 });
+
+describe('attribution lines across clients and languages', () => {
+  it('recognises translated "wrote:" attributions', () => {
+    assert.equal(startsWithReplyMarker('Op 21 okt. 2026 om 10:00 schreef Max <max@example.test>:'), true);
+    assert.equal(startsWithReplyMarker('Den 21 okt. 2026 kl. 10:00 skrev Max <max@example.test>:'), true);
+    assert.equal(startsWithReplyMarker('Em ter., 21 de out. de 2026 às 10:00, Max <max@example.test> escreveu:'), true);
+    assert.equal(startsWithReplyMarker('W dniu 21.10.2026 o 10:00, Jan Kowalski pisze:\n> stare') || startsWithReplyMarker('W dniu 21.10.2026 o 10:00 Jan napisał:'), true);
+    assert.equal(startsWithReplyMarker('21.10.2026, 10:00, "Иван" <ivan@example.test> написал(а):'), true);
+    assert.equal(startsWithReplyMarker('2026年10月21日(火) 10:00 Max <max@example.test>:'), true);
+    assert.equal(startsWithReplyMarker('Max <max@example.test> 于2026年10月21日周二 10:00写道：'), true);
+  });
+
+  it('recognises Android and Outlook separators', () => {
+    assert.equal(startsWithReplyMarker('-------- Original message --------\nFrom: Max'), true);
+    assert.equal(startsWithReplyMarker('---- Max wrote ----'), true);
+    assert.equal(startsWithReplyMarker('________________________________\nFrom: Max <max@example.test>\nSent: Tuesday\nTo: me'), true);
+    assert.equal(startsWithReplyMarker('Van: Max <max@example.test>\nVerzonden: dinsdag 21 oktober 2026\nAan: me'), true);
+  });
+
+  it('keeps prose that merely ends in "wrote:" visible', () => {
+    assert.equal(startsWithReplyMarker('Here is what the author wrote:'), false);
+  });
+
+  it('includes the rule line above an Outlook header in the plain-text fold', () => {
+    const outlook = 'Answer\n\n________________________________\nFrom: Max <max@example.test>\nSent: Tuesday\n\nOld';
+    assert.equal(plainTextBoundary(outlook), outlook.indexOf('____'));
+  });
+});

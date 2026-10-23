@@ -16,6 +16,7 @@ pub mod pool;
 pub mod preload;
 pub mod search;
 pub mod sync;
+pub mod changes;
 
 #[cfg(test)]
 mod live_tests;
@@ -97,6 +98,10 @@ pub struct Persistent {
     wake: Notify,
     closed: AtomicBool,
     closed_tx: watch::Sender<bool>,
+    /// The server supports IDLE, so INBOX changes arrive as events.
+    idle_capable: AtomicBool,
+    /// NOTIFY is set, so changes to every folder arrive as events.
+    notify: AtomicBool,
 }
 
 pub struct PersistentGuard<'a> {
@@ -118,6 +123,8 @@ impl Persistent {
             wake: Notify::new(),
             closed: AtomicBool::new(false),
             closed_tx: watch::channel(false).0,
+            idle_capable: AtomicBool::new(false),
+            notify: AtomicBool::new(false),
         })
     }
 
@@ -139,6 +146,16 @@ impl Persistent {
         self.closed.store(true, Ordering::SeqCst);
         let _ = self.closed_tx.send(true);
         self.wake.notify_waiters();
+    }
+
+    /// Whether INBOX changes reach us as IDLE events (no need to poll INBOX).
+    pub fn pushes_inbox(&self) -> bool {
+        !self.is_closed() && self.idle_capable.load(Ordering::SeqCst)
+    }
+
+    /// Whether changes to other folders reach us as NOTIFY events.
+    pub fn pushes_all(&self) -> bool {
+        self.pushes_inbox() && self.notify.load(Ordering::SeqCst)
     }
 
     /// Resolves once the connection is force-closed.
@@ -183,9 +200,13 @@ pub struct State {
     pub user_sync_interval_ms: HashMap<String, u64>,
     pub user_folder_sync_interval_ms: HashMap<String, u64>,
     pub flag_debounce: HashMap<String, JoinHandle<()>>,
-    pub expunge_debounce: HashMap<String, JoinHandle<()>>,
     pub preload_running: HashSet<String>,
     pub last_warm_preload: HashMap<String, u64>,
+    /// Per account, the STATUS of each folder at its last check (see `changes`).
+    pub folder_stamps: HashMap<String, HashMap<String, changes::FolderStamp>>,
+    pub changed_rerun: HashSet<String>,
+    pub changed_debounce: HashMap<String, JoinHandle<()>>,
+    pub periodic_ticks: HashMap<String, u64>,
 }
 
 pub struct Engine {
@@ -629,7 +650,7 @@ impl Engine {
                 Event::Flags { .. } => {
                     let (e, a) = (self.clone(), account.clone());
                     let handle = tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        tokio::time::sleep(changes::CHANGE_DEBOUNCE).await;
                         e.st.lock().flag_debounce.remove(a.id());
                         tracing::info!("IMAP IDLE: flag change for {}, syncing flags", a.log());
                         e.sync_flags_for_range(&a).await;
@@ -639,18 +660,14 @@ impl Engine {
                     }
                 }
                 Event::Expunge { .. } | Event::Vanished { .. } => {
-                    let (e, a) = (self.clone(), account.clone());
-                    let handle = tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(1500)).await;
-                        e.st.lock().expunge_debounce.remove(a.id());
-                        tracing::info!("IMAP IDLE: expunge for {}, reconciling", a.log());
-                        if let Err(err) = e.reconcile_deletes(&a).await {
-                            tracing::warn!("Expunge-triggered reconcile error for {}: {err}", a.log());
-                        }
-                    });
-                    if let Some(old) = self.st.lock().expunge_debounce.insert(account.id().to_owned(), handle) {
-                        old.abort();
-                    }
+                    // Mail left INBOX (deleted, or moved on another device): reconcile INBOX
+                    // and pick the mail up in the folder it went to, in one changed-folder pass.
+                    tracing::info!("IMAP IDLE: expunge for {}, syncing changed folders", account.log());
+                    self.schedule_changed_sync(&account);
+                }
+                Event::MailboxChanged { path } => {
+                    tracing::debug!("IMAP NOTIFY: {path} changed for {}", account.log());
+                    self.schedule_changed_sync(&account);
                 }
                 Event::Closed => {
                     let mut st = self.st.lock();
@@ -775,10 +792,12 @@ impl Engine {
             st.connect_cooldown.remove(account_id);
             st.last_folder_sync_at.remove(account_id);
             st.sync_started_at.remove(account_id);
+            st.folder_stamps.remove(account_id);
+            st.periodic_ticks.remove(account_id);
             let timers = [
                 st.sync_timers.remove(account_id),
                 st.flag_debounce.remove(account_id),
-                st.expunge_debounce.remove(account_id),
+                st.changed_debounce.remove(account_id),
             ];
             (st.connections.remove(account_id), timers)
         };
@@ -921,10 +940,11 @@ impl Engine {
         let handle = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(jitter)).await;
             let mut iv = tokio::time::interval(Duration::from_millis(ms));
+            iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 iv.tick().await;
                 let (e2, a2) = (e.clone(), a.clone());
-                tokio::spawn(async move { e2.sync_tick(a2).await });
+                tokio::spawn(async move { e2.periodic_tick(a2).await });
             }
         });
         if let Some(old) = self.st.lock().sync_timers.insert(account.id().to_owned(), handle) {
@@ -958,6 +978,28 @@ impl Engine {
 
     pub fn update_folder_sync_interval_for_user(&self, user_id: &str, ms: u64) {
         self.st.lock().user_folder_sync_interval_ms.insert(user_id.to_owned(), ms);
+    }
+
+    /// The interval tick. While the persistent connection pushes INBOX changes (IDLE), INBOX
+    /// is re-read only every `FULL_TICK_EVERY` ticks as a liveness check, so IDLE is not broken
+    /// every few seconds; other folders are checked by STATUS each tick, or only every
+    /// `NOTIFY_TICK_EVERY` ticks when NOTIFY pushes their changes too.
+    pub async fn periodic_tick(self: Arc<Self>, account: Account) {
+        let n = {
+            let mut st = self.st.lock();
+            let n = st.periodic_ticks.entry(account.id().to_owned()).or_insert(0);
+            *n += 1;
+            *n
+        };
+        let p = self.persistent(account.id());
+        let pushes_inbox = p.as_ref().is_some_and(|p| p.pushes_inbox());
+        if !pushes_inbox || account.profile().fresh_inbox_sync || n % FULL_TICK_EVERY == 0 {
+            return self.sync_tick(account).await;
+        }
+        if p.is_some_and(|p| p.pushes_all()) && n % NOTIFY_TICK_EVERY != 0 {
+            return;
+        }
+        self.sync_changed_folders(&account, n % FLAG_POLL_EVERY == 0).await;
     }
 
     /// `_syncTick`: the periodic INBOX sync on the persistent connection (reconnecting when
@@ -1077,17 +1119,9 @@ impl Engine {
                         Err(e) => tracing::warn!("Periodic folder sync failed for {}: {e}", sync_account.log()),
                     }
                 }
-                let (e, a) = (self.clone(), sync_account.clone());
-                tokio::spawn(async move { e.sync_other_folders(&a).await });
                 self.st.lock().pending_flag_sync.remove(account.id());
                 let (e, a) = (self.clone(), sync_account.clone());
-                tokio::spawn(async move { e.sync_flags_for_range_after(&a).await });
-                let (e, a) = (self.clone(), sync_account.clone());
-                tokio::spawn(async move {
-                    if let Err(err) = e.reconcile_deletes(&a).await {
-                        tracing::error!("Reconcile error for {}: {err}", a.log());
-                    }
-                });
+                tokio::spawn(async move { e.sync_changed_folders(&a, true).await });
             }
             Err(e) => {
                 tracing::error!("Sync error for {}: {e}", account.log());
@@ -1303,6 +1337,7 @@ impl Engine {
 
 /// imapflow's auto-IDLE: hold IDLE on the persistent connection whenever nobody else needs it.
 async fn idle_loop(p: Arc<Persistent>, keepalive: Duration) {
+    let mut notify_tried = false;
     loop {
         if p.is_closed() {
             if let Some(mut c) = p.client.lock().await.take() {
@@ -1331,6 +1366,15 @@ async fn idle_loop(p: Arc<Persistent>, keepalive: Duration) {
         notified.as_mut().enable();
         if p.wants.load(Ordering::SeqCst) > 0 || p.is_closed() {
             continue;
+        }
+        if !notify_tried {
+            notify_tried = true;
+            p.idle_capable.store(c.has_capability("IDLE"), Ordering::SeqCst);
+            match c.notify_personal().await {
+                Ok(on) => p.notify.store(on, Ordering::SeqCst),
+                Err(e) if e.is_fatal() => return,
+                Err(e) => tracing::debug!("NOTIFY failed: {e}"),
+            }
         }
         if c.mailbox().is_none()
             && let Err(e) = c.select("INBOX").await
