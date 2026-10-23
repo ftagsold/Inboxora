@@ -55,6 +55,7 @@ services:
       PUSH_ALLOW_PRIVATE_ENDPOINTS: ${PUSH_ALLOW_PRIVATE_ENDPOINTS:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
       IMAP_MAX_CONNECTIONS_PER_ACCOUNT: ${IMAP_MAX_CONNECTIONS_PER_ACCOUNT:-}
+      ALLOW_PRIVATE_HOSTS: ${ALLOW_PRIVATE_HOSTS:-}
       MAIL_BODY_TTL_SECONDS: ${MAIL_BODY_TTL_SECONDS:-}
       # ── OIDC / SSO providers (optional) ──────────────────────────────────────
       # Each OIDC_<N>_* block below declares one SSO provider without touching the admin UI.

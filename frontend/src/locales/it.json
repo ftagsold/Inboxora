@@ -671,7 +671,8 @@
       "mfaSsoLockedNotice": "L'applicazione MFA non è applicabile quando l'accesso con password è disabilitato. Gli utenti si autenticano tramite SSO, che gestisce i propri requisiti MFA.",
       "recoveryEmailTitle": "Email di recupero",
       "recoveryEmailDesc": "Ricevi un codice di accesso via email se perdi l’accesso alla tua app di autenticazione.",
-      "recoveryEmailPh": "tua@email.it"
+      "recoveryEmailPh": "tua@email.it",
+      "lockedByEnv": "Impostato dalla variabile d’ambiente {{name}}."
     },
     "shortcuts": {
       "title": "Scorciatoie da tastiera",

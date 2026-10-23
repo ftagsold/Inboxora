@@ -671,7 +671,8 @@
       "mfaSsoLockedNotice": "MFA-Durchsetzung ist nicht anwendbar, wenn die Passwortanmeldung deaktiviert ist. Benutzer authentifizieren sich über SSO, das seine eigenen MFA-Anforderungen verwaltet.",
       "recoveryEmailTitle": "Wiederherstellungs-E-Mail",
       "recoveryEmailDesc": "Erhalten Sie einen Anmeldecode per E-Mail, wenn Sie den Zugang zur Authentifizierungs-App verlieren.",
-      "recoveryEmailPh": "ihre@email.de"
+      "recoveryEmailPh": "ihre@email.de",
+      "lockedByEnv": "Durch die Umgebungsvariable {{name}} festgelegt."
     },
     "shortcuts": {
       "title": "Tastaturkürzel",

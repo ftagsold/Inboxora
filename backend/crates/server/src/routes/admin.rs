@@ -151,7 +151,13 @@ async fn get_settings(State(s): State<AppState>, _a: Admin) -> Result<Response> 
     if locked {
         settings.insert("internal_auth_disabled".into(), Value::String("true".into()));
     }
-    Ok(ok(json!({ "settings": settings, "passwordLoginLockedByEnv": locked })))
+    // Report the private-host policy as it applies (env override, else setting, else default).
+    let private_env = dav_client::private_hosts_from_env();
+    let stored = settings.get("allow_private_hosts").and_then(Value::as_str).map(|v| v == "true");
+    let private = private_env.or(stored).unwrap_or(dav_client::DEFAULT_ALLOW_PRIVATE_HOSTS);
+    settings.insert("allow_private_hosts".into(), Value::String(private.to_string()));
+    let policy_locked: Vec<&str> = if private_env.is_some() { vec!["allow_private_hosts"] } else { vec![] };
+    Ok(ok(json!({ "settings": settings, "passwordLoginLockedByEnv": locked, "mailPolicyLockedByEnv": policy_locked })))
 }
 
 async fn auth_events(State(s): State<AppState>, _a: Admin, q: Qs) -> Result<Response> {
@@ -226,6 +232,9 @@ async fn patch_settings(State(s): State<AppState>, a: Admin, body: Body) -> Resu
         auth_svc::reload_auth_settings(&s.db).await;
     }
     for key in ["allow_private_hosts", "allow_insecure_tls", "allow_nonstandard_ports"] {
+        if key == "allow_private_hosts" && body.get(key).is_some() && dav_client::private_hosts_from_env().is_some() {
+            return Ok(err(409, "allow_private_hosts is set by the ALLOW_PRIVATE_HOSTS environment variable"));
+        }
         if let Some(Value::Bool(v)) = body.get(key) {
             put_setting(&s, key, if *v { "true" } else { "false" }).await?;
             tracing::info!("[admin] {} set {key}={v}", admin_name(&a));

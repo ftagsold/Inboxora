@@ -586,7 +586,8 @@
       "mfaSsoLockedNotice": "Vynucení MFA se nepoužije, pokud je přihlašování heslem vypnuté. Uživatelé se ověřují přes SSO, které spravuje vlastní požadavky MFA.",
       "recoveryEmailTitle": "E-mail pro obnovení",
       "recoveryEmailDesc": "Pokud ztratíte přístup k ověřovací aplikaci, obdržíte přihlašovací kód e-mailem.",
-      "recoveryEmailPh": "uzivatel@example.com"
+      "recoveryEmailPh": "uzivatel@example.com",
+      "lockedByEnv": "Nastaveno proměnnou prostředí {{name}}."
     },
     "systemEmail": {
       "tabUsers": "Uživatelé a pozvánky",

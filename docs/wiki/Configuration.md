@@ -212,6 +212,8 @@ A few values exist only in the environment or in the database:
   under **Settings → Security → IMAP connections**.
 - `MAIL_BODY_TTL_SECONDS` (default 604800, 7 days) is how long rendered bodies stay in Redis.
   Subjects, senders and snippets stay until the message is deleted.
+- `ALLOW_PRIVATE_HOSTS` (default true) lets accounts and DAV servers use private or reserved
+  addresses. Set, it overrides the admin mail-server policy, which then shows as locked.
 - `REDIS_MAXMEMORY` (default 512mb) caps the bundled, memory-only Redis. The server logs a warning
   when the mail cache reaches 80% of it.
 - The conversation engine's automated-series segmentation mode is not exposed in the interface.

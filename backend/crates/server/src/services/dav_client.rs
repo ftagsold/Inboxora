@@ -27,6 +27,23 @@ pub struct ConnectionPolicy {
 
 static POLICY: LazyLock<Mutex<Option<(ConnectionPolicy, Instant)>>> = LazyLock::new(|| Mutex::new(None));
 
+/// `ALLOW_PRIVATE_HOSTS` (`true`/`false`): when set it overrides the admin setting. Unset, the
+/// admin setting applies, and without one private hosts are allowed (self-hosted mail servers
+/// usually sit on the same network). `ALLOW_PRIVATE_IMAP_HOSTS=true` is accepted as an alias.
+pub fn private_hosts_from_env() -> Option<bool> {
+    let parse = |v: String| match v.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    };
+    inboxora_core::config::env("ALLOW_PRIVATE_HOSTS")
+        .and_then(parse)
+        .or_else(|| (inboxora_core::config::env("ALLOW_PRIVATE_IMAP_HOSTS").as_deref() == Some("true")).then_some(true))
+}
+
+/// Private hosts are allowed unless an admin turned them off (or the env var says otherwise).
+pub const DEFAULT_ALLOW_PRIVATE_HOSTS: bool = true;
+
 /// `getConnectionPolicy()`: admin network settings, cached for 30 s.
 pub async fn connection_policy(db: &Db) -> Result<ConnectionPolicy> {
     if let Some((p, at)) = *POLICY.lock()
@@ -40,7 +57,7 @@ pub async fn connection_policy(db: &Db) -> Result<ConnectionPolicy> {
             params![],
         )
         .await?;
-    let mut p = ConnectionPolicy::default();
+    let mut p = ConnectionPolicy { allow_private_hosts: DEFAULT_ALLOW_PRIVATE_HOSTS, ..Default::default() };
     for r in &rows {
         let on = r.get::<_, Option<String>>("value").as_deref() == Some("true");
         match r.get::<_, String>("key").as_str() {
@@ -49,6 +66,9 @@ pub async fn connection_policy(db: &Db) -> Result<ConnectionPolicy> {
             "allow_nonstandard_ports" => p.allow_nonstandard_ports = on,
             _ => {}
         }
+    }
+    if let Some(forced) = private_hosts_from_env() {
+        p.allow_private_hosts = forced;
     }
     *POLICY.lock() = Some((p, Instant::now()));
     Ok(p)
@@ -416,6 +436,24 @@ pub async fn delete_calendar_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_hosts_env_override() {
+        use inboxora_core::config::set_env;
+        set_env("ALLOW_PRIVATE_IMAP_HOSTS", None);
+        set_env("ALLOW_PRIVATE_HOSTS", None);
+        assert_eq!(private_hosts_from_env(), None, "unset: admin setting, else the default");
+        for (v, want) in [("true", true), ("1", true), ("YES", true), ("false", false), ("0", false), ("off", false)] {
+            set_env("ALLOW_PRIVATE_HOSTS", Some(v.into()));
+            assert_eq!(private_hosts_from_env(), Some(want), "{v}");
+        }
+        set_env("ALLOW_PRIVATE_HOSTS", Some("maybe".into()));
+        assert_eq!(private_hosts_from_env(), None, "unparsable value is ignored");
+        set_env("ALLOW_PRIVATE_HOSTS", None);
+        set_env("ALLOW_PRIVATE_IMAP_HOSTS", Some("true".into()));
+        assert_eq!(private_hosts_from_env(), Some(true), "legacy alias");
+        set_env("ALLOW_PRIVATE_IMAP_HOSTS", None);
+    }
 
     #[test]
     fn caldav_url_falls_back_to_the_email_domain() {

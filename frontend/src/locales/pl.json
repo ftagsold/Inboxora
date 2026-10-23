@@ -464,7 +464,8 @@
       "mfaSsoLockedNotice": "Wymuszanie MFA nie ma zastosowania, gdy logowanie hasłem jest wyłączone. Użytkownicy uwierzytelniają się przez SSO, które zarządza własnymi wymaganiami MFA.",
       "recoveryEmailTitle": "Adres e-mail do odzyskiwania",
       "recoveryEmailDesc": "Odbierz kod logowania pocztą e-mail, jeśli utracisz dostęp do aplikacji uwierzytelniającej.",
-      "recoveryEmailPh": "twoj@e-mail.com"
+      "recoveryEmailPh": "twoj@e-mail.com",
+      "lockedByEnv": "Ustawione przez zmienną środowiskową {{name}}."
     },
     "privacy": {
       "title": "Prywatność",

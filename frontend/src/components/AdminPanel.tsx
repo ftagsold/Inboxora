@@ -163,7 +163,7 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
   const [showPass, setShowPass] = useState(false);
   const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
-  const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
+  const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: true, allowInsecureTls: false, allowNonstandardPorts: false });
 
   useEffect(() => {
     api.admin.getSettings()
@@ -7747,7 +7747,9 @@ function SecurityTab() {
   const [protectionError, setProtectionError] = useState('');
 
   // Admin-only: self-hosted mail server policy
-  const [allowPrivateHosts, setAllowPrivateHosts] = useState(false);
+  const [allowPrivateHosts, setAllowPrivateHosts] = useState(true);
+  // Mail policy keys fixed by an environment variable (ALLOW_PRIVATE_HOSTS): shown, not editable.
+  const [policyLockedByEnv, setPolicyLockedByEnv] = useState<string[]>([]);
   const [allowInsecureTls, setAllowInsecureTls] = useState(false);
   const [allowNonstandardPorts, setAllowNonstandardPorts] = useState(false);
 
@@ -7777,6 +7779,7 @@ function SecurityTab() {
           if (d.settings.auth_max_attempts) setMaxAttempts(d.settings.auth_max_attempts);
           if (d.settings.auth_window_minutes) setWindowMins(d.settings.auth_window_minutes);
           setAllowPrivateHosts(d.settings.allow_private_hosts === 'true');
+          setPolicyLockedByEnv(Array.isArray(d.mailPolicyLockedByEnv) ? d.mailPolicyLockedByEnv : []);
           setAllowInsecureTls(d.settings.allow_insecure_tls === 'true');
           setAllowNonstandardPorts(d.settings.allow_nonstandard_ports === 'true');
           if (d.settings.mfa_enforcement) setMfaEnforcement(d.settings.mfa_enforcement);
@@ -8022,13 +8025,17 @@ function SecurityTab() {
             { key: 'allow_private_hosts',     val: allowPrivateHosts,     set: setAllowPrivateHosts,     label: t('admin.security.allowPrivateHosts'),     desc: t('admin.security.allowPrivateHostsDesc') },
             { key: 'allow_insecure_tls',      val: allowInsecureTls,      set: setAllowInsecureTls,      label: t('admin.security.allowInsecureTls'),      desc: t('admin.security.allowInsecureTlsDesc') },
             { key: 'allow_nonstandard_ports', val: allowNonstandardPorts, set: setAllowNonstandardPorts, label: t('admin.security.allowNonstandardPorts'), desc: t('admin.security.allowNonstandardPortsDesc') },
-          ].map(({ key, val, set, label, desc }) => (
+          ].map(({ key, val, set, label, desc }) => {
+            const lockedByEnv = policyLockedByEnv.includes(key);
+            return (
             <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
               <button
                 type="button"
+                disabled={lockedByEnv}
                 onClick={() => { const newVal = !val; set(newVal); toggleMailPolicy(key, newVal); }}
                 style={{
-                  width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                  width: 36, height: 20, borderRadius: 10, border: 'none', cursor: lockedByEnv ? 'not-allowed' : 'pointer', padding: 0,
+                  opacity: lockedByEnv ? 0.55 : 1,
                   background: val ? 'var(--amber)' : TOGGLE_OFF_BACKGROUND,
                   position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
                 }}
@@ -8041,9 +8048,15 @@ function SecurityTab() {
               <div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{desc}</div>
+                {lockedByEnv && (
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                    {t('admin.security.lockedByEnv', { name: 'ALLOW_PRIVATE_HOSTS' })}
+                  </div>
+                )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -60,6 +60,8 @@ The next release is **5.0.0**: the backend is rewritten in Rust (see the release
   start value per server and reset learned limits under Settings → Security → IMAP connections.
   Other folders sync in that priority order and retry on a fresh connection instead of stopping
   at the first dropped one.
+- **Private mail and DAV hosts are allowed by default** (a mail server on the same LAN or Docker
+  host). `ALLOW_PRIVATE_HOSTS=true|false` overrides the admin setting.
 - **Conversations open with every message expanded**, the selected one first; bodies load three
   at a time outwards from it.
 - **New users start with conversation grouping off** ("Group messages into conversations");
