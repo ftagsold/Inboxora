@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use serde_json::{Map, Value, json};
 
 pub const EVENT_COLUMNS: &str = "e.id, e.user_id, e.calendar_id, e.uid, e.etag, e.raw_ical, e.summary, e.description, \
-  e.location, e.url, e.organizer, e.attendees, e.starts_at, e.ends_at, e.all_day, e.timezone, e.cancellation_outbox_id";
+  e.location, e.url, e.organizer, e.attendees, e.starts_at, e.ends_at, e.all_day, e.timezone, e.cancellation_outbox_id, e.invite_account_id, e.invite_hide_attendees";
 
 /// Rows not (fully) covered by materialised occurrences for the window `$2`..`$3`.
 pub fn coverage_predicate(alias: &str) -> String {

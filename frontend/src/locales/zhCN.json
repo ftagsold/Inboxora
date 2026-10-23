@@ -1836,7 +1836,7 @@
     "calendar": "日历",
     "location": "地点",
     "description": "说明",
-    "sendInvites": "发送日历邀请",
+    "guestsSeeList": "嘉宾可以查看嘉宾名单",
     "allDay": "全天",
     "attendees": "参与者",
     "attendeesPlaceholder": "来宾@example.com, 团队@example.com",

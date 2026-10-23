@@ -1836,7 +1836,7 @@
     "calendar": "Kalendarz",
     "location": "Lokalizacja",
     "description": "Opis",
-    "sendInvites": "Wyślij zaproszenia kalendarzowe",
+    "guestsSeeList": "Goście widzą listę gości",
     "allDay": "Cały dzień",
     "attendees": "Uczestnicy",
     "attendeesPlaceholder": "gosc@example.com, zespol@example.com",

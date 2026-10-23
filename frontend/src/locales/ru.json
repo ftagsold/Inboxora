@@ -1836,7 +1836,7 @@
     "calendar": "Календарь",
     "location": "Место",
     "description": "Описание",
-    "sendInvites": "Отправить приглашения календаря",
+    "guestsSeeList": "Гости видят список гостей",
     "allDay": "Весь день",
     "attendees": "Участники",
     "attendeesPlaceholder": "guest@example.com, team@example.com",

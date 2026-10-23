@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn loads_every_migration() {
         let all = load(Path::new("../../migrations")).unwrap();
-        assert_eq!(all.len(), 105);
+        assert_eq!(all.len(), 106);
         assert_eq!(all[0].version, "0001_baseline");
     }
 }

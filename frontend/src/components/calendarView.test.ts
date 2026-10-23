@@ -28,16 +28,26 @@ describe('calendar desktop helpers', () => {
     assert.equal(eventPayload({ calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T09:00', summary: '', description: '', location: '', url: '', organizer: '' }), null);
     assert.equal(eventPayload({ calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T10:00', summary: '', description: '', location: '', url: '', organizer: '' }), null);
   });
-  it('requires a sender account and recipients when invitations are enabled', () => {
-    const base = { calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T11:00', summary: 'Planning', description: '', location: '', url: '', organizer: '', sendInvites: true, attendees: ['guest@example.test'] };
+  it('invites attendees whenever there are any, and requires a sender account then', () => {
+    const base = { calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T11:00', summary: 'Planning', description: '', location: '', url: '', organizer: '', attendees: ['guest@example.test'] };
     assert.equal(eventPayload(base), null);
-    assert.equal(eventPayload({ ...base, inviteAccountId: 'account-1', attendees: [] }), null);
-    const invited = eventPayload({ ...base, inviteAccountId: 'account-1' });
+    const plain = eventPayload({ ...base, attendees: [] });
+    assert.ok(plain);
+    assert.equal(plain.sendInvites, false);
+    const invited = eventPayload({ ...base, inviteAccountId: 'account-1', hideAttendees: true });
     assert.ok(invited);
+    assert.equal(invited.sendInvites, true);
+    assert.equal(invited.hideAttendees, true);
     assert.deepEqual(invited.attendees, ['guest@example.test']);
   });
+  it('never invites for an event someone else organises', () => {
+    const payload = eventPayload({ calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T11:00', attendees: ['guest@example.test'], inviteLocked: true });
+    assert.ok(payload);
+    assert.equal(payload.sendInvites, false);
+    assert.equal(payload.inviteAccountId, null);
+  });
   it('does not mix a cancellation status operation into a normal event mutation (V8-04)', () => {
-    const payload = eventPayload({ calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T11:00', summary: 'Planning', description: '', location: '', url: '', organizer: '', sendInvites: false, cancellationOutboxId: 'cancel-1' });
+    const payload = eventPayload({ calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T11:00', summary: 'Planning', description: '', location: '', url: '', organizer: '', cancellationOutboxId: 'cancel-1' });
     assert.ok(payload);
     assert.equal(payload.cancellationOutboxId, undefined);
   });

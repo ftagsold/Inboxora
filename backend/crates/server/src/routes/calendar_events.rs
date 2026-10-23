@@ -39,7 +39,7 @@ pub fn router() -> Router<AppState> {
         .route("/invitations/{message_id}/respond", post(respond_invitation))
 }
 
-const RETURNING: &str = "id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at";
+const RETURNING: &str = "id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_hide_attendees, invitation_sequence, created_at, updated_at";
 const READ_ATTENDEES: &str =
     "CASE WHEN jsonb_typeof(attendees) = 'array' THEN attendees ELSE '[]'::jsonb END AS attendees";
 const BUMP_SEQUENCE: &str = "CASE WHEN NOT $16::boolean THEN invitation_sequence WHEN (invite_account_id IS NOT NULL AND jsonb_typeof(attendees) = 'array' AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END";
@@ -127,6 +127,7 @@ struct EventInput {
     ends_at: DateTime<Utc>,
     send_invites: bool,
     invite_account_id: Option<String>,
+    hide_attendees: bool,
 }
 
 impl EventInput {
@@ -159,6 +160,9 @@ impl EventInput {
             sequence,
             starts_at: self.starts_at,
             ends_at: self.ends_at,
+            guests: self.attendees.clone(),
+            hide_attendees: self.hide_attendees,
+            timezone: self.timezone.clone(),
         }
     }
 
@@ -168,7 +172,7 @@ impl EventInput {
                 "eventId": event_id, "calendarId": self.calendar_id, "summary": self.summary.as_deref().filter(|s| !s.is_empty()),
                 "description": self.description, "location": self.location, "url": self.url, "organizer": self.organizer,
                 "allDay": self.all_day, "timezone": self.timezone, "attendees": self.attendees, "inviteAccountId": self.invite_account_id,
-                "startsAt": inboxora_core::json::js_iso(&self.starts_at), "endsAt": inboxora_core::json::js_iso(&self.ends_at),
+                "hideAttendees": self.hide_attendees, "startsAt": inboxora_core::json::js_iso(&self.starts_at), "endsAt": inboxora_core::json::js_iso(&self.ends_at),
             })
             .to_string(),
         )
@@ -208,6 +212,7 @@ fn event_input(b: &Body) -> std::result::Result<EventInput, Response> {
         attendees,
         starts_at,
         ends_at,
+        hide_attendees: send_invites && truthy(b.get("hideAttendees")),
         send_invites,
         invite_account_id,
     })
@@ -252,6 +257,7 @@ fn existing_of(m: &Map<String, Value>) -> Existing {
         starts_at: date_of(m, "starts_at"),
         ends_at: date_of(m, "ends_at"),
         all_day: m.get("all_day").and_then(Value::as_bool).unwrap_or(false),
+        hide_attendees: m.get("invite_hide_attendees").and_then(Value::as_bool).unwrap_or(false),
     }
 }
 
@@ -259,6 +265,9 @@ fn existing_of(m: &Map<String, Value>) -> Existing {
 fn cancel_of(m: &Map<String, Value>, account: &str, attendees: Vec<String>) -> Option<Invite> {
     Some(Invite {
         account_id: Some(account.to_owned()),
+        guests: attendees.clone(),
+        hide_attendees: m.get("invite_hide_attendees").and_then(Value::as_bool).unwrap_or(false),
+        timezone: str_of(m, "timezone"),
         attendees,
         summary: str_of(m, "summary"),
         description: str_of(m, "description"),
@@ -408,8 +417,8 @@ async fn insert_event(
 ) -> Result<Map<String, Value>> {
     db.json_opt(
         &format!(
-            "INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15) RETURNING {RETURNING}"
+            "INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_hide_attendees) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16) RETURNING {RETURNING}"
         ),
         params![
             &i.calendar_id,
@@ -426,7 +435,8 @@ async fn insert_event(
             i.all_day,
             &i.timezone,
             json!(i.attendees).to_string(),
-            account
+            account,
+            i.hide_attendees
         ],
     )
     .await?
@@ -446,7 +456,7 @@ async fn update_row(
     tx.json_opt(
         &format!(
             "UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, \
-             all_day = $9, timezone = $10, attendees = $11::jsonb, invite_account_id = $12, invitation_sequence = {BUMP_SEQUENCE}, \
+             all_day = $9, timezone = $10, attendees = $11::jsonb, invite_account_id = $12, invite_hide_attendees = $17, invitation_sequence = {BUMP_SEQUENCE}, \
              etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING {RETURNING}"
         ),
         params![
@@ -465,7 +475,8 @@ async fn update_row(
             event_id,
             &i.calendar_id,
             user,
-            bump
+            bump,
+            i.hide_attendees
         ],
     )
     .await
@@ -480,7 +491,7 @@ async fn lock_existing(
 ) -> Result<Option<Map<String, Value>>> {
     tx.json_opt(
         &format!(
-            "SELECT uid, raw_ical, {READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day{extra} \
+            "SELECT uid, raw_ical, {READ_ATTENDEES}, invite_account_id, invite_hide_attendees, invitation_sequence, summary, description, location, starts_at, ends_at, all_day, timezone{extra} \
              FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE"
         ),
         params![event_id, calendar, user],
@@ -657,6 +668,7 @@ fn plan_next<'a>(i: &'a EventInput, account: Option<&'a str>) -> Next<'a> {
         starts_at: i.starts_at,
         ends_at: i.ends_at,
         all_day: i.all_day,
+        hide_attendees: i.hide_attendees,
     }
 }
 

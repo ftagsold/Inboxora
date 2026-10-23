@@ -47,6 +47,8 @@ interface CalendarFormEvent extends CalendarViewEvent {
   url?: string | null;
   organizer?: string | null;
   invite_account_id?: string | null;
+  invite_hide_attendees?: boolean | null;
+  source_message_id?: string | null;
 }
 
 /** The identity of the event (or occurrence) a delete acts on. */
@@ -69,7 +71,7 @@ function resolveDateLocale(language: string): string {
   return DATE_LOCALE_OVERRIDES[language] || language.replace('_', '-');
 }
 
-const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId, allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
+const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], inviteAccountId, hideAttendees: false, allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
 const AGENDA_HIDDEN_STORAGE_KEY = 'mailflow_calendar_agenda_hidden';
 // Every rendered event — month-view card, all-day pill, timed block, and their move/resize
 // ghost previews — blends slightly with what's behind it rather than sitting fully opaque.
@@ -107,6 +109,13 @@ function dateOnly(date: Date) {
 function dayFromKey(key: string): Date {
   const [year, month, day] = key.split('-').map(Number);
   return new Date(year, (month || 1) - 1, day || 1);
+}
+// All-day ends are stored exclusive (iCalendar DTEND) but shown inclusive, like every other
+// calendar: an event on the 5th reads "5th – 5th", not "5th – 6th".
+function shiftDateKey(key: unknown, days: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(key || ''))) return String(key || '');
+  const day = dayFromKey(String(key));
+  return dateOnly(new Date(day.getFullYear(), day.getMonth(), day.getDate() + days));
 }
 // Where a start/end instant range (end exclusive) lands in the visible `days` array, as
 // grid-column-style indices — the first day-index at/after `start`, and the first at/after
@@ -362,6 +371,19 @@ export default function CalendarPage({ isActive = true }) {
   }, [invitation, isActive, isMobile]);
   const writable = calendars.filter(calendar => !calendar.read_only && isWritableCalendarSource(calendar.source));
   const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
+  // The sender chosen in Settings → Calendar is preselected, or the only account that can send.
+  // A default whose account can no longer send is ignored rather than carried as a dead value.
+  const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId)
+    ? calendarInviteAccountId
+    : (senderAccounts.length === 1 ? senderAccounts[0].id : '');
+  // Invitations come from the organizer: an event someone else organised (imported from their
+  // invitation) keeps its attendees but never sends.
+  const inviteLockedFor = (event: CalendarFormEvent) => {
+    if (event.invite_account_id) return false;
+    if (event.source_message_id) return true;
+    const organizer = chipAddress(String(event.organizer || '')).replace(/^mailto:/i, '').toLowerCase();
+    return Boolean(organizer) && !senderAccounts.some(account => String(account.email_address || '').toLowerCase() === organizer);
+  };
   // Whether the form's own calendar is one local/writable-CalDAV write access
   // covers — the single source of truth EventDialog uses to disable every field.
   const formReadOnly = form ? !writable.some(calendar => calendar.id === form.calendarId) : false;
@@ -373,9 +395,6 @@ export default function CalendarPage({ isActive = true }) {
     if (!writable.length) return;
     invitation.reset();
     setEditScope(null); setEditScopeOpen(false);
-    // The sender chosen in Settings → Calendar is preselected. A default whose
-    // account can no longer send is ignored rather than carried as a dead value.
-    const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId) ? calendarInviteAccountId : '';
     const base = emptyForm(writable[0]?.id || '', date, defaultInviteAccountId);
     const draft = endDate.getTime() === date.getTime() ? base : (() => {
       const exclusiveEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() + 1);
@@ -391,11 +410,10 @@ export default function CalendarPage({ isActive = true }) {
     if (!writable.length) return;
     invitation.reset();
     setEditScope(null); setEditScopeOpen(false);
-    const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId) ? calendarInviteAccountId : '';
     const base = emptyForm(writable[0]?.id || '', start, defaultInviteAccountId);
     setForm({ ...base, endsAt: toDateTimeLocal(end), mode: 'create' });
   };
-  const openEdit = (event: CalendarFormEvent) => { invitation.reset(); setEditScope(null); setEditScopeOpen(false); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
+  const openEdit = (event: CalendarFormEvent) => { invitation.reset(); setEditScope(null); setEditScopeOpen(false); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], inviteAccountId: event.invite_account_id || defaultInviteAccountId, hideAttendees: Boolean(event.invite_hide_attendees), inviteLocked: inviteLockedFor(event), allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
   // Drag-to-reschedule writes the new start/end directly, without opening the edit dialog —
   // same underlying PATCH `save()` uses, built from the event's own current fields rather than
   // a live `form`. A moved recurring occurrence keeps its recurrenceId, same default as a plain
@@ -419,9 +437,11 @@ export default function CalendarPage({ isActive = true }) {
       organizer: event.organizer || '',
       attendees: Array.isArray(event.attendees) ? event.attendees : [],
       // A moved invited event stays invited: its attendees receive the new time. Sending
-      // without invitations here used to cancel every attendee's copy.
-      sendInvites: Boolean(event.invite_account_id && event.attendees?.length),
+      // without invitations here used to cancel every attendee's copy. An event never
+      // invited from here stays uninvited.
+      inviteLocked: !event.invite_account_id,
       inviteAccountId: event.invite_account_id || '',
+      hideAttendees: Boolean(event.invite_hide_attendees),
       allDay,
       startsAt: allDay ? dateOnly(start) : toDateTimeLocal(start),
       endsAt: allDay ? dateOnly(end) : toDateTimeLocal(end),
@@ -1935,7 +1955,7 @@ function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpe
       {readOnly && <span className="calendar-readonly">{t('calendar.readOnly')}</span>}
       <label>{t('calendar.titleField')}<input autoFocus={!readOnly} disabled={locked} value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label>
       <label className="ui-check"><input type="checkbox" disabled={locked} checked={form.allDay} onChange={e => onAllDayChange(e.target.checked)} />{t('calendar.allDay')}</label>
-      <div className="ui-form-columns"><label>{t('calendar.starts')}<input disabled={locked} type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>{t('calendar.ends')}<input disabled={locked} type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>
+      <div className="ui-form-columns"><label>{t('calendar.starts')}<input disabled={locked} type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>{t('calendar.ends')}<input disabled={locked} type={form.allDay ? 'date' : 'datetime-local'} min={form.allDay ? form.startsAt : undefined} value={form.allDay ? shiftDateKey(form.endsAt, -1) : form.endsAt} onChange={e => onChange('endsAt', form.allDay ? shiftDateKey(e.target.value, 1) : e.target.value)} /></label></div>
       <label>{t('calendar.calendar')}<select disabled={locked} value={form.calendarId} onChange={e => onChange('calendarId', e.target.value)}>{calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
       <label>{t('calendar.location')}<input disabled={locked} value={form.location} onChange={e => onChange('location', e.target.value)} /></label>
       {readOnly ? <>
@@ -1947,13 +1967,15 @@ function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpe
         {organizer && <p>{t('calendar.organizer')}: {organizer}</p>}
       </> : <>
         <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><RichTextEditor value={form.description} onChange={(html: string) => onChange('description', html)} placeholder={t('calendar.descriptionPlaceholder')} label={t('calendar.description')} testId="calendar-event-description" /></div>
-        <div className="calendar-invites ui-form"><label className="ui-check"><input type="checkbox" disabled={locked} checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>
-          {/* Attendees stay in view whenever the event has any, invited or not yet. */}
-          {(form.sendInvites || form.attendees.length > 0) && <div className="calendar-attendees"><span className="calendar-description-label">{t('calendar.attendees')}</span>
+        <div className="calendar-invites ui-form">
+          <div className="calendar-attendees"><span className="calendar-description-label">{t('calendar.attendees')}</span>
             <ChipInput chips={form.attendees} onChipsChange={setAttendees} value={attendeeDraft} onChange={setAttendeeDraft} placeholder={t('calendar.attendeesPlaceholder')} getSuggestions={suggestAttendees} chipAdornment={statusOf} disabled={locked} testId="calendar-attendees" containerStyle={attendeeFieldStyle} inputStyle={attendeeInputStyle} />
-          </div>}
-          {form.sendInvites && <><label>{t('calendar.senderAccount')}<select disabled={locked} value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>
-            {!accounts.length && <p>{t('calendar.noSenderAccounts')}</p>}</>}
+          </div>
+          {!form.inviteLocked && <>
+            <label>{t('calendar.senderAccount')}<select disabled={locked} value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>
+            {!accounts.length && <p>{t('calendar.noSenderAccounts')}</p>}
+            <label className="ui-check"><input type="checkbox" data-testid="calendar-guests-see-list" disabled={locked} checked={!form.hideAttendees} onChange={e => onChange('hideAttendees', !e.target.checked)} />{t('calendar.guestsSeeList')}</label>
+          </>}
         </div>
       </>}
     </div>

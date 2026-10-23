@@ -263,7 +263,7 @@ async fn list_events(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Res
                      CASE WHEN e.recurring THEN e.id END AS series_id, e.recurring, o.recurrence_id, o.starts_at, o.ends_at, o.all_day, o.timezone, \
                      COALESCE(o.summary, e.summary) AS summary, COALESCE(o.description, e.description) AS description, \
                      COALESCE(o.location, e.location) AS location, COALESCE(o.url, e.url) AS url, COALESCE(o.organizer, e.organizer) AS organizer, \
-                     COALESCE(o.attendees, e.attendees) AS attendees, e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invitation_sequence, \
+                     COALESCE(o.attendees, e.attendees) AS attendees, e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invite_hide_attendees, e.invitation_sequence, \
                      {SOURCE_COLUMNS} FROM calendar_occurrences o JOIN calendar_events e ON e.id = o.event_id JOIN calendars c ON c.id = o.calendar_id \
                      {SOURCE_JOINS} LEFT JOIN calendar_occurrence_state s ON s.event_id = e.id \
                      WHERE o.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND o.starts_at < $3 AND o.ends_at > $2 AND NOT {cov}{filter} \

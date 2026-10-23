@@ -185,7 +185,10 @@ export interface CalendarEventForm {
   inviteAccountId?: string;
   organizer?: string;
   recurrenceId?: string | null;
-  sendInvites?: boolean;
+  /** Hide the guest list: each attendee receives an invitation naming only them. */
+  hideAttendees?: boolean;
+  /** Someone else organises the event, so saving it never sends invitations. */
+  inviteLocked?: boolean;
   [key: string]: unknown;
 }
 
@@ -241,7 +244,8 @@ export function eventPayload(form: CalendarEventForm): Record<string, unknown> |
   const endsAt = form.allDay ? dateOnlyToIso(form.endsAt) : fromDateTimeLocal(form.endsAt);
   if (!form.calendarId || !startsAt || !endsAt || new Date(endsAt) <= new Date(startsAt)) return null;
   const attendees = Array.isArray(form.attendees) ? form.attendees.map(value => value.trim()).filter(Boolean) : [];
-  const sendInvites = Boolean(form.sendInvites);
+  // Attendees are invited whenever the event has any, as in every other calendar.
+  const sendInvites = attendees.length > 0 && !form.inviteLocked;
   if (sendInvites && (!form.inviteAccountId || !attendees.length)) return null;
   return {
     ...(form.recurrenceId ? { recurrenceId: form.recurrenceId } : {}),
@@ -258,6 +262,7 @@ export function eventPayload(form: CalendarEventForm): Record<string, unknown> |
     attendees,
     sendInvites,
     inviteAccountId: sendInvites ? form.inviteAccountId : null,
+    hideAttendees: sendInvites && Boolean(form.hideAttendees),
   };
 }
 

@@ -16,6 +16,7 @@ pub mod event;
 pub mod recur;
 pub mod time;
 pub mod timezone;
+pub mod vtimezone;
 
 use std::collections::HashMap;
 use std::rc::Rc;

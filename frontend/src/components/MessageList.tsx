@@ -4611,30 +4611,24 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               />
             </div>
           ) : (
-            unreadCount > 0 && (
+            unreadCount > 0 && !showAvatar && (
               <div className="unread-dot" style={{
                 position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
                 width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)',
               }} />
             )
           )
-        ) : (
-          !selectionMode && unreadCount > 0 && (
-            <div className="unread-dot" style={{
-              position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
-              width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)',
-            }} />
-          )
-        )}
+        ) : null}
 
         {/* Avatar — morphs into a checkbox when in selection mode (desktop); display-only on mobile.
             Display mode uses the tinted-avatar recipe from the mock-up: color+'22' fill,
             1.5px color+'55' ring, colored initial. */}
         {showAvatar && (
+          <div style={avatarColumn}>
           <div
             onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect?.(message.id); } : undefined}
             style={{
-              width: avatarAsCheckbox ? 30 : 36, height: avatarAsCheckbox ? 30 : 36, borderRadius: '50%', flexShrink: 0,
+              width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
               position: 'relative', overflow: 'hidden',
               background: avatarAsCheckbox
                 ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
@@ -4643,7 +4637,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 ? '2px solid var(--border)'
                 : `1.5px solid ${senderColor(message.from_email || message.from_name)}55`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: avatarAsCheckbox ? 13 : 14, fontWeight: 600,
+              fontSize: 14, fontWeight: 600,
               color: avatarAsCheckbox
                 ? (isChecked ? 'white' : 'var(--text-tertiary)')
                 : senderColor(message.from_email || message.from_name),
@@ -4673,6 +4667,8 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 />
               </>
             )}
+          </div>
+          {!selectionMode && unreadCount > 0 && <div data-testid="unread-dot" style={avatarUnreadDot} />}
           </div>
         )}
 
@@ -5026,7 +5022,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             />
           </div>
         ) : (
-          !message.is_read && (
+          !message.is_read && !showAvatar && (
             <div className="unread-dot" style={{
               position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
               width: 7, height: 7, borderRadius: '50%',
@@ -5035,25 +5031,18 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           )
         )
       )}
-      {/* Unread dot for wide layouts — always shown (avatar is separate, doesn't conflict) */}
-      {hasInteractiveAvatar && !selectionMode && !message.is_read && (
-        <div className="unread-dot" style={{
-          position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
-          width: 7, height: 7, borderRadius: '50%',
-          background: 'var(--accent)',
-        }} />
-      )}
 
       <div style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : 0, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         {/* Sender avatar — desktop always, or opted-in on mobile (#213). Interactive (click-to-select,
             hover-to-checkbox) on desktop only; a plain display avatar on mobile. */}
         {showAvatar && (
+          <div style={avatarColumn}>
           <div
             onClick={hasInteractiveAvatar ? handleAvatarAreaClick : undefined}
             onMouseEnter={hasInteractiveAvatar ? () => setAvatarHovered(true) : undefined}
             onMouseLeave={hasInteractiveAvatar ? () => setAvatarHovered(false) : undefined}
             style={{
-              width: avatarAsCheckbox ? 30 : 36, height: avatarAsCheckbox ? 30 : 36, borderRadius: '50%', flexShrink: 0,
+              width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
               position: 'relative', overflow: 'hidden',
               background: avatarAsCheckbox
                 ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
@@ -5062,7 +5051,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 ? '2px solid var(--border)'
                 : `1.5px solid ${senderColor(message.from_email || message.from_name)}55`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: avatarAsCheckbox ? 13 : 14, fontWeight: 600,
+              fontSize: 14, fontWeight: 600,
               color: avatarAsCheckbox
                 ? (isChecked ? 'white' : 'var(--text-tertiary)')
                 : senderColor(message.from_email || message.from_name),
@@ -5092,6 +5081,8 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 />
               </>
             )}
+          </div>
+          {!selectionMode && !message.is_read && <div data-testid="unread-dot" style={avatarUnreadDot} />}
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -5229,3 +5220,9 @@ function RowMenuButton({ onOpen, label }: RowMenuButtonProps) {
     </button>
   );
 }
+
+// Avatar plus the unread dot centred under it; the dot is absolute so it never moves the row.
+const avatarColumn: React.CSSProperties = { position: 'relative', flexShrink: 0, width: 36 };
+const avatarUnreadDot: React.CSSProperties = {
+  position: 'absolute', top: 42, left: 14, width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)',
+};

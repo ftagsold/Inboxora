@@ -13,7 +13,7 @@ use inboxora_mail::util::description_content_lines;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 
-use super::mail_compose::{Compose, IcalEvent, Part, account_transport};
+use super::mail_compose::{Compose, IcalEvent, account_transport};
 
 const MAX_ATTEMPTS: i64 = 5;
 
@@ -134,6 +134,12 @@ pub struct Invite {
     pub sequence: i64,
     pub starts_at: DateTime<Utc>,
     pub ends_at: DateTime<Utc>,
+    /// The ATTENDEE list the invitation shows (every attendee); empty means `attendees`.
+    pub guests: Vec<String>,
+    /// Hide the guest list: each recipient gets an invitation naming only them.
+    pub hide_attendees: bool,
+    /// The event's IANA zone: timed events are stated in it, with its VTIMEZONE.
+    pub timezone: Option<String>,
 }
 
 impl Invite {
@@ -143,7 +149,8 @@ impl Invite {
             "attendees": self.attendees, "summary": self.summary, "description": self.description, "location": self.location,
             "uid": self.uid, "allDay": self.all_day, "method": self.method, "sequence": self.sequence,
             "startsAt": inboxora_core::json::js_iso(&self.starts_at), "endsAt": inboxora_core::json::js_iso(&self.ends_at),
-            "accountId": self.account_id,
+            "accountId": self.account_id, "guests": self.guests, "hideAttendees": self.hide_attendees,
+            "timezone": self.timezone,
         })
     }
 
@@ -167,30 +174,70 @@ impl Invite {
             sequence: v.get("sequence").and_then(Value::as_i64).unwrap_or(0),
             starts_at: date("startsAt")?,
             ends_at: date("endsAt")?,
+            guests: v
+                .get("guests")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default(),
+            hide_attendees: v.get("hideAttendees").and_then(Value::as_bool).unwrap_or(false),
+            timezone: s("timezone"),
         })
+    }
+
+    /// The invitations one send consists of: one per recipient when the guest list is hidden.
+    fn deliveries(&self) -> Vec<Invite> {
+        if !self.hide_attendees {
+            return vec![self.clone()];
+        }
+        self.attendees
+            .iter()
+            .map(|a| Invite { attendees: vec![a.clone()], guests: vec![a.clone()], ..self.clone() })
+            .collect()
     }
 }
 
-/// `invitationIcal`.
-pub fn invitation_ical(i: &Invite, organizer_email: &str) -> String {
-    let dp = if i.all_day { ";VALUE=DATE" } else { "" };
+/// `CN="…"` for a display name (quotes are not allowed inside a quoted parameter).
+fn cn_param(name: &str) -> String {
+    let clean: String = name.chars().filter(|c| !matches!(c, '"' | '\r' | '\n')).collect();
+    if clean.trim().is_empty() { String::new() } else { format!(";CN=\"{}\"", clean.trim()) }
+}
+
+/// `invitationIcal`: shaped like the invitations Outlook, Apple Calendar and Google send. A
+/// timed event is stated in its own zone with that zone's VTIMEZONE; an all-day event uses
+/// DATE values and carries the VTIMEZONE too, since Exchange reads date-only values in UTC
+/// without one (the event then spills into the next day).
+pub fn invitation_ical(i: &Invite, organizer_email: &str, organizer_name: &str) -> String {
+    use chrono::Datelike;
+    use inboxora_pim::ical::vtimezone;
+    let zone = i.timezone.as_deref().and_then(|n| Some((n, vtimezone::zone(n)?, vtimezone::vtimezone(n, i.starts_at.year())?)));
+    let when = |t: &DateTime<Utc>| match (&zone, i.all_day) {
+        (_, true) => format!(";VALUE=DATE:{}", format_date(t, true)),
+        (Some((name, tz, _)), false) => format!(";TZID={name}:{}", vtimezone::local_stamp(t, *tz)),
+        (None, false) => format!(":{}", format_date(t, false)),
+    };
     let mut lines = vec![
         "BEGIN:VCALENDAR".to_owned(),
         "VERSION:2.0".into(),
         "PRODID:-//Inboxora//Calendar//EN".into(),
+        "CALSCALE:GREGORIAN".into(),
         format!("METHOD:{}", i.method),
+    ];
+    if let Some((name, _, vtz)) = &zone {
+        lines.push(format!("X-WR-TIMEZONE:{name}"));
+        lines.extend(vtz.iter().cloned());
+    }
+    lines.extend([
         "BEGIN:VEVENT".into(),
         format!("UID:{}", i.uid),
         format!("SEQUENCE:{}", i.sequence),
         format!("DTSTAMP:{}", format_date(&Utc::now(), false)),
-        format!("DTSTART{dp}:{}", format_date(&i.starts_at, i.all_day)),
-        format!("DTEND{dp}:{}", format_date(&i.ends_at, i.all_day)),
-        format!("ORGANIZER:mailto:{organizer_email}"),
-    ];
+        format!("DTSTART{}", when(&i.starts_at)),
+        format!("DTEND{}", when(&i.ends_at)),
+        format!("ORGANIZER{}:mailto:{organizer_email}", cn_param(organizer_name)),
+        format!("STATUS:{}", if i.method == "CANCEL" { "CANCELLED" } else { "CONFIRMED" }),
+        "TRANSP:OPAQUE".into(),
+    ]);
     lines.extend(all_day_hints(i.all_day));
-    if i.method == "CANCEL" {
-        lines.push("STATUS:CANCELLED".into());
-    }
     if let Some(s) = opt(&i.summary) {
         lines.push(format!("SUMMARY:{}", escape_text(s)));
     }
@@ -198,8 +245,9 @@ pub fn invitation_ical(i: &Invite, organizer_email: &str) -> String {
     if let Some(l) = opt(&i.location) {
         lines.push(format!("LOCATION:{}", escape_text(l)));
     }
-    for a in &i.attendees {
-        lines.push(format!("ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{a}"));
+    let guests = if i.guests.is_empty() { &i.attendees } else { &i.guests };
+    for a in guests {
+        lines.push(format!("ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{a}"));
     }
     lines.extend(["END:VEVENT".into(), "END:VCALENDAR".into(), String::new()]);
     finish(lines)
@@ -231,23 +279,35 @@ async fn deliver(
     transport.send_raw(&built.envelope_from, &built.recipients, &built.raw).await.map(|_| ()).map_err(|e| e.message)
 }
 
-/// `sendCalendarInvitation`.
+/// `sendCalendarInvitation`: one message, or one per attendee when the guest list is hidden.
 pub async fn send_invitation(db: &Db, account: Map<String, Value>, i: &Invite) -> std::result::Result<(), String> {
+    let mut failed: Option<String> = None;
+    for one in i.deliveries() {
+        if let Err(e) = send_one(db, account.clone(), &one).await {
+            failed.get_or_insert(e);
+        }
+    }
+    failed.map_or(Ok(()), Err)
+}
+
+async fn send_one(db: &Db, account: Map<String, Value>, i: &Invite) -> std::result::Result<(), String> {
     deliver(db, account, |acc| {
         let from_email = acc.get("email_address").and_then(Value::as_str).unwrap_or("").to_owned();
         let name = sender_name(acc, &from_email);
         let what = opt(&i.summary).unwrap_or("Meeting");
+        let ics = invitation_ical(i, &from_email, &name);
+        let (subject, text) = if i.method == "CANCEL" {
+            (format!("Canceled: {what}"), format!("{name} canceled {}.", opt(&i.summary).unwrap_or("a meeting")))
+        } else {
+            (format!("Invitation: {what}"), format!("{name} invited you to {}.", opt(&i.summary).unwrap_or("a meeting")))
+        };
         Compose {
             from: mailbox(&name, &from_email),
             to: i.attendees.clone(),
-            subject: format!("Invitation: {what}"),
-            text: Some(format!("{name} invited you to {}.", opt(&i.summary).unwrap_or("a meeting"))),
-            attachments: vec![Part {
-                filename: Some("invitation.ics".into()),
-                content: invitation_ical(i, &from_email).into_bytes(),
-                content_type: format!("text/calendar; charset=utf-8; method={}", i.method),
-                cid: None,
-            }],
+            subject,
+            text: Some(text),
+            // iMIP: a text/calendar alternative plus the .ics attachment, as Outlook and Google send.
+            ical: Some(IcalEvent { method: i.method.clone(), content: ics, filename: Some("invite.ics".into()) }),
             ..Default::default()
         }
     })
@@ -360,6 +420,7 @@ pub struct Existing {
     pub starts_at: Option<DateTime<Utc>>,
     pub ends_at: Option<DateTime<Utc>>,
     pub all_day: bool,
+    pub hide_attendees: bool,
 }
 
 pub struct Next<'a> {
@@ -371,6 +432,7 @@ pub struct Next<'a> {
     pub starts_at: DateTime<Utc>,
     pub ends_at: DateTime<Utc>,
     pub all_day: bool,
+    pub hide_attendees: bool,
 }
 
 /// `invitationUpdatePlan`: whether the sequence moves on, and who hears about this edit.
@@ -387,7 +449,8 @@ pub fn update_plan(existing: &Existing, next: &Next<'_>) -> (bool, Vec<String>) 
         || text(existing.location.as_deref()) != text(next.location)
         || existing.starts_at != Some(next.starts_at)
         || existing.ends_at != Some(next.ends_at)
-        || existing.all_day != next.all_day;
+        || existing.all_day != next.all_day
+        || existing.hide_attendees != next.hide_attendees;
     if changed {
         return (true, next.attendees.to_vec());
     }
@@ -610,14 +673,55 @@ mod tests {
             attendees: vec!["a@b.co".into()],
             ..Default::default()
         };
-        let ics = invitation_ical(&inv, "me@x.co");
+        let ics = invitation_ical(&inv, "me@x.co", "");
         assert!(
             ics.contains("METHOD:CANCEL\r\n")
                 && ics.contains("STATUS:CANCELLED\r\n")
                 && ics.contains("DTEND;VALUE=DATE:20260305\r\n")
         );
         assert!(ics.contains("X-MICROSOFT-CDO-ALLDAYEVENT:TRUE"));
+        assert!(ics.contains("ORGANIZER:mailto:me@x.co\r\n"));
         assert_eq!(Invite::from_json(&inv.to_json(), None), Some(inv));
+    }
+
+    #[test]
+    fn invitations_carry_the_event_zone() {
+        let inv = Invite {
+            uid: "u2".into(),
+            method: "REQUEST".into(),
+            starts_at: at(10),
+            ends_at: at(11),
+            attendees: vec!["new@b.co".into()],
+            guests: vec!["old@b.co".into(), "new@b.co".into()],
+            timezone: Some("Europe/Berlin".into()),
+            ..Default::default()
+        };
+        let ics = invitation_ical(&inv, "me@x.co", "Me \"Boss\"");
+        assert!(ics.contains("BEGIN:VTIMEZONE\r\nTZID:Europe/Berlin\r\n"));
+        assert!(ics.contains("DTSTART;TZID=Europe/Berlin:20260304T110000\r\n"));
+        assert!(ics.contains("ORGANIZER;CN=\"Me Boss\":mailto:me@x.co\r\n"));
+        assert!(ics.contains("STATUS:CONFIRMED\r\n"));
+        assert!(ics.contains("mailto:old@b.co") && ics.contains("mailto:new@b.co"));
+        let all_day = Invite { all_day: true, ends_at: at(10) + chrono::Duration::days(1), ..inv.clone() };
+        let ics = invitation_ical(&all_day, "me@x.co", "");
+        assert!(ics.contains("BEGIN:VTIMEZONE") && ics.contains("DTSTART;VALUE=DATE:20260304\r\n"));
+        assert_eq!(Invite::from_json(&inv.to_json(), None), Some(inv));
+    }
+
+    #[test]
+    fn hidden_guest_lists_send_one_invitation_per_attendee() {
+        let inv = Invite {
+            uid: "u3".into(),
+            attendees: vec!["a@b.co".into(), "c@d.co".into()],
+            guests: vec!["a@b.co".into(), "c@d.co".into()],
+            hide_attendees: true,
+            ..Default::default()
+        };
+        let each = inv.deliveries();
+        assert_eq!(each.len(), 2);
+        assert_eq!(each[1].attendees, vec!["c@d.co".to_owned()]);
+        assert_eq!(each[1].guests, vec!["c@d.co".to_owned()]);
+        assert_eq!(Invite { hide_attendees: false, ..inv }.deliveries().len(), 1);
     }
 
     #[test]
@@ -645,6 +749,7 @@ mod tests {
                 starts_at: at(10),
                 ends_at: at(11),
                 all_day: false,
+                hide_attendees: false,
             },
         );
         assert_eq!(plan, (true, vec!["e@f.co".to_owned()]));
@@ -660,6 +765,7 @@ mod tests {
                 starts_at: at(10),
                 ends_at: at(11),
                 all_day: false,
+                hide_attendees: false,
             },
         );
         assert_eq!(plan, (true, att.clone()));
@@ -674,6 +780,7 @@ mod tests {
                 starts_at: at(10),
                 ends_at: at(11),
                 all_day: false,
+                hide_attendees: false,
             },
         );
         assert_eq!(plan, (true, vec![]));

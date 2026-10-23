@@ -1836,7 +1836,7 @@
     "calendar": "Kalendář",
     "location": "Místo",
     "description": "Popis",
-    "sendInvites": "Odeslat pozvánky do kalendáře",
+    "guestsSeeList": "Hosté vidí seznam hostů",
     "allDay": "Celý den",
     "attendees": "Účastníci",
     "attendeesPlaceholder": "host@example.com, tym@example.com",

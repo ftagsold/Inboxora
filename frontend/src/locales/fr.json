@@ -1836,7 +1836,7 @@
     "calendar": "Calendrier",
     "location": "Emplacement",
     "description": "Détails",
-    "sendInvites": "Envoyer des invitations de calendrier",
+    "guestsSeeList": "Les invités peuvent voir la liste des invités",
     "allDay": "Toute la journée",
     "attendees": "Participants",
     "attendeesPlaceholder": "invite@example.com, equipe@example.com",

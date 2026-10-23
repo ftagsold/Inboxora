@@ -1836,7 +1836,7 @@
     "calendar": "Kalender",
     "location": "Ort",
     "description": "Beschreibung",
-    "sendInvites": "Kalendereinladungen senden",
+    "guestsSeeList": "Teilnehmer sehen die Gästeliste",
     "allDay": "Ganztägig",
     "attendees": "Teilnehmende",
     "attendeesPlaceholder": "gast@example.com, team@example.com",
