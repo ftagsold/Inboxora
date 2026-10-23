@@ -23,11 +23,13 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-# Bump version in both package.json files
-sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" backend/package.json
+# Bump the version of the Rust workspace (and its inter-crate requirements) and the frontend
+sed -i "0,/^version = \"[^\"]*\"/s//version = \"${VERSION}\"/" backend/Cargo.toml
+sed -i -E "s/(inboxora-[a-z]+ = \{ version = \")[^\"]*(\", path)/\1${VERSION}\2/" backend/crates/*/Cargo.toml
+(cd backend && cargo update --workspace --offline)
 sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" frontend/package.json
 
-git add backend/package.json frontend/package.json
+git add backend/Cargo.toml backend/Cargo.lock backend/crates/*/Cargo.toml frontend/package.json
 git commit -m "chore: bump version to ${VERSION}"
 
 git tag "${TAG}"

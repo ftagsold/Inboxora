@@ -17,8 +17,10 @@ What the rewrite is for:
 - **A mail engine that is ours.** A purpose-built IMAP client (TLS, OAuth2, COMPRESS, CONDSTORE,
   UIDPLUS, MOVE, IDLE) replaces the imapflow dependency. It is tested against a real Dovecot
   server.
-- **A smaller attack surface.** The backend image is distroless: no shell, no package manager,
+- **A smaller attack surface.** The image is distroless: no shell, no package manager,
   non-root.
+- **One container.** The Rust server also serves the web app, terminates HTTPS and proxies the
+  bundled ntfy. The separate nginx frontend container and image are gone.
 
 ## Upgrading
 
@@ -29,8 +31,16 @@ What the rewrite is for:
    are unchanged, so nobody is signed out.
 
 Environment variables are the same as in 4.x. If you run your own healthcheck against the
-backend container, note that the image has no `wget` or shell: use
+container, note that the image has no `wget` or shell: use
 `/app/inboxora-server healthcheck`, or probe `GET /api/health` from outside the container.
+
+The `frontend` service is gone: take the new `docker-compose.yml` / `docker-compose.ghcr.yml`
+(or, with your own compose file, delete the `frontend` service and move its `ports`, the
+`./certs` volume and `VITE_APP_NAME` to `backend`, mapping `APP_PORT` to container port 3443 and
+`APP_HTTP_PORT` to 3000, and add `NTFY_URL: http://ntfy:80`). The existing `./certs` keeps
+working. A reverse proxy that pointed at the frontend container's port 80 now points at the
+Inboxora container's port 3000; a Caddyfile that proxied `frontend:443` proxies `backend:3000`.
+`ghcr.io/dragonk/inboxora-frontend` is no longer published.
 
 ## What is gone
 
@@ -42,7 +52,7 @@ backend container, note that the image has no `wget` or shell: use
 The rewrite reproduces 4.x behaviour. A differential test suite runs both backends against
 identical databases and compares their responses, side effects (mail sent, rows written) and
 headers across scenarios for every route group. The deliberate differences are listed in
-`backend-rs/README.md`. The ones a user can notice are:
+`backend/README.md`. The ones a user can notice are:
 
 - A few 4.x bugs are fixed: search `after:`/`before:`, contacts with a title, the conversation
   rebuild rate limit (now `429`), and raw headers in threading diagnostics.
@@ -51,5 +61,5 @@ headers across scenarios for every route group. The deliberate differences are l
 
 ## Known limitations
 
-- The Node backend still sits in `backend/`. It is the reference for the differential tests and
-  is no longer built or shipped.
+- The Node backend has been removed from the repository; `backend/` is the Rust workspace. Its
+  recorded outputs remain in `backend/tests/differential` as regression fixtures.

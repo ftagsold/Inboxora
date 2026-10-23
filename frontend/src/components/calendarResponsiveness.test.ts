@@ -108,9 +108,8 @@ describe('calendar page cancellation and render contract', () => {
 
 describe('backend partial-result contract', () => {
   it('returns an explicit truncation marker and never silently shortens the list', () => {
-    const source = readFileSync(new URL('../../../backend/src/routes/calendar.ts', import.meta.url), 'utf8');
-    assert.match(source, /incompleteSeries/);
-    assert.match(source, /truncated: true/);
-    assert.match(source, /projectCalendarResources\(eventRows, from, to/);
+    const source = readFileSync(new URL('../../../backend/crates/server/src/routes/calendar.rs', import.meta.url), 'utf8');
+    assert.match(source, /"truncated": true, "incompleteSeries"/);
+    assert.match(source, /"truncated": projection\.truncated/);
   });
 });

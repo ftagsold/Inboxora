@@ -1,5 +1,8 @@
 # Rust backend migration plan
 
+> **Historical.** The migration is complete: the Node backend has been removed and `backend-rs/`
+> was renamed to `backend/`. Paths below are as they were during the port.
+
 Status: proposal · Base: `main` @ `cb10bf12` · Backend version at time of writing: 4.0.2
 
 ## 1. Goal and non-goals

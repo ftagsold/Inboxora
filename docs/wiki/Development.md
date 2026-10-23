@@ -7,8 +7,8 @@ product and operational knowledge base.
 ## Requirements
 
 - Node 22 (`frontend/.nvmrc` pins the version).
-- Rust from `backend-rs/rust-toolchain.toml` (rustup installs it on first use).
-- No global TypeScript install: `typescript` is a dev dependency of both projects.
+- Rust from `backend/rust-toolchain.toml` (rustup installs it on first use).
+- No global TypeScript install: `typescript` is a dev dependency of the frontend.
 - Docker only if you want to run the full stack.
 - Chromium for browser tests: `npx playwright install chromium`.
 
@@ -16,8 +16,7 @@ product and operational knowledge base.
 
 | Path | Contents |
 | --- | --- |
-| `backend-rs/` | The backend from 5.0.0 on: axum API and WebSocket, IMAP client and mail engine, SMTP, conversation engine, CalDAV/CardDAV servers — Rust workspace. See `backend-rs/README.md`. |
-| `backend/` | The 4.x Node backend, kept as the behavioural reference for the differential contract suite, and the SQL migrations both backends apply. Not built or shipped. |
+| `backend/` | The backend from 5.0.0 on: axum API and WebSocket, IMAP client and mail engine, SMTP, conversation engine, CalDAV/CardDAV servers, SQL migrations; it also serves the built web app and proxies ntfy. Rust workspace; `backend/Dockerfile` builds the single application image. See `backend/README.md`. |
 | `frontend/` | React application in TypeScript (`.ts`/`.tsx`), shared UI primitives, Playwright specs and visual references. |
 | `docs/wiki/` | Reviewed source of this Wiki. |
 | `docs/CHANGELOG.md` | Release-level change log. |
@@ -38,22 +37,20 @@ npm run lint
 npm run build
 
 # backend
-cd backend-rs
+cd backend
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace   # live IMAP/PostgreSQL tests run when their env vars are set
 ```
 
-The differential contract suite (`node backend-rs/tests/contract/harness.mjs`) starts the Rust
-and the reference Node backend on identical databases and compares their responses; see
-`backend-rs/README.md`.
+`backend/tests/differential/` holds frozen recordings of the 4.x Node backend's library outputs
+that the Rust crates are tested against; see `backend/README.md`.
 
 ## TypeScript
 
-Both projects are written in TypeScript and both must type-check cleanly before a change is pushed:
+The frontend is written in TypeScript and must type-check cleanly before a change is pushed:
 
 ```bash
-cd backend  && npm run typecheck     # tsc --noEmit
 cd frontend && npm run typecheck     # tsc --noEmit
 ```
 
@@ -65,10 +62,7 @@ cd frontend && npm run typecheck     # tsc --noEmit
 - **Narrow, do not cast.** `unknown` coming from `catch`, `JSON.parse`, a dynamic SQL row or an
   external payload is narrowed with `typeof`/`instanceof` guards, or asserted to a *declared*
   interface — never to `any`.
-- **Dynamic SQL rows are typed.** `backend/src/services/db.ts` exports
-  `type DbRow = Record<string, unknown>` — the old `any` boundary is gone. `query<{ ... }>(...)`
-  declares the columns a call reads, and that is the expected form for new queries.
-- **`strict` is mandatory.** Both primary `tsconfig.json` files enable `strict` and
+- **`strict` is mandatory.** The primary `tsconfig.json` enables `strict` and
   `noImplicitAny`; `tsconfig.strict.json` is a compatibility entry point to that same strict
   configuration. `npm run typecheck` and `npm run typecheck:strict` must both remain at 0 errors.
 - **No type-safety escape hatches.** Do not add explicit `any`, `as any`, suppression pragmas or

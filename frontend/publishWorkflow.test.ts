@@ -19,7 +19,7 @@ test('GHCR publishing is an explicit milestone operation with an immutable dev s
   assert.match(workflow, /test "\$\(git rev-parse HEAD\)" = "\$source_sha"/);
   assert.match(workflow, /git fetch origin dev/);
   assert.match(workflow, /git merge-base --is-ancestor "\$source_sha" origin\/dev/);
-  assert.strictEqual((workflow.match(/type=raw,value=dev/g) || []).length, 2, 'only the two raw dev image tags may be published');
+  assert.strictEqual((workflow.match(/type=raw,value=dev/g) || []).length, 1, 'only the raw dev image tag may be published');
   assert.doesNotMatch(workflow, /type=semver|type=raw,value=latest/, 'milestone publishing must not move semver or latest tags');
 });
 

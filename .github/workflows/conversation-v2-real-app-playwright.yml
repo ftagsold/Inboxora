@@ -47,36 +47,24 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
+      # rustup reads backend/rust-toolchain.toml.
+      - name: Install Rust toolchain
+        working-directory: backend
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
       - name: Install dependencies
-        run: npm ci --prefix backend && npm ci --prefix frontend
+        run: npm ci --prefix frontend
       - name: Install Chromium
         working-directory: frontend
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
         run: npx playwright install --with-deps chromium
-      - name: Prepare database
+      - name: Build backend
         working-directory: backend
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_NAME: mailflow_test
-          DB_USER: mailflow_test
-          DB_PASSWORD: mailflow_test
-          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-        run: npx tsx -e "import { runMigrations } from './src/services/migrations.ts'; await runMigrations();"
-      - name: Seed real app fixture
-        working-directory: backend
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_NAME: mailflow_test
-          DB_USER: mailflow_test
-          DB_PASSWORD: mailflow_test
-          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-        run: npx tsx src/scripts/playwrightSeed.ts
+        run: cargo build --locked -p inboxora-server
       - name: Start backend
         working-directory: backend
         env:
@@ -93,13 +81,24 @@ jobs:
           DB_PASSWORD: mailflow_test
           REDIS_URL: redis://127.0.0.1:6379
           ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+        # The server applies the migrations at startup.
         run: |
           mkdir -p ../e2e-artifacts
-          npx tsx src/index.ts > ../e2e-artifacts/backend.log 2>&1 &
+          ./target/debug/inboxora-server > ../e2e-artifacts/backend.log 2>&1 &
           echo $! > ../e2e-artifacts/backend.pid
           for i in {1..60}; do curl --fail --silent http://127.0.0.1:3000/api/health && exit 0; sleep 1; done
           cat ../e2e-artifacts/backend.log
           exit 1
+      - name: Seed real app fixture
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: mailflow_test
+          PGUSER: mailflow_test
+          PGPASSWORD: mailflow_test
+        run: >-
+          psql -v ON_ERROR_STOP=1 -v username=playwright@example.test -v 'password=PlaywrightPassword123!'
+          -f backend/tests/e2e/playwright-seed.sql
       - name: Run real app E2E
         working-directory: frontend
         env:

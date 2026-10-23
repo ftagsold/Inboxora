@@ -161,9 +161,11 @@ with `openssl rand -hex 32` (or `-hex 16` for `DB_PASSWORD`):
 | `DB_PASSWORD` | Password for the bundled PostgreSQL. |
 | `ENCRYPTION_KEY` | Encrypts stored mail and DAV credentials at rest. **Losing it makes saved credentials unreadable.** |
 
-The same `docker compose up -d` also starts **ntfy**, the self-hosted UnifiedPush server for
-Android instant notifications, running on the same domain at the `${APP_URL}` origin. One domain,
-one certificate, no extra configuration.
+Inboxora itself is a single container: the Rust server answers the API and serves the web app,
+on HTTPS (`APP_PORT`, certificate from `./certs`, self-signed when absent) and plain HTTP for a
+reverse proxy (`APP_HTTP_PORT`). The same `docker compose up -d` also starts **ntfy**, the
+self-hosted UnifiedPush server for Android instant notifications, proxied by Inboxora on the same
+domain at the `${APP_URL}` origin. One domain, one certificate, no extra configuration.
 
 Optional: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for Web Push, and
 `DOMAIN` / `ACME_EMAIL` when Inboxora terminates TLS itself. Set `PUSH_BASE_URL` plus the
@@ -312,8 +314,8 @@ release.
 # frontend
 cd frontend && npm ci && npm test && npm run lint && npm run build
 
-# backend (Rust; see backend-rs/README.md for the live and contract test suites)
-cd backend-rs && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+# backend (Rust; see backend/README.md for the live test suites)
+cd backend && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
 Browser coverage uses Playwright and runs the full mocked suite plus visual comparisons:

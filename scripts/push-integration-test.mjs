@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // End-to-end check of the built-in ntfy transport through the public reverse
-// proxy (frontend/nginx.conf).
+// proxy (the Inboxora server with NTFY_URL set).
 //
 //   PUSH_TEST_URL=http://127.0.0.1:8080 node scripts/push-integration-test.mjs
 //

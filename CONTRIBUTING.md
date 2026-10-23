@@ -18,7 +18,7 @@ Thanks for helping improve Inboxora. Contributions are licensed under the projec
 
    ```bash
    cd frontend && npm ci && npm test && npm run lint && npm run build
-   cd ../backend && npm ci && npm test && npm run lint
+   cd ../backend && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
    ```
 
 4. Open a pull request against `dev` and describe the user-visible impact, validation, and any
@@ -40,7 +40,7 @@ or `feat: add DAV device credentials`.
 ## Code style
 
 - Match surrounding code and keep changes small.
-- Backend uses Node.js/Express with async/await.
+- The backend is a Rust workspace (axum, tokio); run `cargo fmt` and keep clippy clean.
 - Frontend uses React hooks and the established inline-style/CSS-variable patterns.
 - Do not add dependencies without an issue explaining why the existing stack is insufficient.
 - Keep documented API, DAV and storage contracts stable; the deliberately retained legacy

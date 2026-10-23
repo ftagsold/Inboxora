@@ -1,7 +1,8 @@
 // GTD plugin — frontend registrations (v3.0 plugin platform).
 //
 // Registers GTD's UI into core's plugin slots so core components carry no GTD-specific code. This is
-// the frontend twin of backend/src/plugins/gtd. Imported for its side effects by plugins/index.js.
+// the frontend half of the 4.x GTD plugin (the 5.0 backend has no plugins). Imported for its side
+// effects by plugins/index.js.
 // (The GTD UI components/utils still live under components/ & utils/ for now; later slices relocate
 // them wholesale into this directory.)
 import { registerSlot, registerPluginMeta, registerRuntime, registerCollector } from '../registry.ts';

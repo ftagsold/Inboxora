@@ -1,5 +1,5 @@
-// Display name for app chrome. The frontend container fills VITE_APP_NAME into index.html at
-// start-up (app-name.sh), so a deployment renames the app without rebuilding the image.
+// Display name for app chrome. The backend fills VITE_APP_NAME into index.html when it serves
+// it, so a deployment renames the app without rebuilding the image.
 export const APP_NAME_PLACEHOLDER = '__INBOXORA_APP_NAME__';
 
 /** The configured name from index.html, or null where the page was served unprocessed. */

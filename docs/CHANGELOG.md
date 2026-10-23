@@ -15,16 +15,29 @@ The next release is **5.0.0**: the backend is rewritten in Rust (see the release
 
 ### Changed (backend rewrite)
 
-- **The backend is a Rust service** (`backend-rs/`): axum/tokio HTTP and WebSocket server, its own
+- **The backend is a Rust service** (`backend/`): axum/tokio HTTP and WebSocket server, its own
   IMAP client and mail engine, lettre-based SMTP, and ports of every 4.x route group except
   plugins. It speaks the same API, reads the same environment variables, uses the same sessions
   in Redis, the same `enc:v1` encryption and the same database, which it migrates in place, so an
   upgrade keeps existing sessions, accounts and data.
-- **The backend image is distroless** and built from `backend-rs/Dockerfile` (cargo-chef,
+- **The backend image is distroless** and built from `backend/Dockerfile` (cargo-chef,
   fat LTO). It has no shell: the compose healthchecks run `/app/inboxora-server healthcheck`.
-- The backend now owns migrations; the SQL files are unchanged and ship at `/app/migrations`.
+- The backend now owns migrations (`backend/migrations`); the SQL files are unchanged and ship at
+  `/app/migrations`.
+- **One application container.** The server serves the built web app (`STATIC_DIR`, with the
+  former nginx cache and security headers and the SPA fallback), fills `VITE_APP_NAME` into
+  `index.html`/`manifest.json`, terminates HTTPS (HTTP/2 and HTTP/1.1) on `TLS_PORT` with `./certs`
+  (self-signed when absent) and proxies the bundled ntfy (`NTFY_URL`: `/up…`, `/v1`, `/push`, WebSockets included).
+  The compose `frontend` service, `frontend/Dockerfile` and `frontend/nginx.conf` are removed;
+  Caddy proxies to `backend:3000`.
 
 ### Removed (backend rewrite)
+
+- **The Node backend** and the Node↔Rust differential harnesses. The recorded Node outputs stay in
+  `backend/tests/differential`; the real-app Playwright fixture is seeded by
+  `backend/tests/e2e/playwright-seed.sql`.
+- **The `inboxora-frontend` image** and `contrib/nginx.conf`; native installs run the server
+  with `STATIC_DIR` (see `contrib/inboxora.service`).
 
 - **Plugins (GTD) are not available in 5.0.0.** `/api/plugins` lists no plugins, and the GTD
   labels, sections and pet are gone from the interface's data. Existing plugin tables are left
@@ -36,7 +49,7 @@ The next release is **5.0.0**: the backend is rewritten in Rust (see the release
   dump, so threading diagnostics show them correctly.
 - The conversation rebuild rate limit answers `429 Too Many Requests` instead of a generic 500.
 - Search `after:`/`before:` operators and creating a contact with a title no longer fail with 500
-  (both were broken in 4.x). See `backend-rs/README.md` for the full list of intentional
+  (both were broken in 4.x). See `backend/README.md` for the full list of intentional
   behaviour differences.
 
 ### Added

@@ -13,7 +13,6 @@ and no message content. It is the fastest way to describe a problem in an issue.
 | Two-factor codes rejected | Device clock drift; TOTP depends on accurate time on both sides. |
 | Password login disabled | SSO is enabled and password login was turned off. Use the SSO button. |
 | Changes lost after an update | A service worker from an older build is still cached; reload the page once. |
-| Every `/api/*` request 502s ("Bad Gateway") under Podman, even though `frontend` and `backend` are both healthy | The frontend's nginx re-resolves the `backend` container's DNS on each connection (so it survives the backend being recreated), reading the resolver address from the container's own `/etc/resolv.conf` at startup. Rebuild the frontend image if you're upgrading from an older one that hardcoded Docker's `127.0.0.11` — that address doesn't exist under Podman, which uses the network gateway address instead. |
 
 ## After migrating from MailFlow
 
@@ -110,8 +109,8 @@ These cover the built-in ntfy / UnifiedPush path. See
 | ntfy's **Default server** refuses the URL | The ntfy Android app rejects any base URL that contains a path. Enter the **origin only**: `${APP_URL}` (for example `https://mail.example.com`), **not** `${APP_URL}/push`. |
 | ntfy is installed but the card says **not connected** | The ntfy app is not pointed at this server. Open ntfy → Settings → General → **Default server**, enter `${APP_URL}` (origin, no path), then tap *Check again*. The exact URL is shown on the card. |
 | `${APP_URL}/v1/health` (or `/push/v1/health`) returns **502** | The bundled ntfy container is not running. Check `docker compose ps ntfy` and its logs (`docker compose logs ntfy`). If you deliberately use an external ntfy, start with `docker-compose.external-ntfy.yml` and set `PUSH_BASE_URL`. |
-| `${APP_URL}/upXXXXXXXXXXXX?up=1` returns the SPA instead of JSON | A fronting reverse proxy is not forwarding the origin UnifiedPush paths. It must preserve `/up…` and `/v1/` unchanged to the Inboxora frontend; the bundled nginx does the ntfy hop. |
-| Notification arrives only while the app is open | The UnifiedPush socket was closed. Check the proxy WebSocket upgrade and idle timeout for the UnifiedPush paths (use at least a few minutes; the bundled nginx uses 3600 s), and make sure the app is not battery-restricted (next row). |
+| `${APP_URL}/upXXXXXXXXXXXX?up=1` returns the SPA instead of JSON | A fronting reverse proxy is not forwarding the origin UnifiedPush paths. It must preserve `/up…` and `/v1/` unchanged to the Inboxora container, which does the ntfy hop (check that `NTFY_URL` is set on it). |
+| Notification arrives only while the app is open | The UnifiedPush socket was closed. Check the proxy WebSocket upgrade and idle timeout for the UnifiedPush paths (use at least a few minutes, e.g. 3600 s), and make sure the app is not battery-restricted (next row). |
 | Notifications are delayed or stop after a while | Android battery optimization is suspending ntfy. Exempt **ntfy** and **Inboxora** from battery optimization: Android Settings → Apps → ntfy → Battery → *Unrestricted*, and the same for Inboxora. On aggressive OEM skins (Xiaomi, Huawei, Samsung) also enable autostart for ntfy. |
 | No notification at all, while the app is open | Android notification permission is off. Settings → Notifications in Inboxora shows *Permission denied* and links to the Android notification settings. |
 | Notifications still arrive after switching servers | The old registration was not cleared. Sign out of Inboxora or re-save the host in the app (both unregister the device), or delete the `push_devices` row for that user on the old server. |

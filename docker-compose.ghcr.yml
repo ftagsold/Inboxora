@@ -11,34 +11,11 @@
 
 services:
 
-  # ── Frontend (nginx — serves React SPA + proxies API) ───────────────────────
-  # Exposes HTTPS on APP_PORT and HTTP on APP_HTTP_PORT.
-  # HTTP is intended for use behind a reverse proxy that terminates TLS.
-  frontend:
-    image: ghcr.io/dragonk/inboxora-frontend:${INBOXORA_VERSION:-latest}
-    container_name: inboxora-frontend
-    restart: unless-stopped
-    ports:
-      - "${APP_PORT:-443}:443"
-      - "${APP_HTTP_PORT:-80}:80"
-    volumes:
-      - ./certs:/etc/nginx/ssl
-    environment:
-      # App name in the browser tab, login screen and sidebar; applied at container start.
-      VITE_APP_NAME: ${VITE_APP_NAME:-Inboxora}
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO/dev/null http://127.0.0.1:80/ || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-    networks:
-      - inboxora
-
-  # ── Backend API ──────────────────────────────────────────────────────────────
+  # ── Inboxora (API + web app) ─────────────────────────────────────────────────
+  # One container: the Rust server answers the API and serves the web app. It exposes HTTPS on
+  # APP_PORT (certificate from ./certs, self-signed when absent) and HTTP on APP_HTTP_PORT, which
+  # is meant for use behind a reverse proxy that terminates TLS.
+  # With --profile https, Caddy handles TLS instead (see below).
   backend:
     image: ghcr.io/dragonk/inboxora-backend:${INBOXORA_VERSION:-latest}
     container_name: inboxora-backend
@@ -50,8 +27,20 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    ports:
+      - "${APP_PORT:-443}:3443"
+      - "${APP_HTTP_PORT:-80}:3000"
+    # Root by default so the server can read and write ./certs like the former nginx container
+    # did; set PUID/PGID (e.g. 99:100 on Unraid) to run unprivileged, with ./certs owned by them.
+    user: "${PUID:-0}:${PGID:-0}"
+    volumes:
+      - ./certs:/app/certs
     environment:
       NODE_ENV: production
+      # App name in the browser tab, login screen and sidebar; applied at container start.
+      VITE_APP_NAME: ${VITE_APP_NAME:-Inboxora}
+      # The bundled ntfy, proxied at /up…, /v1 and /push (see the ntfy service below).
+      NTFY_URL: ${NTFY_URL:-http://ntfy:80}
       PORT: 3000
       SESSION_SECRET: ${SESSION_SECRET}
       APP_URL: ${APP_URL:-}
@@ -198,13 +187,13 @@ services:
 
   # ── ntfy (built-in UnifiedPush transport) ────────────────────────────────────
   # Android instant notifications travel: Inboxora -> this ntfy -> UnifiedPush
-  # distributor (ntfy Android app) -> Inboxora Android. The frontend nginx
-  # proxies the UnifiedPush namespace at the domain origin and the container
-  # never publishes a host port.
+  # distributor (ntfy Android app) -> Inboxora Android. The Inboxora server
+  # proxies the UnifiedPush namespace at the domain origin (NTFY_URL) and this
+  # container never publishes a host port.
   #
   # Why the origin and not a path: ntfy 2.28 refuses a base-url containing a path
   # ("hosting ntfy on a sub-path is not supported") AND the ntfy Android app
-  # rejects a base URL with a path. nginx therefore routes only "/up" + 12 base62
+  # rejects a base URL with a path. Inboxora therefore routes only "/up" + 12 base62
   # chars and "/v1" to ntfy (the SPA keeps every other path); /push/ is kept as a
   # compatibility alias.
   #
@@ -242,7 +231,7 @@ services:
       - inboxora
 
   # ── Caddy (automatic HTTPS via Let's Encrypt — optional) ────────────────────
-  # Use docker-compose.https.yml to avoid the port conflict with the frontend:
+  # Use docker-compose.https.yml to avoid the port conflict with the Inboxora container:
   #   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
   # Requires DOMAIN, ACME_EMAIL, and APP_URL to be set in .env, and ports 80/443 open.
   caddy:
@@ -264,7 +253,7 @@ services:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
     depends_on:
-      - frontend
+      - backend
     networks:
       - inboxora
 
@@ -287,9 +276,5 @@ configs:
       }
 
       ${DOMAIN:-localhost} {
-          reverse_proxy frontend:443 {
-              transport http {
-                  tls_insecure_skip_verify
-              }
-          }
+          reverse_proxy backend:3000
       }

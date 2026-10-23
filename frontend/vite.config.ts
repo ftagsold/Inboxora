@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react';
 
 const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
-// Production builds keep the __INBOXORA_APP_NAME__ placeholder, which the container fills
-// from VITE_APP_NAME at start-up (app-name.sh). The dev server fills it the same way here.
+// Production builds keep the __INBOXORA_APP_NAME__ placeholder, which the backend fills from
+// VITE_APP_NAME when it serves index.html and manifest.json. The dev server fills it here.
 function appNameHtml(appName: string) {
   const escaped = appName.replace(/[&<>"']/g, char => HTML_ESCAPES[char]);
   return {

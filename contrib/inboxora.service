@@ -2,13 +2,15 @@
 #
 # Setup:
 #   1. Copy to /etc/systemd/system/inboxora.service
-#   2. Edit WorkingDirectory and EnvironmentFile to match your install path
+#   2. Edit WorkingDirectory, EnvironmentFile and STATIC_DIR to match your install path
+#      (build the server with `cargo build --release -p inboxora-server` in backend/ and the
+#      web app with `npm ci && npm run build` in frontend/)
 #   3. Edit User to match the user who owns the files
 #   4. sudo systemctl daemon-reload
 #      sudo systemctl enable --now inboxora
 
 [Unit]
-Description=Inboxora backend
+Description=Inboxora
 Documentation=https://github.com/Dragonk/Inboxora
 After=network.target postgresql.service redis.service
 
@@ -18,7 +20,10 @@ User=www-data
 Group=www-data
 WorkingDirectory=/opt/inboxora/backend
 EnvironmentFile=/opt/inboxora/.env
-ExecStart=/usr/bin/node src/index.js
+# The server serves the web app itself. For HTTPS without a reverse proxy, also set TLS_PORT
+# (and TLS_CERT_FILE / TLS_KEY_FILE) in the environment file.
+Environment=STATIC_DIR=/opt/inboxora/frontend/dist
+ExecStart=/opt/inboxora/backend/target/release/inboxora-server
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

@@ -14,49 +14,9 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Assert exact tested SHA
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: backend
-        run: npm ci
-
-      - name: Typecheck
-        working-directory: backend
-        run: npm run typecheck
-
-      - name: Build
-        working-directory: backend
-        run: npm run build
-
-      - name: Lint
-        working-directory: backend
-        run: npm run lint
-
-      - name: Test
-        working-directory: backend
-        run: npm test
-
-      - name: Audit
-        working-directory: backend
-        run: npm audit --omit=dev --audit-level=high
-
-  backend-rs:
-    name: Backend (Rust)
-    runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend-rs
+        working-directory: backend
 
     steps:
       - uses: actions/checkout@v6
@@ -70,7 +30,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend-rs
+          workspaces: backend
 
       - name: Format
         run: cargo fmt --all --check

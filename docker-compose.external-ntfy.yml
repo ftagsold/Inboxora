@@ -4,11 +4,14 @@
 #     -f docker-compose.yml -f docker-compose.external-ntfy.yml up -d
 #
 # The bundled ntfy is moved into a profile that this file never activates, so it
-# is not started. Point the Android ntfy app at PUSH_BASE_URL; the /push path on
-# the Inboxora domain is then unused.
+# is not started, and the Inboxora server stops proxying /up…, /v1 and /push.
+# Point the Android ntfy app at PUSH_BASE_URL.
 #
 # Equivalent for the prebuilt images:
 #   docker compose -f docker-compose.ghcr.yml -f docker-compose.external-ntfy.yml up -d
 services:
   ntfy:
     profiles: ["internal-ntfy"]
+  backend:
+    environment:
+      NTFY_URL: ""

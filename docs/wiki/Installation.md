@@ -1,8 +1,8 @@
 # Installation
 
-Inboxora ships as two container images — `ghcr.io/dragonk/inboxora-backend` and
-`ghcr.io/dragonk/inboxora-frontend` — plus PostgreSQL and Redis. Docker Compose is the
-supported deployment method.
+Inboxora ships as one container image — `ghcr.io/dragonk/inboxora-backend`, the Rust server
+that answers the API and serves the web app — plus PostgreSQL, Redis and the bundled ntfy.
+Docker Compose is the supported deployment method.
 
 Use a **tagged release** image for a stable deployment. The mutable `:dev` images are build
 candidates for testing only and must not be used for a server people depend on.
@@ -59,8 +59,8 @@ candidates for testing only and must not be used for a server people depend on.
    ```
 
 The stack includes **ntfy**, the built-in UnifiedPush transport for Android instant
-notifications. It is published by the same frontend on the same domain — no second hostname and
-no second certificate:
+notifications. The Inboxora container proxies it on the same domain — no second hostname and no
+second certificate:
 
 ```text
 Inboxora:      ${APP_URL}
@@ -78,8 +78,8 @@ invitations or open registration, depending on your settings.
 
 ## Development builds (the `dev` tag)
 
-Every push to the `dev` branch can be published as `ghcr.io/dragonk/inboxora-backend:dev` and
-`ghcr.io/dragonk/inboxora-frontend:dev` by the **Publish to GHCR** workflow. The `dev` tag always
+Every push to the `dev` branch can be published as `ghcr.io/dragonk/inboxora-backend:dev` by
+the **Publish to GHCR** workflow. The `dev` tag always
 points at one immutable commit, and `/api/version` reports both the tag and the SHA the image was
 built from, so you can confirm exactly what you are running.
 
@@ -107,7 +107,7 @@ migrations as a release, and rolling back to an older image is not supported.
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` | No | External PostgreSQL. `DB_HOST` may be a Unix socket directory (`/run/postgresql`) or socket file (`/run/postgresql/.s.PGSQL.5432`); over a socket `DB_PASSWORD` becomes optional so peer/ident authentication works. |
 | `ENCRYPTION_KEY` | Yes | Encrypts stored mail and DAV credentials at rest. |
 | `INBOXORA_VERSION` | Recommended | Pins the image tag. |
-| `APP_PORT` / `APP_HTTP_PORT` | No | Published ports for the frontend container (default 443/80). |
+| `APP_PORT` / `APP_HTTP_PORT` | No | Published HTTPS and HTTP ports of the Inboxora container (default 443/80). HTTPS uses `./certs/cert.pem` + `key.pem`, generated self-signed when absent. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | No | Enables Web Push. Generate once with `npx web-push generate-vapid-keys`. |
 | `PUSH_BASE_URL` | No | Advanced: an external ntfy origin (path-less). Defaults to `${APP_URL}`. |
 | `PUSH_ALLOW_PRIVATE_ENDPOINTS` | No | Allow a private/LAN (http) UnifiedPush endpoint. Off by default (SSRF guard). |
@@ -117,12 +117,11 @@ migrations as a release, and rolling back to an older image is not supported.
 | `DOMAIN` / `ACME_EMAIL` | No | Only for the bundled Caddy profile that terminates TLS itself. |
 | `PASSWORD_LOGIN_DISABLED` | No | `true` makes sign-in SSO-only: password login, registration and password-reset requests are refused, and the admin toggle is locked. Configure a working SSO provider (with admin mapping) first. |
 | `IMAP_MAX_PERSISTENT_PER_HOST` | No | Caps always-on IMAP connections per host when one mail server limits them. |
-| `POSTGRES_DATA` / `REDIS_DATA` / `PUID` / `PGID` | No | Bind mounts and ownership for Unraid-style deployments. |
+| `POSTGRES_DATA` / `REDIS_DATA` / `PUID` / `PGID` | No | Bind mounts and ownership for Unraid-style deployments. `PUID`/`PGID` also apply to the Inboxora container, which must be able to read (and, for a generated certificate, write) `./certs`. |
 
-`VITE_APP_NAME` (frontend container, default `Inboxora`) renames the app in the sidebar, login
-screen, mobile header, browser tab and installed PWA. It is read when the frontend container
-starts, so changing it needs only a container restart, not a rebuild. Set it on the **frontend**
-container's environment, not the backend's.
+`VITE_APP_NAME` (default `Inboxora`) renames the app in the sidebar, login screen, mobile header,
+browser tab and installed PWA. The server reads it when it starts, so changing it needs only a
+container restart, not a rebuild.
 
 `VITE_EMAIL_DIV_RENDER` is an experimental renderer switch; leave it unset.
 
@@ -139,7 +138,8 @@ It requires `DOMAIN`, `ACME_EMAIL` and `APP_URL`, and ports 80/443 open to the i
 
 ## Behind an existing reverse proxy
 
-Point the proxy at the frontend container's HTTP port and forward the original scheme:
+Point the proxy at the Inboxora container's HTTP port (`APP_HTTP_PORT`, container port 3000)
+and forward the original scheme:
 
 - `X-Forwarded-Proto: https`
 - `X-Forwarded-For` and `Host` as usual

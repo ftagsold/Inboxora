@@ -214,28 +214,27 @@ installed.
 
 ## Reverse proxy requirements
 
-The bundled nginx (`frontend/nginx.conf`) already routes the UnifiedPush
-surface to ntfy: `/up` + 12 base62 characters and `/v1/*` at the origin, plus
-the compatibility `/push/*` prefix. If you put your own proxy (Zoraxy, Nginx,
+The Inboxora server already routes the UnifiedPush surface to the bundled ntfy
+(`NTFY_URL`): `/up` + 12 base62 characters and `/v1/*` at the origin, plus the
+compatibility `/push/*` prefix. If you put your own proxy (Zoraxy, Nginx,
 Traefik, Caddy, Cloudflare, …) in front of Inboxora, it must:
 
-- **preserve the paths** and forward them to the Inboxora frontend — do not strip
-  or rewrite `/up…` or `/v1/`; the bundled nginx does the ntfy hop;
+- **preserve the paths** and forward them to the Inboxora container — do not
+  strip or rewrite `/up…` or `/v1/`; Inboxora does the ntfy hop;
 - support **WebSocket upgrade** (`Upgrade` / `Connection`) for `/up…/ws`
   (and `/push/…/ws`);
 - pass `X-Forwarded-For` and `X-Forwarded-Proto`;
 - not impose a short idle timeout — the UnifiedPush socket is long-lived. A
-  read timeout of at least a few minutes (the bundled nginx uses 3600 s) is
-  recommended;
+  read timeout of at least a few minutes (e.g. 3600 s) is recommended;
 - terminate TLS with a valid certificate (Android refuses cleartext push).
 
 Example for an external nginx fronting the Inboxora container:
 
 ```nginx
-# Forward everything to the Inboxora frontend; it performs the /up… and /v1
+# Forward everything to the Inboxora container; it performs the /up… and /v1
 # routing to ntfy itself. Preserve the original path and scheme.
 location / {
-    proxy_pass         http://127.0.0.1:8080;   # Inboxora frontend nginx
+    proxy_pass         http://127.0.0.1:8080;   # Inboxora APP_HTTP_PORT
     proxy_http_version 1.1;
     proxy_set_header   Upgrade $http_upgrade;
     proxy_set_header   Connection "upgrade";
