@@ -254,7 +254,7 @@ test('a multi-day month-view event can be picked up to move from any of its segm
 test('a month-view all-day event — single-day or multi-day — resizes by its left/right edge, via the same hook as the all-day row', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.match(source, /const monthResize = useAllDayResizeDrag\(moveEvent\);/);
-  assert.match(source, /const resizable = Boolean\(segmentRaw\) && movable;/);
+  assert.match(source, /const resizable = allDay && movable;/);
   assert.match(source, /\{resizable && !segment\?\.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start"/);
   assert.match(source, /\{resizable && !segment\?\.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end"/);
   assert.match(source, /monthResize\.startResize\(event, eventLastInclusiveDay, dayFromKey\(startKey\)\);/);
@@ -384,7 +384,7 @@ test('a month-view event puts its title first (ellipsized if long) and its time 
   assert.match(source, /const eventCardTime: CSSProperties = \{ fontFamily: 'var\(--font-mono, ui-monospace, monospace\)', fontSize: 9\.5, fontWeight: 400, opacity: \.85, flexShrink: 0 \};/);
   // The title span comes before the time <strong> in both the real event and MonthDragRow (the
   // shared preview/ghost renderer).
-  assert.match(source, /visibility: 'hidden' \}\}>\{event\.summary \|\| t\('calendar\.untitled'\)\}<\/span>\{!\(event\.all_day \|\| event\.allDay\) && <strong style=\{timedCard \? eventCardTimedTime : eventCardTime\}>\{eventTime\(event\)\}<\/strong>\}/);
+  assert.match(source, /visibility: 'hidden' \}\}>\{event\.summary \|\| t\('calendar\.untitled'\)\}<\/span>\{timeLabel && <strong style=\{timedCard \? eventCardTimedTime : eventCardTime\}>\{timeLabel\}<\/strong>\}/);
 });
 
 // The move/resize ghost preview for a multi-day month-view event is computed the same way the
@@ -431,7 +431,7 @@ test('the ghost and the preview never square off against each other — each rou
 test('a month-view event\'s own border-radius longhands are always set, never conditionally omitted', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.doesNotMatch(source, /\.\.\.\(spanning \? \{ borderTopLeftRadius/);
-  assert.match(source, /borderTopLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderBottomLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderTopRightRadius: segment\?\.continuesTo \? 0 : 4, borderBottomRightRadius: segment\?\.continuesTo \? 0 : 4, paddingLeft: segment\?\.continuesFrom \? 10 : 6, paddingRight: segment\?\.continuesTo \? 10 : 6 \}\}>/);
+  assert.match(source, /borderTopLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderBottomLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderTopRightRadius: segment\?\.continuesTo \? 0 : 4, borderBottomRightRadius: segment\?\.continuesTo \? 0 : 4, paddingLeft: segment\?\.continuesFrom \? 10 : 6, paddingRight: segment\?\.continuesTo \? 10 : 6, overflow: 'visible' \}\}>/);
 });
 
 // Capping at 5 and showing a "+1 more" chip for a 6th event takes exactly the same vertical
@@ -548,7 +548,7 @@ test('a timed event shows its full title in bold and a clock icon next to the ti
 // event renders "a little transparent" with nothing left for a seam to show through.
 test('events render a little transparent via a pre-blended color, not real CSS opacity (which broke multi-day seams)', async () => {
   const source = await readFile(calendarPath, 'utf8');
-  assert.match(source, /const EVENT_OPACITY = 0\.32;/);
+  assert.match(source, /const EVENT_OPACITY = 0\.55;/);
   assert.match(source, /function eventTint\(color: string \| null \| undefined, ratio: number = EVENT_OPACITY, glass = false\): string \{/);
   assert.match(source, /return `color-mix\(in srgb, \$\{color \|\| 'var\(--accent\)'\} \$\{Math\.round\(ratio \* 100\)\}%, \$\{glass \? 'transparent' : 'var\(--bg-primary\)'\}\)`;/);
   // Every real event and every move/resize ghost preview goes through it — none hardcode a raw
@@ -571,8 +571,8 @@ test('events render a little transparent via a pre-blended color, not real CSS o
 // opaque (just paler), dimming it the same way without ever exposing what's underneath.
 test('the moving/resizing dim state uses a paler eventTint(), never a real CSS opacity, on multi-day-capable events', async () => {
   const source = await readFile(calendarPath, 'utf8');
-  assert.match(source, /const EVENT_DIM_RATIO = 0\.14;/);
-  const dimmedTintCalls = source.match(/(?:eventTint|eventFill)\([^)]*beingMoved \|\| beingResized \? EVENT_DIM_RATIO : EVENT_OPACITY(?:, true)?\)/g);
+  assert.match(source, /const EVENT_DIM_RATIO = 0\.28;/);
+  const dimmedTintCalls = source.match(/(?:eventTint|eventFill)\([^)]*beingMoved \|\| beingResized \? (?:EVENT_DIM_RATIO : EVENT_OPACITY|EVENT_GLASS_DIM_RATIO : EVENT_GLASS_OPACITY, true)\)/g);
   assert.equal(dimmedTintCalls?.length, 3, 'expected the dim ratio on the month-view card, the all-day pill, and the timed event');
   // No wrapper around a multi-day-capable event (month card row, all-day pill, timed event) may
   // still dim itself via real opacity.
@@ -692,7 +692,7 @@ test('a week-view timed event only dims once the drag has actually moved, not on
 test('the month-view move preview treats a non-multi-day event as covering exactly the one day it is dragged to', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.match(source, /const isAllDay = Boolean\(moving\.event\.all_day \|\| moving\.event\.allDay\);/);
-  assert.match(source, /const endKey = isAllDay && rawEndKey > startKey \? rawEndKey : dateOnly\(new Date\(dayFromKey\(startKey\)\.getFullYear\(\), dayFromKey\(startKey\)\.getMonth\(\), dayFromKey\(startKey\)\.getDate\(\) \+ 1\)\);/);
+  assert.match(source, /: isAllDay && rawEndKey > startKey \? rawEndKey : dateOnly\(new Date\(dayFromKey\(startKey\)\.getFullYear\(\), dayFromKey\(startKey\)\.getMonth\(\), dayFromKey\(startKey\)\.getDate\(\) \+ 1\)\);/);
 });
 
 // `shift()` (date-only, via dayFromKey/dateOnly) is correct for an all-day event's `starts_at`,

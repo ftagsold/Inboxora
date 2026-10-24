@@ -1991,7 +1991,8 @@
     "invitationNotifyYes": "发送答复",
     "invitationNotifyNo": "不发送",
     "yourReply": "你的回复",
-    "localCalendars": "本地"
+    "localCalendars": "本地",
+    "endsAt": "{{time}} 结束"
   },
   "mailFolders": {
     "inbox": "收件箱",

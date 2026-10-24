@@ -1991,7 +1991,8 @@
     "invitationNotifyYes": "Отправить ответ",
     "invitationNotifyNo": "Не отправлять",
     "yourReply": "Ваш ответ",
-    "localCalendars": "Локальные"
+    "localCalendars": "Локальные",
+    "endsAt": "Заканчивается в {{time}}"
   },
   "mailFolders": {
     "inbox": "Входящие",

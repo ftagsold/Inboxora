@@ -77,7 +77,10 @@ const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => 
 const AGENDA_HIDDEN_STORAGE_KEY = 'mailflow_calendar_agenda_hidden';
 // Every rendered event — month-view card, all-day pill, timed block, and their move/resize
 // ghost previews — blends slightly with what's behind it rather than sitting fully opaque.
-const EVENT_OPACITY = 0.32;
+const EVENT_OPACITY = 0.55;
+// A week-view timed block is drawn see-through (see eventTint's `glass`), lighter still, with
+// its text and left bar in the calendar color instead of white.
+const EVENT_GLASS_OPACITY = 0.32;
 // A real CSS `opacity` blends each element independently with whatever sits *directly* behind
 // it — for one segment of a multi-day event that's a solid cell background, but the month
 // grid draws its cell borders as a 1px gap with the border color showing through underneath
@@ -104,7 +107,8 @@ function eventInk(color: string | null | undefined): string {
 // the seam, an "ugly black line" for the whole time it's being dragged. Diluting further with
 // the same `color-mix()` approach — still opaque, just paler — dims it the same way without
 // ever making anything underneath show through.
-const EVENT_DIM_RATIO = 0.14;
+const EVENT_DIM_RATIO = 0.28;
+const EVENT_GLASS_DIM_RATIO = 0.14;
 // An invitation the user answered "maybe" to is drawn striped — the event's own tint
 // alternating with a paler band — so a tentative slot reads as not-quite-committed.
 // Still opaque (both bands are pre-blended like eventTint), for the same seam reason.
@@ -126,6 +130,25 @@ function dateOnly(date: Date) {
 function dayFromKey(key: string): Date {
   const [year, month, day] = key.split('-').map(Number);
   return new Date(year, (month || 1) - 1, day || 1);
+}
+// The days an event covers in month view, as local YYYY-MM-DD keys (end exclusive): an all-day
+// event's own dates, or a timed event's local start day through the day its end falls in (an
+// end at exactly midnight belongs to the day before). A timed event covering more than one day
+// is laid out like a multi-day all-day bar: one lane per week, title once, start/end times.
+function monthSpanKeys(event: CalendarViewEvent): { startKey: string; endKey: string } {
+  if (event.all_day || event.allDay) {
+    return { startKey: String(event.starts_at ?? event.startsAt ?? '').slice(0, 10), endKey: String(event.ends_at ?? event.endsAt ?? '').slice(0, 10) };
+  }
+  const start = new Date(String(event.starts_at ?? event.startsAt ?? ''));
+  const end = new Date(String(event.ends_at ?? event.endsAt ?? ''));
+  const last = new Date(Math.max(start.getTime(), end.getTime() - 1));
+  return { startKey: dateOnly(start), endKey: dateOnly(new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1)) };
+}
+function monthSpanDays(event: CalendarViewEvent): number {
+  if (event.all_day || event.allDay) return allDaySpanDays(event);
+  const { startKey, endKey } = monthSpanKeys(event);
+  const days = Math.round((dayFromKey(endKey).getTime() - dayFromKey(startKey).getTime()) / 86400000);
+  return Number.isFinite(days) && days > 0 ? days : 1;
 }
 // All-day ends are stored exclusive (iCalendar DTEND) but shown inclusive, like every other
 // calendar: an event on the 5th reads "5th – 5th", not "5th – 6th".
@@ -1297,7 +1320,7 @@ function compareAllDayOrder(a: CalendarFormEvent, b: CalendarFormEvent): number 
 // show a title on at all, which read as the whole preview having lost its name.
 function MonthDragRow({ segment, event, testId, t, titleVisible }: { segment: { continuesFrom: boolean; continuesTo: boolean }; event: CalendarFormEvent; testId?: string; t: TFunction; titleVisible: boolean }) {
   return <div aria-hidden="true" data-testid={testId} style={{ ...eventRow, position: 'relative', marginLeft: segment.continuesFrom ? -7 : 0, marginRight: segment.continuesTo ? -7 : 0 }}>
-    <div style={{ ...eventCard, background: eventTint(event.calendar_color), color: eventInk(event.calendar_color), borderTopLeftRadius: segment.continuesFrom ? 0 : 4, borderBottomLeftRadius: segment.continuesFrom ? 0 : 4, borderTopRightRadius: segment.continuesTo ? 0 : 4, borderBottomRightRadius: segment.continuesTo ? 0 : 4, paddingLeft: segment.continuesFrom ? 10 : 6, paddingRight: segment.continuesTo ? 10 : 6 }}>
+    <div style={{ ...eventCard, background: eventTint(event.calendar_color), borderTopLeftRadius: segment.continuesFrom ? 0 : 4, borderBottomLeftRadius: segment.continuesFrom ? 0 : 4, borderTopRightRadius: segment.continuesTo ? 0 : 4, borderBottomRightRadius: segment.continuesTo ? 0 : 4, paddingLeft: segment.continuesFrom ? 10 : 6, paddingRight: segment.continuesTo ? 10 : 6 }}>
       <span style={titleVisible ? eventCardTitle : { ...eventCardTitle, visibility: 'hidden' }}>{event.summary || t('calendar.untitled')}</span>
       {!(event.all_day || event.allDay) && <strong style={eventCardTime}>{eventTime(event)}</strong>}
     </div>
@@ -1372,7 +1395,10 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
     // exclusive end (one day past its last visible day) and multi-day timed events are rare
     // enough here not to special-case: a timed event always previews as exactly the one day
     // it's being dragged to.
-    const endKey = isAllDay && rawEndKey > startKey ? rawEndKey : dateOnly(new Date(dayFromKey(startKey).getFullYear(), dayFromKey(startKey).getMonth(), dayFromKey(startKey).getDate() + 1));
+    // A timed spanner keeps its whole day range (from its local start day, like startsAt below).
+    const timedSpan = !isAllDay && monthSpanDays(moving.event) > 1 ? monthSpanKeys(moving.event) : null;
+    const endKey = timedSpan ? dateOnly(new Date(dayFromKey(timedSpan.endKey).getTime() + (dayFromKey(startKey).getTime() - dayFromKey(timedSpan.startKey).getTime())))
+      : isAllDay && rawEndKey > startKey ? rawEndKey : dateOnly(new Date(dayFromKey(startKey).getFullYear(), dayFromKey(startKey).getMonth(), dayFromKey(startKey).getDate() + 1));
     // `shift()` above is date-only — correct for an all-day event's `starts_at`, which never
     // carries a meaningful time, but for a *timed* event it discarded the clock time entirely,
     // so the preview's displayed time (eventTime() reads it straight off `starts_at`) fell back
@@ -1427,7 +1453,8 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
   monthWeeks.forEach((week, weekIndex) => {
     const spanningById = new Map<string, CalendarFormEvent>();
     week.forEach(day => dayEventsFor(day).forEach(event => {
-      if ((event.all_day || event.allDay) && allDaySpanDays(event) > 1) spanningById.set(String(event.id), event);
+      // A timed spanner is packed by its local day range, as if it were all-day.
+      if (monthSpanDays(event) > 1) spanningById.set(String(event.id), (event.all_day || event.allDay) ? event : { ...event, all_day: true, starts_at: monthSpanKeys(event).startKey, ends_at: monthSpanKeys(event).endKey });
     }));
     // While a multi-day event is being dragged, the lane it needs to avoid colliding with other
     // real events isn't decided by its own real (unmoved) range alone — the preview's shifted
@@ -1512,7 +1539,7 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
         const laneSlots: Array<{ ghost?: CalendarFormEvent; preview?: { event: CalendarFormEvent; segment: { continuesFrom: boolean; continuesTo: boolean }; titleVisible: boolean } } | undefined> = new Array(laneCount);
         const others: Array<{ event: CalendarFormEvent; preview: boolean; segment?: { continuesFrom: boolean; continuesTo: boolean }; titleVisible?: boolean }> = [];
         dayEvents.forEach(event => {
-          const lane = (event.all_day || event.allDay) && allDaySpanDays(event) > 1 ? laneOf.get(String(event.id)) : undefined;
+          const lane = monthSpanDays(event) > 1 ? laneOf.get(String(event.id)) : undefined;
           if (lane != null) laneSlots[lane] = { ...laneSlots[lane], ghost: event };
           else others.push({ event, preview: false });
         });
@@ -1589,7 +1616,11 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
           // as one bar stretching across its days rather than separate chips — the same technique
           // the week view's all-day band already uses. Exactly the same whether or not this is
           // the event actually being dragged: its own ghost is just this same event, dimmed.
-          const segmentRaw = (event.all_day || event.allDay) ? allDayEventSegment(event, day) : null;
+          const allDay = Boolean(event.all_day || event.allDay);
+          const span = monthSpanKeys(event);
+          const timedSpanner = !allDay && monthSpanDays(event) > 1;
+          const segmentRaw = allDay ? allDayEventSegment(event, day)
+            : timedSpanner ? { continuesFrom: span.startKey < dayKey, continuesTo: span.endKey > dateOnly(new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)) } : null;
           // Clamped to rounded at a row edge (see isRowStart/isRowEnd above) — there's no cell
           // to bridge into past the last (or before the first) column of this calendar row,
           // so bleeding/squaring off there pokes the bar out past the grid's own border instead
@@ -1606,9 +1637,21 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
           // the resize preview's range into spanningById even when the real event isn't a spanner
           // yet (see its `previewTouchesWeek` fallback above), so the growing bar still lands on
           // the same row across every day it comes to cover.
-          const resizable = Boolean(segmentRaw) && movable;
+          const resizable = allDay && movable;
           const timedCard = !segmentRaw;
           const titleVisible = !segment?.continuesFrom;
+          // A bar's title may run on over the rest of its days in this row instead of being cut at
+          // its first cell: `n` cells of `100% + 22px` pitch (cell padding 6 + bleed 7 + 1px gap,
+          // minus this button's own 6/10 padding), stopping short of a last cell that shows an end time.
+          const rowDays = Math.min(7 - (dayIndex % 7), Math.round((dayFromKey(span.endKey).getTime() - dayFromKey(dayKey).getTime()) / 86400000));
+          const endsHere = timedSpanner && span.endKey === dateOnly(new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1));
+          const endsInRow = Math.round((dayFromKey(span.endKey).getTime() - dayFromKey(dayKey).getTime()) / 86400000) <= 7 - (dayIndex % 7);
+          const runCells = timedSpanner && endsInRow ? rowDays - 1 : rowDays;
+          const titleRun = titleVisible && segment?.continuesTo && runCells > 1 ? `calc(${runCells} * (100% + 22px) - 25px)` : null;
+          const timeLabel = !timedSpanner ? (allDay ? null : eventTime(event))
+            : span.startKey === dayKey ? eventTime(event)
+              : endsHere ? t('calendar.endsAt', { time: new Date(String(event.ends_at ?? event.endsAt ?? '')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })
+                : null;
           // Hovering any one segment of a multi-day event highlights every one of its segments
           // (see `hoveredEventId` above) — single-day events already get the same effect for
           // free from plain CSS `:hover`, so this only actually changes anything visible for a
@@ -1622,8 +1665,8 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
           // through underneath (gap: 1, background: var(--border-subtle)), so bridging it takes
           // covering the cell's own padding *and* that gap — not just the padding — or a 1px
           // seam remains between two segments of one event.
-          return <div key={event.id} data-testid={spanning ? 'calendar-month-span' : undefined} style={{ ...eventRow, position: 'relative', zIndex: spanning ? 1 : undefined, marginLeft: segment?.continuesFrom ? -7 : 0, marginRight: segment?.continuesTo ? -7 : 0 }}>
-            <button className="cal-ev" data-timed={timedCard || undefined} onMouseDown={mouseDownEvent => { if (movable) { mouseDownEvent.stopPropagation(); monthEventDrag.startMove(event, day, mouseDownEvent); } }} onDoubleClick={() => openEdit(event)} onContextMenu={event => { event.preventDefault(); showMenu(event); }} onKeyDown={invokeMenu} onMouseEnter={() => setHoveredEventId(String(event.id))} onMouseLeave={() => setHoveredEventId(current => current === String(event.id) ? null : current)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...eventCard, ...(timedCard ? eventCardTimed : {}), background: timedCard ? 'transparent' : eventFill(event, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), color: timedCard ? 'var(--text-primary)' : eventInk(event.calendar_color), opacity: timedCard && (beingMoved || beingResized) ? 0.45 : 1, cursor: movable ? 'grab' : 'pointer', filter: highlighted ? 'brightness(1.18)' : undefined,
+          return <div key={event.id} data-testid={spanning ? 'calendar-month-span' : undefined} style={{ ...eventRow, position: 'relative', zIndex: spanning ? (titleRun ? 2 : 1) : undefined, marginLeft: segment?.continuesFrom ? -7 : 0, marginRight: segment?.continuesTo ? -7 : 0 }}>
+            <button className="cal-ev" data-timed={timedCard || undefined} onMouseDown={mouseDownEvent => { if (movable) { mouseDownEvent.stopPropagation(); monthEventDrag.startMove(event, day, mouseDownEvent); } }} onDoubleClick={() => openEdit(event)} onContextMenu={event => { event.preventDefault(); showMenu(event); }} onKeyDown={invokeMenu} onMouseEnter={() => setHoveredEventId(String(event.id))} onMouseLeave={() => setHoveredEventId(current => current === String(event.id) ? null : current)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...eventCard, ...(timedCard ? eventCardTimed : {}), background: timedCard ? 'transparent' : eventFill(event, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), color: timedCard ? 'var(--text-primary)' : 'white', opacity: timedCard && (beingMoved || beingResized) ? 0.45 : 1, cursor: movable ? 'grab' : 'pointer', filter: highlighted ? 'brightness(1.18)' : undefined,
               // `borderRadius` (the shorthand key) above always sets a value for every corner —
               // these longhands must too, unconditionally, even when nothing needs to differ
               // from the shorthand's own 4px. The same CSSOM corruption this file already
@@ -1634,7 +1677,7 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
               // same, persisted-across-renders button, mid-drag as continuesFrom/To flip) clears
               // it to nothing left to fall back to, not back to the shorthand's 4px, so the
               // corner sticks at the browser default of a hard 0 instead of re-rounding.
-              borderTopLeftRadius: segment?.continuesFrom ? 0 : 4, borderBottomLeftRadius: segment?.continuesFrom ? 0 : 4, borderTopRightRadius: segment?.continuesTo ? 0 : 4, borderBottomRightRadius: segment?.continuesTo ? 0 : 4, paddingLeft: segment?.continuesFrom ? 10 : 6, paddingRight: segment?.continuesTo ? 10 : 6 }}>{/* A multi-day event's title shows once, on its first visible day — every later segment is
+              borderTopLeftRadius: segment?.continuesFrom ? 0 : 4, borderBottomLeftRadius: segment?.continuesFrom ? 0 : 4, borderTopRightRadius: segment?.continuesTo ? 0 : 4, borderBottomRightRadius: segment?.continuesTo ? 0 : 4, paddingLeft: segment?.continuesFrom ? 10 : 6, paddingRight: segment?.continuesTo ? 10 : 6, overflow: 'visible' }}>{/* A multi-day event's title shows once, on its first visible day — every later segment is
                 just the bar continuing, so repeating it read as separate events instead of one.
                 Still rendered (not omitted) on a continuation, just visually hidden — an
                 empty button has no line box to size itself by and collapses to near-zero
@@ -1643,7 +1686,9 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
                 The title comes first and shrinks (ellipsis) so the time — fixed width, never
                 shrinks — always stays fully visible at the end of the line instead of getting
                 clipped along with an overly long title. A timed event has no fill (month view has no
-                time axis to give it a block) — just its calendar-colored bar ahead of the title. */}{timedCard && <span aria-hidden="true" style={{ ...eventCardBar, background: eventFill(event, 1) }} />}<span style={titleVisible ? eventCardTitle : { ...eventCardTitle, visibility: 'hidden' }}>{event.summary || t('calendar.untitled')}</span>{!(event.all_day || event.allDay) && <strong style={timedCard ? eventCardTimedTime : eventCardTime}>{eventTime(event)}</strong>}</button>
+                time axis to give it a block) — just its calendar-colored bar ahead of the title. */}{timedCard && <span aria-hidden="true" style={{ ...eventCardBar, background: eventTint(event.calendar_color, 1) }} />}{titleRun
+                ? <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, flex: 'none', minWidth: '100%', maxWidth: titleRun }}><span style={eventCardTitle}>{event.summary || t('calendar.untitled')}</span>{timeLabel && <strong style={eventCardTime}>{timeLabel}</strong>}</span>
+                : <><span style={titleVisible ? eventCardTitle : { ...eventCardTitle, visibility: 'hidden' }}>{event.summary || t('calendar.untitled')}</span>{timeLabel && <strong style={timedCard ? eventCardTimedTime : eventCardTime}>{timeLabel}</strong>}</>}</button>
             {resizable && !segment?.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, eventLastInclusiveDay, dayFromKey(startKey)); }} />}
             {resizable && !segment?.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end" style={{ left: 'auto', right: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, dayFromKey(startKey), eventLastInclusiveDay); }} />}
           </div>;
@@ -1882,7 +1927,7 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
                   onContextMenu={keyboardEvent => { keyboardEvent.preventDefault(); showMenu(event, keyboardEvent); }}
                   onKeyDown={keyboardEvent => invokeMenu(event, keyboardEvent)}
                   title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')}
-                  style={{ ...allDayPill, position: 'relative', zIndex: 1, gridColumn: `${startIndex + 2} / ${endIndex + 2}`, gridRow: lane + 1, background: eventFill(event, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), color: eventInk(event.calendar_color), cursor: movable ? 'grab' : 'pointer', borderTopLeftRadius: continuesFrom ? 0 : 4, borderBottomLeftRadius: continuesFrom ? 0 : 4, borderTopRightRadius: continuesTo ? 0 : 4, borderBottomRightRadius: continuesTo ? 0 : 4 }}
+                  style={{ ...allDayPill, position: 'relative', zIndex: 1, gridColumn: `${startIndex + 2} / ${endIndex + 2}`, gridRow: lane + 1, background: eventFill(event, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), cursor: movable ? 'grab' : 'pointer', borderTopLeftRadius: continuesFrom ? 0 : 4, borderBottomLeftRadius: continuesFrom ? 0 : 4, borderTopRightRadius: continuesTo ? 0 : 4, borderBottomRightRadius: continuesTo ? 0 : 4 }}
                 >{movable && !continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-allday-resize-start" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); allDayResize.startResize(event, lastInclusiveDay, dayFromKey(startKey)); }} />}{event.summary || t('calendar.untitled')}{movable && !continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-allday-resize-end" style={{ left: 'auto', right: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); allDayResize.startResize(event, dayFromKey(startKey), lastInclusiveDay); }} />}</button>;
               })}
               {/* The real pill above is `position: relative` (so its own z-index takes effect),
@@ -1892,8 +1937,8 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
                   rendering on top of the preview (not) the whole time a drag overlapped both.
                   Explicit `position: relative` plus a higher z-index than the real pill's fixes
                   it for both reasons at once, rather than relying on DOM order alone. */}
-              {movePreview && <div aria-hidden="true" data-testid="calendar-allday-move-preview" style={{ ...allDayPill, position: 'relative', zIndex: 2, gridColumn: `${movePreview.startIndex + 2} / ${movePreview.endIndex + 2}`, gridRow: movePreview.lane + 1, background: eventTint(movePreview.color), color: eventInk(movePreview.color), pointerEvents: 'none' }}>{movePreview.summary || t('calendar.untitled')}</div>}
-              {resizePreview && <div aria-hidden="true" data-testid="calendar-allday-resize-preview" style={{ ...allDayPill, position: 'relative', zIndex: 2, gridColumn: `${resizePreview.startIndex + 2} / ${resizePreview.endIndex + 2}`, gridRow: resizePreview.lane + 1, background: eventTint(resizePreview.color), color: eventInk(resizePreview.color), pointerEvents: 'none' }}>{resizePreview.summary || t('calendar.untitled')}</div>}
+              {movePreview && <div aria-hidden="true" data-testid="calendar-allday-move-preview" style={{ ...allDayPill, position: 'relative', zIndex: 2, gridColumn: `${movePreview.startIndex + 2} / ${movePreview.endIndex + 2}`, gridRow: movePreview.lane + 1, background: eventTint(movePreview.color), pointerEvents: 'none' }}>{movePreview.summary || t('calendar.untitled')}</div>}
+              {resizePreview && <div aria-hidden="true" data-testid="calendar-allday-resize-preview" style={{ ...allDayPill, position: 'relative', zIndex: 2, gridColumn: `${resizePreview.startIndex + 2} / ${resizePreview.endIndex + 2}`, gridRow: resizePreview.lane + 1, background: eventTint(resizePreview.color), pointerEvents: 'none' }}>{resizePreview.summary || t('calendar.untitled')}</div>}
             </div>;
           })()}
         </div>
@@ -1952,7 +1997,7 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
               const resizeHere = resizePreview && dayPreviewSegment(day, resizePreview.start, resizePreview.end);
               const moveHereLayout = moveHere && moveLayoutEvent ? layoutTimedEvents([...dayEvents.filter(candidate => String(candidate.id) !== String(moveLayoutEvent.id)), moveLayoutEvent], day).find(item => String(item.event.id) === String(moveLayoutEvent.id)) : null;
               const resizeHereLayout = resizeHere && resizeLayoutEvent ? layoutTimedEvents([...dayEvents.filter(candidate => String(candidate.id) !== String(resizeLayoutEvent.id)), resizeLayoutEvent], day).find(item => String(item.event.id) === String(resizeLayoutEvent.id)) : null;
-              return <div key={day.toDateString()} data-hour-column="true" onDoubleClick={event => openTimedCreate(day, event)} onMouseDown={event => hourDrag.startDrag(day, event)} onMouseEnter={() => { hourDrag.enterDay(day); eventDrag.enterDay(day); eventResize.enterDay(day); }} style={{ ...timeColumn, height: 1440 + TOP_PADDING, backgroundPosition: `0 ${TOP_PADDING}px`, ...(isWeekend(day) ? weekendColumn : {}) }}>{Array.from({ length: 24 }, (_, hour) => <i key={hour} style={{ top: hour * 60 + TOP_PADDING }} />)}<div aria-label={`${t('calendar.workHoursStart', 'Working hours start')} ${calendarWorkHoursStart} – ${t('calendar.workHoursEnd', 'Working hours end')} ${calendarWorkHoursEnd}`} data-testid="calendar-work-hours-boundary" style={{ ...workHoursBoundary, ...(isToday(day) ? workHoursBoundaryToday : {}), top: workHours.start + TOP_PADDING, height: Math.max(0, workHours.end - workHours.start) }} />{isToday(day) && <div aria-hidden="true" style={{ ...nowLine, top: nowMinutes() + TOP_PADDING }}><span style={nowLineDot} /></div>}{dragRange && <div aria-hidden="true" data-testid="calendar-time-drag-preview" style={{ ...timeDragPreview, top: dragRange.start + TOP_PADDING, height: Math.max(18, dragRange.end - dragRange.start) }} />}{moveHere && movePreview && <div aria-hidden="true" data-testid="calendar-event-move-preview" style={{ ...timedEvent, position: 'absolute', left: `calc(${(moveHereLayout?.column ?? 0) * 100 / (moveHereLayout?.columns ?? 1)}% + 3px)`, width: `calc(${100 / (moveHereLayout?.columns ?? 1)}% - 6px)`, zIndex: 3, top: moveHere.start + TOP_PADDING, height: Math.max(36, moveHere.end - moveHere.start), background: eventTint(movePreview.color, EVENT_OPACITY, true), color: eventInk(movePreview.color), borderLeft: `3px solid ${movePreview.color || 'var(--accent)'}`, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}><TimedEventBody event={{ summary: movePreview.summary, starts_at: movePreview.start, location: movePreview.location }} t={t} /></div>}{resizeHere && resizePreview && <div aria-hidden="true" data-testid="calendar-event-resize-preview" style={{ ...timedEvent, position: 'absolute', left: `calc(${(resizeHereLayout?.column ?? 0) * 100 / (resizeHereLayout?.columns ?? 1)}% + 3px)`, width: `calc(${100 / (resizeHereLayout?.columns ?? 1)}% - 6px)`, zIndex: 3, top: resizeHere.start + TOP_PADDING, height: Math.max(36, resizeHere.end - resizeHere.start), background: eventTint(resizePreview.color, EVENT_OPACITY, true), color: eventInk(resizePreview.color), borderLeft: `3px solid ${resizePreview.color || 'var(--accent)'}`, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}><TimedEventBody event={{ summary: resizePreview.summary, starts_at: resizePreview.start, location: resizePreview.location }} t={t} /></div>}{timed.map(({ event, geometry, column, columns: count }) => {
+              return <div key={day.toDateString()} data-hour-column="true" onDoubleClick={event => openTimedCreate(day, event)} onMouseDown={event => hourDrag.startDrag(day, event)} onMouseEnter={() => { hourDrag.enterDay(day); eventDrag.enterDay(day); eventResize.enterDay(day); }} style={{ ...timeColumn, height: 1440 + TOP_PADDING, backgroundPosition: `0 ${TOP_PADDING}px`, ...(isWeekend(day) ? weekendColumn : {}) }}>{Array.from({ length: 24 }, (_, hour) => <i key={hour} style={{ top: hour * 60 + TOP_PADDING }} />)}<div aria-label={`${t('calendar.workHoursStart', 'Working hours start')} ${calendarWorkHoursStart} – ${t('calendar.workHoursEnd', 'Working hours end')} ${calendarWorkHoursEnd}`} data-testid="calendar-work-hours-boundary" style={{ ...workHoursBoundary, ...(isToday(day) ? workHoursBoundaryToday : {}), top: workHours.start + TOP_PADDING, height: Math.max(0, workHours.end - workHours.start) }} />{isToday(day) && <div aria-hidden="true" style={{ ...nowLine, top: nowMinutes() + TOP_PADDING }}><span style={nowLineDot} /></div>}{dragRange && <div aria-hidden="true" data-testid="calendar-time-drag-preview" style={{ ...timeDragPreview, top: dragRange.start + TOP_PADDING, height: Math.max(18, dragRange.end - dragRange.start) }} />}{moveHere && movePreview && <div aria-hidden="true" data-testid="calendar-event-move-preview" style={{ ...timedEvent, position: 'absolute', left: `calc(${(moveHereLayout?.column ?? 0) * 100 / (moveHereLayout?.columns ?? 1)}% + 3px)`, width: `calc(${100 / (moveHereLayout?.columns ?? 1)}% - 6px)`, zIndex: 3, top: moveHere.start + TOP_PADDING, height: Math.max(36, moveHere.end - moveHere.start), background: eventTint(movePreview.color, EVENT_GLASS_OPACITY, true), color: eventInk(movePreview.color), borderLeft: `3px solid ${movePreview.color || 'var(--accent)'}`, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}><TimedEventBody event={{ summary: movePreview.summary, starts_at: movePreview.start, location: movePreview.location }} t={t} /></div>}{resizeHere && resizePreview && <div aria-hidden="true" data-testid="calendar-event-resize-preview" style={{ ...timedEvent, position: 'absolute', left: `calc(${(resizeHereLayout?.column ?? 0) * 100 / (resizeHereLayout?.columns ?? 1)}% + 3px)`, width: `calc(${100 / (resizeHereLayout?.columns ?? 1)}% - 6px)`, zIndex: 3, top: resizeHere.start + TOP_PADDING, height: Math.max(36, resizeHere.end - resizeHere.start), background: eventTint(resizePreview.color, EVENT_GLASS_OPACITY, true), color: eventInk(resizePreview.color), borderLeft: `3px solid ${resizePreview.color || 'var(--accent)'}`, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}><TimedEventBody event={{ summary: resizePreview.summary, starts_at: resizePreview.start, location: resizePreview.location }} t={t} /></div>}{timed.map(({ event, geometry, column, columns: count }) => {
                 const movable = !event.read_only && isWritableCalendarSource(event.source);
                 // Reads the filtered `moving`/`resizing` above (zero-movement filtered out for
                 // `moving`), not the hooks' raw state directly — the raw `eventDrag.moving` is
@@ -1960,7 +2005,7 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
                 // any actual drag movement happened.
                 const beingMoved = moving != null && String(moving.event.id) === String(event.id);
                 const beingResized = resizing != null && String(resizing.event.id) === String(event.id);
-                return <div key={event.id} style={{ ...timedEvent, top: geometry.start + TOP_PADDING, height: Math.max(36, geometry.end - geometry.start), left: `calc(${column * 100 / count}% + 3px)`, width: `calc(${100 / count}% - 6px)`, padding: 0, display: 'flex', overflow: 'visible' }}><button className="cal-ev" onMouseDown={mouseDownEvent => { if (movable) { mouseDownEvent.stopPropagation(); eventDrag.startMove(event, day, mouseDownEvent); } }} onDoubleClick={doubleClickEvent => { doubleClickEvent.stopPropagation(); openEdit(event); }} onContextMenu={keyboardEvent => { keyboardEvent.preventDefault(); showMenu(event, keyboardEvent); }} onKeyDown={keyboardEvent => invokeMenu(event, keyboardEvent)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...timedEvent, position: 'absolute', inset: 0, width: '100%', height: '100%', background: eventFill(event, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY, true), color: eventInk(event.calendar_color), borderLeft: `3px solid ${event.calendar_color || 'var(--accent)'}`, cursor: movable ? 'grab' : 'default', display: 'flex', flexDirection: 'column' }}>{movable && <div className="calendar-event-resize-handle" data-testid="calendar-event-resize-top" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); eventResize.startResize(event, 'start', new Date(event.ends_at ?? 0), day, mouseDownEvent); }} />}<TimedEventBody event={event} t={t} />{movable && <div className="calendar-event-resize-handle" data-testid="calendar-event-resize-bottom" style={{ top: 'auto', bottom: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); eventResize.startResize(event, 'end', new Date(event.starts_at ?? 0), day, mouseDownEvent); }} />}</button></div>;
+                return <div key={event.id} style={{ ...timedEvent, top: geometry.start + TOP_PADDING, height: Math.max(36, geometry.end - geometry.start), left: `calc(${column * 100 / count}% + 3px)`, width: `calc(${100 / count}% - 6px)`, padding: 0, display: 'flex', overflow: 'visible' }}><button className="cal-ev" onMouseDown={mouseDownEvent => { if (movable) { mouseDownEvent.stopPropagation(); eventDrag.startMove(event, day, mouseDownEvent); } }} onDoubleClick={doubleClickEvent => { doubleClickEvent.stopPropagation(); openEdit(event); }} onContextMenu={keyboardEvent => { keyboardEvent.preventDefault(); showMenu(event, keyboardEvent); }} onKeyDown={keyboardEvent => invokeMenu(event, keyboardEvent)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...timedEvent, position: 'absolute', inset: 0, width: '100%', height: '100%', background: eventFill(event, beingMoved || beingResized ? EVENT_GLASS_DIM_RATIO : EVENT_GLASS_OPACITY, true), color: eventInk(event.calendar_color), borderLeft: `3px solid ${event.calendar_color || 'var(--accent)'}`, cursor: movable ? 'grab' : 'default', display: 'flex', flexDirection: 'column' }}>{movable && <div className="calendar-event-resize-handle" data-testid="calendar-event-resize-top" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); eventResize.startResize(event, 'start', new Date(event.ends_at ?? 0), day, mouseDownEvent); }} />}<TimedEventBody event={event} t={t} />{movable && <div className="calendar-event-resize-handle" data-testid="calendar-event-resize-bottom" style={{ top: 'auto', bottom: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); eventResize.startResize(event, 'end', new Date(event.starts_at ?? 0), day, mouseDownEvent); }} />}</button></div>;
               })}</div>;
             });
           })()}

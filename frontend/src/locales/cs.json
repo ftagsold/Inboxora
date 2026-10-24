@@ -1991,7 +1991,8 @@
     "invitationNotifyYes": "Odeslat odpověď",
     "invitationNotifyNo": "Neodesílat",
     "yourReply": "Vaše odpověď",
-    "localCalendars": "Místní"
+    "localCalendars": "Místní",
+    "endsAt": "Končí v {{time}}"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

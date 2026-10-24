@@ -1991,7 +1991,8 @@
     "invitationNotifyYes": "Envoyer la réponse",
     "invitationNotifyNo": "Ne pas envoyer",
     "yourReply": "Votre réponse",
-    "localCalendars": "Local"
+    "localCalendars": "Local",
+    "endsAt": "Se termine à {{time}}"
   },
   "mailFolders": {
     "inbox": "Boîte de réception",
