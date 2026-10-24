@@ -943,15 +943,17 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
               <div
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  padding: sidebarCollapsed ? '8px' : '7px 10px 7px 12px',
+                  // Collapsed, the indicator below is the whole button: the same 38px-tall,
+                  // full-width box as the compose button above, so the row paints nothing itself.
+                  padding: sidebarCollapsed ? '4px 0' : '7px 10px 7px 12px',
                   borderRadius: 7, cursor: 'pointer',
-                  background: isSelected && selectedFolder === 'INBOX'
+                  background: !sidebarCollapsed && isSelected && selectedFolder === 'INBOX'
                     ? 'var(--bg-hover)' : 'transparent',
                   transition: 'background 0.1s',
                   justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                 }}
                 onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => {
-                  if (!(isSelected && selectedFolder === 'INBOX'))
+                  if (!sidebarCollapsed && !(isSelected && selectedFolder === 'INBOX'))
                     e.currentTarget.style.background = 'var(--bg-tertiary)';
                 }}
                 onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => {
@@ -969,8 +971,8 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                 {/* Account indicator */}
                 {sidebarCollapsed ? (
                   <div style={{
-                    width: 28, height: 28, borderRadius: 7,
-                    background: account.color + '22',
+                    width: '100%', height: 38, boxSizing: 'border-box', borderRadius: 8,
+                    background: account.color + (isSelected ? '44' : '22'),
                     border: `1px solid ${account.color}66`,
                     flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
