@@ -1988,7 +1988,8 @@
     "invitationNotifyTitle": "Rispondere all'organizzatore?",
     "invitationNotifyBody": "La tua risposta «{{answer}}» viene salvata nel calendario. Avvisare l'organizzatore?",
     "invitationNotifyYes": "Invia risposta",
-    "invitationNotifyNo": "Non inviare"
+    "invitationNotifyNo": "Non inviare",
+    "yourReply": "La tua risposta"
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",

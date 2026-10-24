@@ -404,6 +404,8 @@ body, #root {
   transition: filter var(--motion-fast) var(--ease-standard);
 }
 .calendar-page .cal-ev:hover { filter: brightness(1.08); }
+/* A month-view timed event has no fill of its own (just its color bar), so hover shades the row. */
+.calendar-page .cal-ev[data-timed]:hover { background: var(--bg-hover) !important; }
 /* No `:active` press-scale here (unlike `.cal-btn` above) — every calendar event is a drag
    target, and `:active` applies for the whole time the mouse stays down on it, which is also
    exactly when a drag is in progress. A multi-day event's day cells each render their own

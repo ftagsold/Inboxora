@@ -879,8 +879,9 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
         </button>
       </div>
 
-      {/* Compose button */}
-      <div style={{ padding: '12px 10px' }}>
+      {/* Compose button — same 8px side inset as the nav below, and the 12px gap under it
+          matches the one above, so the button and the account rows line up evenly. */}
+      <div style={{ padding: '12px 8px' }}>
         <button
           onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
           className="btn-press"
@@ -901,7 +902,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px' }}>
+      <nav style={{ flex: 1, overflow: 'hidden auto', padding: '0 8px 4px' }}>
         {/* Unified Inbox — only shown with 2+ enabled accounts */}
         {accounts.filter(a => a.enabled).length >= 2 && (
           <NavItem

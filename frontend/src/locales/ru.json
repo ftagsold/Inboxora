@@ -1988,7 +1988,8 @@
     "invitationNotifyTitle": "Ответить организатору?",
     "invitationNotifyBody": "Ваш ответ «{{answer}}» сохранён в календаре. Сообщить организатору?",
     "invitationNotifyYes": "Отправить ответ",
-    "invitationNotifyNo": "Не отправлять"
+    "invitationNotifyNo": "Не отправлять",
+    "yourReply": "Ваш ответ"
   },
   "mailFolders": {
     "inbox": "Входящие",

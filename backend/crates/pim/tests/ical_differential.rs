@@ -98,7 +98,17 @@ fn projections_match_node() {
                 let mut m = Map::new();
                 m.insert(
                     "events".into(),
-                    Value::Array(s.events.iter().map(|e| Value::Object(e.fields.clone())).collect()),
+                    // `partstats` is Rust-only (the user's own reply styling); the Node fixture predates it.
+                    Value::Array(
+                        s.events
+                            .iter()
+                            .map(|e| {
+                                let mut f = e.fields.clone();
+                                f.shift_remove("partstats");
+                                Value::Object(f)
+                            })
+                            .collect(),
+                    ),
                 );
                 m.insert("truncated".into(), json!(s.truncated));
                 m.insert("reason".into(), json!(s.reason));

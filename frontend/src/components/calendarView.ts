@@ -476,6 +476,14 @@ export function layoutTimedEvents(events: CalendarViewEvent[] | null | undefined
   });
 }
 
+/** Copies the user's own invitation answer — the `partstats` entry for any of their addresses — onto `my_partstat`. */
+export function withOwnReply<T extends CalendarViewEvent>(event: T, ownAddresses: Set<string>): T {
+  const partstats = event.partstats;
+  if (!partstats || typeof partstats !== 'object') return event;
+  const mine = Object.entries(partstats as Record<string, unknown>).find(([email]) => ownAddresses.has(email.toLowerCase()));
+  return mine ? { ...event, my_partstat: String(mine[1]) } : event;
+}
+
 export function workHoursGeometry(start = '09:00', end = '17:00') {
   const toMinutes = (value: unknown): number => {
     const [hours, minutes] = String(value || '').split(':').map(Number);

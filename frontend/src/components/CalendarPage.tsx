@@ -13,7 +13,7 @@ import type { CalendarViewEvent, CalendarEventForm } from './calendarView.ts';
 import { api, isAbortError } from '../utils/api.ts';
 import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
-import { allDayEventSegment, allDaySpanDays, calendarVisibleRange, centeredScrollLeft, createDayEventsResolver, eventPayload, isWritableCalendarSource, layoutTimedEvents, layoutWeekAllDayEvents, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekFocusIndex, weekRange, workHoursGeometry } from './calendarView.ts';
+import { allDayEventSegment, allDaySpanDays, calendarVisibleRange, centeredScrollLeft, createDayEventsResolver, eventPayload, withOwnReply, isWritableCalendarSource, layoutTimedEvents, layoutWeekAllDayEvents, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekFocusIndex, weekRange, workHoursGeometry } from './calendarView.ts';
 import CalendarSidebar from './CalendarSidebar.tsx';
 import CalendarDeleteScopeDialog from './CalendarDeleteScopeDialog.tsx';
 import CalendarEditScopeDialog from './CalendarEditScopeDialog.tsx';
@@ -49,6 +49,8 @@ interface CalendarFormEvent extends CalendarViewEvent {
   invite_account_id?: string | null;
   invite_hide_attendees?: boolean | null;
   source_message_id?: string | null;
+  /** The user's own answer to an invitation (ACCEPTED / TENTATIVE / DECLINED / NEEDS-ACTION). */
+  my_partstat?: string | null;
 }
 
 /** The identity of the event (or occurrence) a delete acts on. */
@@ -75,7 +77,7 @@ const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => 
 const AGENDA_HIDDEN_STORAGE_KEY = 'mailflow_calendar_agenda_hidden';
 // Every rendered event — month-view card, all-day pill, timed block, and their move/resize
 // ghost previews — blends slightly with what's behind it rather than sitting fully opaque.
-const EVENT_OPACITY = 0.68;
+const EVENT_OPACITY = 0.55;
 // A real CSS `opacity` blends each element independently with whatever sits *directly* behind
 // it — for one segment of a multi-day event that's a solid cell background, but the month
 // grid draws its cell borders as a 1px gap with the border color showing through underneath
@@ -96,6 +98,14 @@ function eventTint(color: string | null | undefined, ratio: number = EVENT_OPACI
 // the same `color-mix()` approach — still opaque, just paler — dims it the same way without
 // ever making anything underneath show through.
 const EVENT_DIM_RATIO = 0.28;
+// An invitation the user answered "maybe" to is drawn striped — the event's own tint
+// alternating with a paler band — so a tentative slot reads as not-quite-committed.
+// Still opaque (both bands are pre-blended like eventTint), for the same seam reason.
+function eventFill(event: { calendar_color?: string | null; my_partstat?: unknown }, ratio: number = EVENT_OPACITY): string {
+  const base = eventTint(event.calendar_color, ratio);
+  if (event.my_partstat !== 'TENTATIVE') return base;
+  return `repeating-linear-gradient(135deg, ${base} 0 6px, ${eventTint(event.calendar_color, ratio * 0.45)} 6px 12px)`;
+}
 function iso(date: Date) { return date.toISOString(); }
 // A drag/resize computes its new day boundaries as local-midnight Date objects (`new Date(y,
 // m, d)`), so reading them back has to use the same local components — `date.toISOString()`
@@ -391,12 +401,13 @@ export default function CalendarPage({ isActive = true }) {
   // double-click passes only `date`, unchanged from before. When the two differ,
   // the draft opens as an all-day event spanning the dragged days (the all-day
   // date range is exclusive at the end, so the stored end is one day past `endDate`).
-  const openCreate = (date = anchor, endDate = date) => {
+  // `allDay` opens even a single day as an all-day draft (double-click on a month cell).
+  const openCreate = (date = anchor, endDate = date, allDay = false) => {
     if (!writable.length) return;
     invitation.reset();
     setEditScope(null); setEditScopeOpen(false);
     const base = emptyForm(writable[0]?.id || '', date, defaultInviteAccountId);
-    const draft = endDate.getTime() === date.getTime() ? base : (() => {
+    const draft = endDate.getTime() === date.getTime() && !allDay ? base : (() => {
       const exclusiveEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() + 1);
       const allDayTimes = toggleAllDayTimes({ ...base, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(exclusiveEnd) }, true);
       return { ...base, allDay: true, startsAt: String(allDayTimes.startsAt ?? base.startsAt), endsAt: String(allDayTimes.endsAt ?? base.endsAt) };
@@ -553,6 +564,19 @@ export default function CalendarPage({ isActive = true }) {
     setSaving(true);
     try { await performDelete(target, 'all'); } finally { setSaving(false); }
   };
+  // Changing the answer to an invitation already in the calendar — the same reply the mail's
+  // invitation card sends. Declining removes the local copy, so the dialog closes either way.
+  const respondToInvitation = async (response: 'ACCEPTED' | 'TENTATIVE' | 'DECLINED', notify: boolean) => {
+    if (!form || typeof form.source_message_id !== 'string') return;
+    setSaving(true); setError(null);
+    try {
+      await api.calendar.respondInvitation(form.source_message_id, response, form.calendarId || undefined, notify);
+      setForm(null);
+      await load();
+    } catch (err) {
+      setError(toAppError(err).message || t('calendar.saveFailed'));
+    } finally { setSaving(false); }
+  };
   const changeForm = (key: string, value: unknown) => { invitation.reset(); setForm(current => (current ? { ...current, [key]: value, invitationError: null } : current)); };
   const deleteEvent = async (event: CalendarViewEvent) => {
     const id = event.series_id || event.id;
@@ -583,7 +607,11 @@ export default function CalendarPage({ isActive = true }) {
   interactionOpen.current = Boolean(form || editScopeOpen || deleteTarget || saving);
   const [contextMenu, setContextMenu] = useState<{ event: CalendarViewEvent; x: number; y: number; triggerRef: { current: unknown } } | null>(null);
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn, calendarWorkDays);
-  const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => typeof event.calendar_id === 'string' && visibleCalendarIds.includes(event.calendar_id));
+  // The user's own answer to an invitation, found by matching any of their account addresses
+  // among the event's attendee answers — drives the tentative stripes and the dialog's reply row.
+  const ownAddresses = new Set(accounts.map(account => String(account.email_address || '').toLowerCase()).filter(Boolean));
+  const visibleEvents = (visibleCalendarIds == null ? events : events.filter(event => typeof event.calendar_id === 'string' && visibleCalendarIds.includes(event.calendar_id)))
+    .map(event => withOwnReply(event, ownAddresses));
   // One parse-and-bucket pass per event list, reused by every day cell and every
   // render, instead of re-filtering and re-sorting the whole array per day.
   const dayEventsFor = useMemo(() => createDayEventsResolver(visibleEvents), [visibleEvents]);
@@ -691,7 +719,7 @@ export default function CalendarPage({ isActive = true }) {
     {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-sheet">
       <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} />
     </Dialog>}
-    {form && <EventDialog attendeeStatuses={attendeeStatuses} form={form} error={error} calendars={formReadOnly ? calendars : writable} accounts={senderAccounts} saving={saving} readOnly={formReadOnly} onOpenSourceMessage={openSourceMessage} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={requestSave} onDelete={remove} onClose={() => { invitation.reset(); setEditScope(null); setEditScopeOpen(false); setForm(null); setError(null); }} t={t} />}
+    {form && <EventDialog attendeeStatuses={attendeeStatuses} form={form} error={error} calendars={formReadOnly ? calendars : writable} accounts={senderAccounts} saving={saving} readOnly={formReadOnly} onOpenSourceMessage={openSourceMessage} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={requestSave} onDelete={remove} onRespond={respondToInvitation} onClose={() => { invitation.reset(); setEditScope(null); setEditScopeOpen(false); setForm(null); setError(null); }} t={t} />}
     {editScopeOpen && <CalendarEditScopeDialog busy={saving} onSelect={chooseEditScope} onClose={() => setEditScopeOpen(false)} t={t} />}
     {pendingMove && <CalendarEditScopeDialog onSelect={choosePendingMoveScope} onClose={() => { setPendingMove(null); resolvePendingMove(); }} t={t} />}
     {contextMenu && <CalendarContextMenu {...contextMenu} isMobile={isMobile} onEdit={() => openEdit(contextMenu.event)} onDelete={() => deleteEvent(contextMenu.event)} onClose={() => setContextMenu(null)} t={t} />}
@@ -710,7 +738,7 @@ interface CalendarGridProps {
   onSelectDay: (day: Date) => void;
   // Only used by the month grid's "+N more" chip — TimeGrid has no equivalent cap to open from.
   onOpenDayAgenda?: (day: Date) => void;
-  openCreate: (date?: Date, endDate?: Date) => void;
+  openCreate: (date?: Date, endDate?: Date, allDay?: boolean) => void;
   openTimedRangeCreate: (start: Date, end: Date) => void;
   moveEvent: (event: CalendarFormEvent, start: Date, end: Date) => void | Promise<void>;
   openEdit: (event: CalendarViewEvent) => void;
@@ -732,6 +760,7 @@ interface EventDialogProps {
   // viewing and editing instead of a separate read-only preview.
   readOnly: boolean;
   onOpenSourceMessage?: () => void;
+  onRespond?: (response: 'ACCEPTED' | 'TENTATIVE' | 'DECLINED', notify: boolean) => void;
   onChange: (field: string, value: unknown) => void;
   onAllDayChange: (allDay: boolean) => void;
   onSave: () => void;
@@ -1567,6 +1596,7 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
           // yet (see its `previewTouchesWeek` fallback above), so the growing bar still lands on
           // the same row across every day it comes to cover.
           const resizable = Boolean(segmentRaw) && movable;
+          const timedCard = !segmentRaw;
           const titleVisible = !segment?.continuesFrom;
           // Hovering any one segment of a multi-day event highlights every one of its segments
           // (see `hoveredEventId` above) — single-day events already get the same effect for
@@ -1582,7 +1612,7 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
           // covering the cell's own padding *and* that gap — not just the padding — or a 1px
           // seam remains between two segments of one event.
           return <div key={event.id} data-testid={spanning ? 'calendar-month-span' : undefined} style={{ ...eventRow, position: 'relative', zIndex: spanning ? 1 : undefined, marginLeft: segment?.continuesFrom ? -7 : 0, marginRight: segment?.continuesTo ? -7 : 0 }}>
-            <button className="cal-ev" onMouseDown={mouseDownEvent => { if (movable) { mouseDownEvent.stopPropagation(); monthEventDrag.startMove(event, day, mouseDownEvent); } }} onDoubleClick={() => openEdit(event)} onContextMenu={event => { event.preventDefault(); showMenu(event); }} onKeyDown={invokeMenu} onMouseEnter={() => setHoveredEventId(String(event.id))} onMouseLeave={() => setHoveredEventId(current => current === String(event.id) ? null : current)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...eventCard, background: eventTint(event.calendar_color, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), cursor: movable ? 'grab' : 'pointer', filter: highlighted ? 'brightness(1.18)' : undefined,
+            <button className="cal-ev" data-timed={timedCard || undefined} onMouseDown={mouseDownEvent => { if (movable) { mouseDownEvent.stopPropagation(); monthEventDrag.startMove(event, day, mouseDownEvent); } }} onDoubleClick={() => openEdit(event)} onContextMenu={event => { event.preventDefault(); showMenu(event); }} onKeyDown={invokeMenu} onMouseEnter={() => setHoveredEventId(String(event.id))} onMouseLeave={() => setHoveredEventId(current => current === String(event.id) ? null : current)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...eventCard, ...(timedCard ? eventCardTimed : {}), background: timedCard ? 'transparent' : eventFill(event, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), opacity: timedCard && (beingMoved || beingResized) ? 0.45 : 1, cursor: movable ? 'grab' : 'pointer', filter: highlighted ? 'brightness(1.18)' : undefined,
               // `borderRadius` (the shorthand key) above always sets a value for every corner —
               // these longhands must too, unconditionally, even when nothing needs to differ
               // from the shorthand's own 4px. The same CSSOM corruption this file already
@@ -1601,7 +1631,8 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
                 the first, letting that day's other events overlap into where it should sit.
                 The title comes first and shrinks (ellipsis) so the time — fixed width, never
                 shrinks — always stays fully visible at the end of the line instead of getting
-                clipped along with an overly long title. */}<span style={titleVisible ? eventCardTitle : { ...eventCardTitle, visibility: 'hidden' }}>{event.summary || t('calendar.untitled')}</span>{!(event.all_day || event.allDay) && <strong style={eventCardTime}>{eventTime(event)}</strong>}</button>
+                clipped along with an overly long title. A timed event has no fill (month view has no
+                time axis to give it a block) — just its calendar-colored bar ahead of the title. */}{timedCard && <span aria-hidden="true" style={{ ...eventCardBar, background: eventFill(event, 1) }} />}<span style={titleVisible ? eventCardTitle : { ...eventCardTitle, visibility: 'hidden' }}>{event.summary || t('calendar.untitled')}</span>{!(event.all_day || event.allDay) && <strong style={timedCard ? eventCardTimedTime : eventCardTime}>{eventTime(event)}</strong>}</button>
             {resizable && !segment?.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, eventLastInclusiveDay, dayFromKey(startKey)); }} />}
             {resizable && !segment?.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end" style={{ left: 'auto', right: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, dayFromKey(startKey), eventLastInclusiveDay); }} />}
           </div>;
@@ -1615,7 +1646,7 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
         // (startDrag records the anchor in a ref, doesn't publish anything until a real
         // extendDrag follows) already makes a mousedown that lands on a child — the date chip,
         // an event card without its own stopPropagation — harmless on its own.
-        return <section key={day.toDateString()} className="cal-cell" data-selected={day.toDateString() === anchor.toDateString()} onClick={event => { if (event.target === event.currentTarget) onSelectDay(day); }} onDoubleClick={event => { if (event.target === event.currentTarget) openCreate(day); }} onMouseDown={() => dayDrag.startDrag(day)} onMouseEnter={() => { dayDrag.extendDrag(day); monthEventDrag.enterDay(day); monthResize.enterDay(day); }} style={{ ...monthCell, ...(isWeekend(day) ? weekendCell : {}), ...(inMonth ? {} : outCell), ...(dayDrag.inRange(day) ? monthCellDragging : {}) }}>
+        return <section key={day.toDateString()} className="cal-cell" data-selected={day.toDateString() === anchor.toDateString()} onClick={event => { if (event.target === event.currentTarget) onSelectDay(day); }} onDoubleClick={event => { if (!(event.target as HTMLElement).closest('button, .calendar-event-resize-handle')) openCreate(day, day, true); }} onMouseDown={() => dayDrag.startDrag(day)} onMouseEnter={() => { dayDrag.extendDrag(day); monthEventDrag.enterDay(day); monthResize.enterDay(day); }} style={{ ...monthCell, ...(isWeekend(day) ? weekendCell : {}), ...(inMonth ? {} : outCell), ...(dayDrag.inRange(day) ? monthCellDragging : {}) }}>
           <button type="button" className="calendar-day-select" aria-label={day.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} aria-pressed={day.toDateString() === anchor.toDateString()} onClick={() => onSelectDay(day)} style={{ ...dateChip, ...(isToday(day) ? dateChipToday : {}) }}>{day.getDate()}</button>
           <div style={eventStack}>{visibleList.map((item, itemIndex) => {
             // A blank spacer for a lane skipped on this particular day (see laneRows above) —
@@ -1840,7 +1871,7 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
                   onContextMenu={keyboardEvent => { keyboardEvent.preventDefault(); showMenu(event, keyboardEvent); }}
                   onKeyDown={keyboardEvent => invokeMenu(event, keyboardEvent)}
                   title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')}
-                  style={{ ...allDayPill, position: 'relative', zIndex: 1, gridColumn: `${startIndex + 2} / ${endIndex + 2}`, gridRow: lane + 1, background: eventTint(event.calendar_color, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), cursor: movable ? 'grab' : 'pointer', borderTopLeftRadius: continuesFrom ? 0 : 4, borderBottomLeftRadius: continuesFrom ? 0 : 4, borderTopRightRadius: continuesTo ? 0 : 4, borderBottomRightRadius: continuesTo ? 0 : 4 }}
+                  style={{ ...allDayPill, position: 'relative', zIndex: 1, gridColumn: `${startIndex + 2} / ${endIndex + 2}`, gridRow: lane + 1, background: eventFill(event, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), cursor: movable ? 'grab' : 'pointer', borderTopLeftRadius: continuesFrom ? 0 : 4, borderBottomLeftRadius: continuesFrom ? 0 : 4, borderTopRightRadius: continuesTo ? 0 : 4, borderBottomRightRadius: continuesTo ? 0 : 4 }}
                 >{movable && !continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-allday-resize-start" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); allDayResize.startResize(event, lastInclusiveDay, dayFromKey(startKey)); }} />}{event.summary || t('calendar.untitled')}{movable && !continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-allday-resize-end" style={{ left: 'auto', right: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); allDayResize.startResize(event, dayFromKey(startKey), lastInclusiveDay); }} />}</button>;
               })}
               {/* The real pill above is `position: relative` (so its own z-index takes effect),
@@ -1918,7 +1949,7 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
                 // any actual drag movement happened.
                 const beingMoved = moving != null && String(moving.event.id) === String(event.id);
                 const beingResized = resizing != null && String(resizing.event.id) === String(event.id);
-                return <div key={event.id} style={{ ...timedEvent, top: geometry.start + TOP_PADDING, height: Math.max(36, geometry.end - geometry.start), left: `calc(${column * 100 / count}% + 3px)`, width: `calc(${100 / count}% - 6px)`, padding: 0, display: 'flex', overflow: 'visible' }}><button className="cal-ev" onMouseDown={mouseDownEvent => { if (movable) { mouseDownEvent.stopPropagation(); eventDrag.startMove(event, day, mouseDownEvent); } }} onDoubleClick={doubleClickEvent => { doubleClickEvent.stopPropagation(); openEdit(event); }} onContextMenu={keyboardEvent => { keyboardEvent.preventDefault(); showMenu(event, keyboardEvent); }} onKeyDown={keyboardEvent => invokeMenu(event, keyboardEvent)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...timedEvent, position: 'absolute', inset: 0, width: '100%', height: '100%', background: eventTint(event.calendar_color, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), cursor: movable ? 'grab' : 'default', display: 'flex', flexDirection: 'column' }}>{movable && <div className="calendar-event-resize-handle" data-testid="calendar-event-resize-top" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); eventResize.startResize(event, 'start', new Date(event.ends_at ?? 0), day, mouseDownEvent); }} />}<TimedEventBody event={event} t={t} />{movable && <div className="calendar-event-resize-handle" data-testid="calendar-event-resize-bottom" style={{ top: 'auto', bottom: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); eventResize.startResize(event, 'end', new Date(event.starts_at ?? 0), day, mouseDownEvent); }} />}</button></div>;
+                return <div key={event.id} style={{ ...timedEvent, top: geometry.start + TOP_PADDING, height: Math.max(36, geometry.end - geometry.start), left: `calc(${column * 100 / count}% + 3px)`, width: `calc(${100 / count}% - 6px)`, padding: 0, display: 'flex', overflow: 'visible' }}><button className="cal-ev" onMouseDown={mouseDownEvent => { if (movable) { mouseDownEvent.stopPropagation(); eventDrag.startMove(event, day, mouseDownEvent); } }} onDoubleClick={doubleClickEvent => { doubleClickEvent.stopPropagation(); openEdit(event); }} onContextMenu={keyboardEvent => { keyboardEvent.preventDefault(); showMenu(event, keyboardEvent); }} onKeyDown={keyboardEvent => invokeMenu(event, keyboardEvent)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...timedEvent, position: 'absolute', inset: 0, width: '100%', height: '100%', background: eventFill(event, beingMoved || beingResized ? EVENT_DIM_RATIO : EVENT_OPACITY), cursor: movable ? 'grab' : 'default', display: 'flex', flexDirection: 'column' }}>{movable && <div className="calendar-event-resize-handle" data-testid="calendar-event-resize-top" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); eventResize.startResize(event, 'start', new Date(event.ends_at ?? 0), day, mouseDownEvent); }} />}<TimedEventBody event={event} t={t} />{movable && <div className="calendar-event-resize-handle" data-testid="calendar-event-resize-bottom" style={{ top: 'auto', bottom: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); eventResize.startResize(event, 'end', new Date(event.starts_at ?? 0), day, mouseDownEvent); }} />}</button></div>;
               })}</div>;
             });
           })()}
@@ -1928,7 +1959,7 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   </div>;
 }
 
-function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpenSourceMessage, onChange, onAllDayChange, onSave, onDelete, onClose, t, fullScreen = false, attendeeStatuses }: EventDialogProps) {
+function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpenSourceMessage, onRespond, onChange, onAllDayChange, onSave, onDelete, onClose, t, fullScreen = false, attendeeStatuses }: EventDialogProps) {
   const [attendeeDraft, setAttendeeDraft] = useState('');
   const statusOf = (chip: string) => <AttendeeStatus status={attendeeStatuses?.get(chipAddress(chip).toLowerCase())} t={t} />;
   const setAttendees = (chips: string[]) => onChange('attendees', [...new Set(chips.map(chipAddress).filter(Boolean))]);
@@ -1941,6 +1972,12 @@ function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpe
   const sourceUrl = readOnly ? safeHttpUrl(typeof form.url === 'string' ? form.url : null) : null;
   const organizer = typeof form.organizer === 'string' ? form.organizer : '';
   const sourceMessageId = typeof form.source_message_id === 'string' ? form.source_message_id : null;
+  // An invitation imported from a mail can be re-answered here; the pending answer waits on
+  // whether to tell the organizer, like the mail's invitation card asks.
+  const [replying, setReplying] = useState<'ACCEPTED' | 'TENTATIVE' | 'DECLINED' | null>(null);
+  const canReply = form.mode === 'edit' && Boolean(form.inviteLocked && sourceMessageId && onRespond);
+  const myReply = typeof form.my_partstat === 'string' ? form.my_partstat : null;
+  const replyButton = (answer: 'ACCEPTED' | 'TENTATIVE' | 'DECLINED', label: string) => <Button data-testid={`calendar-event-reply-${answer.toLowerCase()}`} variant={myReply === answer ? 'primary' : 'default'} aria-pressed={myReply === answer} disabled={saving} onClick={() => setReplying(answer)}>{label}</Button>;
   return <Dialog title={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} closeLabel={t('calendar.close')} onClose={onClose} busy={saving} testId="calendar-event-dialog" className={fullScreen ? 'calendar-event-dialog-full ui-fullscreen' : ''} footer={readOnly ? <>
     {/* No separate "Close" button here — the dialog's own × already closes it,
         exactly like the read-only preview this replaced never had one either. */}
@@ -1953,6 +1990,21 @@ function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpe
     <div className="ui-form">
       {error && <div role="alert" className="ui-alert">{error}</div>}
       {readOnly && <span className="calendar-readonly">{t('calendar.readOnly')}</span>}
+      {canReply && <div className="calendar-invites" data-testid="calendar-event-reply">
+        <span className="calendar-description-label">{t('calendar.yourReply')}</span>
+        {replying
+          ? <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <span style={{ marginRight: 'auto' }}>{t('calendar.invitationNotifyTitle')}</span>
+            <Button disabled={saving} onClick={() => setReplying(null)}>{t('common.cancel')}</Button>
+            <Button disabled={saving} data-testid="calendar-event-reply-notify-no" onClick={() => onRespond?.(replying, false)}>{t('calendar.invitationNotifyNo')}</Button>
+            <Button variant="primary" disabled={saving} data-testid="calendar-event-reply-notify-yes" onClick={() => onRespond?.(replying, true)}>{saving ? t('calendar.saving') : t('calendar.invitationNotifyYes')}</Button>
+          </div>
+          : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {replyButton('ACCEPTED', t('calendar.invitationAccept'))}
+            {replyButton('TENTATIVE', t('calendar.invitationTentative'))}
+            {replyButton('DECLINED', t('calendar.invitationDecline'))}
+          </div>}
+      </div>}
       <label>{t('calendar.titleField')}<input autoFocus={!readOnly} disabled={locked} value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label>
       <label className="ui-check"><input type="checkbox" disabled={locked} checked={form.allDay} onChange={e => onAllDayChange(e.target.checked)} />{t('calendar.allDay')}</label>
       <div className="ui-form-columns"><label>{t('calendar.starts')}<input disabled={locked} type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>{t('calendar.ends')}<input disabled={locked} type={form.allDay ? 'date' : 'datetime-local'} min={form.allDay ? form.startsAt : undefined} value={form.allDay ? shiftDateKey(form.endsAt, -1) : form.endsAt} onChange={e => onChange('endsAt', form.allDay ? shiftDateKey(e.target.value, 1) : e.target.value)} /></label></div>
@@ -2001,7 +2053,7 @@ function EventDialog({ form, error, calendars, accounts, saving, readOnly, onOpe
 // background was gone entirely, and the grid's own gap color showing through read as a leftover
 // tint. Using the same key for both avoids ever having two different background properties fight
 // over the same element.
-const monthCellDragging: CSSProperties = { background: 'color-mix(in srgb, var(--accent) 16%, var(--bg-primary))' }; const dateChip: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }; const dateChipToday: CSSProperties = { background: 'var(--accent)', color: 'var(--accent-text)', fontWeight: 600 }; const eventStack: CSSProperties = { display: 'grid', minWidth: 0, gap: 2 }; const eventRow: CSSProperties = { display: 'flex', minWidth: 0, gap: 2 }; const eventCard: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 4, minWidth: 0, flex: 1, width: '100%', textAlign: 'left', border: 0, borderRadius: 4, padding: '2px 6px', color: 'white', fontSize: 11, fontWeight: 700, lineHeight: 1.5 }; const eventCardTitle: CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }; const eventCardTime: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, fontWeight: 400, opacity: .85, flexShrink: 0 };
+const monthCellDragging: CSSProperties = { background: 'color-mix(in srgb, var(--accent) 16%, var(--bg-primary))' }; const dateChip: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }; const dateChipToday: CSSProperties = { background: 'var(--accent)', color: 'var(--accent-text)', fontWeight: 600 }; const eventStack: CSSProperties = { display: 'grid', minWidth: 0, gap: 2 }; const eventRow: CSSProperties = { display: 'flex', minWidth: 0, gap: 2 }; const eventCard: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 4, minWidth: 0, flex: 1, width: '100%', textAlign: 'left', border: 0, borderRadius: 4, padding: '2px 6px', color: 'white', fontSize: 11, fontWeight: 700, lineHeight: 1.5 }; const eventCardTitle: CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }; const eventCardTimed: CSSProperties = { alignItems: 'center', gap: 6, color: 'var(--text-primary)', fontWeight: 500, paddingLeft: 2 }; const eventCardTimedTime: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, fontWeight: 400, color: 'var(--text-secondary)', flexShrink: 0 }; const eventCardBar: CSSProperties = { width: 4, alignSelf: 'stretch', minHeight: 12, borderRadius: 2, flexShrink: 0 }; const eventCardTime: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, fontWeight: 400, opacity: .85, flexShrink: 0 };
 const timeAxisHeader: CSSProperties = { borderRight: '1px solid var(--border-subtle)' }; const timeAxis: CSSProperties = { position: 'relative', height: 1440, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontSize: 10 }; const timeAxisSpan: CSSProperties = { position: 'absolute', right: 8, transform: 'translateY(-50%)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, color: 'var(--text-tertiary)' }; const timeColumn: CSSProperties = { position: 'relative', height: 1440, background: 'var(--bg-primary)', borderRight: '1px solid var(--border-subtle)', backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0, transparent 59px, var(--border-subtle) 59px, var(--border-subtle) 60px)' }; // `background`, not `backgroundColor` — merged onto `timeColumn` above, which already sets a
 // `background` of its own; see `monthCellDragging`'s comment for why mixing the two keys on the
 // same element is fragile even when (as here) it isn't currently observable.

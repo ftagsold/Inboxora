@@ -1988,7 +1988,8 @@
     "invitationNotifyTitle": "Reply to the organizer?",
     "invitationNotifyBody": "Your answer “{{answer}}” is saved in your calendar. Should the organizer be told?",
     "invitationNotifyYes": "Send reply",
-    "invitationNotifyNo": "Don't send"
+    "invitationNotifyNo": "Don't send",
+    "yourReply": "Your reply"
   },
   "mailFolders": {
     "inbox": "Inbox",

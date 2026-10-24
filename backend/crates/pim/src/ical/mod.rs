@@ -669,6 +669,16 @@ pub fn project_calendar_resource_with_status(
                 .unwrap_or_else(|| Value::Array(Vec::new()))
         };
         f.insert("attendees".into(), attendees);
+        // Each attendee's answer on this occurrence, so the client can style its own reply.
+        let partstats: serde_json::Map<String, Value> = comp
+            .props_named("attendee")
+            .filter_map(|p| {
+                let email = ical_address(&p.first_str().unwrap_or_default());
+                let partstat = p.param("partstat").unwrap_or("NEEDS-ACTION").to_uppercase();
+                email.contains('@').then(|| (email, Value::String(partstat)))
+            })
+            .collect();
+        f.insert("partstats".into(), Value::Object(partstats));
         f.insert("starts_at".into(), Value::String(js_iso(&starts_at)));
         f.insert("ends_at".into(), Value::String(js_iso(&ends_at)));
         f.insert("all_day".into(), Value::Bool(start.is_date()));

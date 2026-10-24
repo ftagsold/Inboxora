@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { allDayEventSegment, createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutTimedEvents, layoutWeekAllDayEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.ts';
+import { allDayEventSegment, createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutTimedEvents, layoutWeekAllDayEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange, withOwnReply } from './calendarView.ts';
 
 describe('calendar desktop helpers', () => {
   it('returns an exclusive month range', () => {
@@ -275,5 +275,18 @@ describe('calendar week all-day row layout', () => {
   it('ignores timed events, which the time grid lays out separately', () => {
     const timed = { id: 'timed', starts_at: '2026-09-14T09:00:00', ends_at: '2026-09-14T10:00:00' };
     assert.deepEqual(layoutWeekAllDayEvents([timed], week), []);
+  });
+});
+
+describe('withOwnReply', () => {
+  it('copies the answer of any own address onto my_partstat', () => {
+    const event = { id: '1', partstats: { 'me@x.test': 'TENTATIVE', 'o@x.test': 'ACCEPTED' } };
+    assert.equal(withOwnReply(event, new Set(['me@x.test'])).my_partstat, 'TENTATIVE');
+  });
+  it('leaves events the user was not invited to untouched', () => {
+    const event = { id: '1', partstats: { 'o@x.test': 'ACCEPTED' } };
+    assert.equal(withOwnReply(event, new Set(['me@x.test'])), event);
+    const plain = { id: '2' };
+    assert.equal(withOwnReply(plain, new Set(['me@x.test'])), plain);
   });
 });

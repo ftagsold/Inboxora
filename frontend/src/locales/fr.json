@@ -1988,7 +1988,8 @@
     "invitationNotifyTitle": "Répondre à l'organisateur ?",
     "invitationNotifyBody": "Votre réponse « {{answer}} » est enregistrée dans votre agenda. Faut-il prévenir l'organisateur ?",
     "invitationNotifyYes": "Envoyer la réponse",
-    "invitationNotifyNo": "Ne pas envoyer"
+    "invitationNotifyNo": "Ne pas envoyer",
+    "yourReply": "Votre réponse"
   },
   "mailFolders": {
     "inbox": "Boîte de réception",

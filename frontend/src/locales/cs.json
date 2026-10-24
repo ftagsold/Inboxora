@@ -1988,7 +1988,8 @@
     "invitationNotifyTitle": "Odpovědět organizátorovi?",
     "invitationNotifyBody": "Vaše odpověď „{{answer}}“ se uloží do kalendáře. Informovat organizátora?",
     "invitationNotifyYes": "Odeslat odpověď",
-    "invitationNotifyNo": "Neodesílat"
+    "invitationNotifyNo": "Neodesílat",
+    "yourReply": "Vaše odpověď"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

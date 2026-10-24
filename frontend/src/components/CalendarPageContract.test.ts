@@ -384,7 +384,7 @@ test('a month-view event puts its title first (ellipsized if long) and its time 
   assert.match(source, /const eventCardTime: CSSProperties = \{ fontFamily: 'var\(--font-mono, ui-monospace, monospace\)', fontSize: 9\.5, fontWeight: 400, opacity: \.85, flexShrink: 0 \};/);
   // The title span comes before the time <strong> in both the real event and MonthDragRow (the
   // shared preview/ghost renderer).
-  assert.match(source, /visibility: 'hidden' \}\}>\{event\.summary \|\| t\('calendar\.untitled'\)\}<\/span>\{!\(event\.all_day \|\| event\.allDay\) && <strong style=\{eventCardTime\}>\{eventTime\(event\)\}<\/strong>\}/);
+  assert.match(source, /visibility: 'hidden' \}\}>\{event\.summary \|\| t\('calendar\.untitled'\)\}<\/span>\{!\(event\.all_day \|\| event\.allDay\) && <strong style=\{timedCard \? eventCardTimedTime : eventCardTime\}>\{eventTime\(event\)\}<\/strong>\}/);
 });
 
 // The move/resize ghost preview for a multi-day month-view event is computed the same way the
@@ -548,19 +548,20 @@ test('a timed event shows its full title in bold and a clock icon next to the ti
 // event renders "a little transparent" with nothing left for a seam to show through.
 test('events render a little transparent via a pre-blended color, not real CSS opacity (which broke multi-day seams)', async () => {
   const source = await readFile(calendarPath, 'utf8');
-  assert.match(source, /const EVENT_OPACITY = 0\.68;/);
+  assert.match(source, /const EVENT_OPACITY = 0\.55;/);
   assert.match(source, /function eventTint\(color: string \| null \| undefined, ratio: number = EVENT_OPACITY\): string \{/);
   assert.match(source, /return `color-mix\(in srgb, \$\{color \|\| 'var\(--accent\)'\} \$\{Math\.round\(ratio \* 100\)\}%, var\(--bg-primary\)\)`;/);
   // Every real event and every move/resize ghost preview goes through it — none hardcode a raw
   // `event.calendar_color || 'var(--accent)'` background with a separate opacity any more.
   assert.doesNotMatch(source, /background: event\.calendar_color \|\| 'var\(--accent\)', opacity:/);
   assert.doesNotMatch(source, /background: (moving\.event|movePreview|resizePreview)\.calendar_color \|\| 'var\(--accent\)', opacity:/);
-  const eventTintCalls = source.match(/background: eventTint\(/g);
+  const eventTintCalls = source.match(/background: (?:timedCard \? 'transparent' : )?(?:eventTint|eventFill)\(/g);
   // Month view's move preview and its dimmed ghost now share one call site (MonthDragRow, used
   // for both), so the count is unchanged from before: month card, MonthDragRow, all-day pill,
   // all-day move preview, all-day resize preview, the timed event, and its move + resize
-  // previews.
-  assert.equal(eventTintCalls?.length, 8);
+  // previews — plus the month-view timed event's color bar (eventFill, which stripes a
+  // tentative answer on top of eventTint).
+  assert.equal(eventTintCalls?.length, 9);
 });
 
 // The same seam risk applies to dimming an event mid-drag: a real CSS `opacity` on a multi-day
@@ -571,7 +572,7 @@ test('events render a little transparent via a pre-blended color, not real CSS o
 test('the moving/resizing dim state uses a paler eventTint(), never a real CSS opacity, on multi-day-capable events', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.match(source, /const EVENT_DIM_RATIO = 0\.28;/);
-  const dimmedTintCalls = source.match(/eventTint\([^)]*beingMoved \|\| beingResized \? EVENT_DIM_RATIO : EVENT_OPACITY\)/g);
+  const dimmedTintCalls = source.match(/(?:eventTint|eventFill)\([^)]*beingMoved \|\| beingResized \? EVENT_DIM_RATIO : EVENT_OPACITY\)/g);
   assert.equal(dimmedTintCalls?.length, 3, 'expected the dim ratio on the month-view card, the all-day pill, and the timed event');
   // No wrapper around a multi-day-capable event (month card row, all-day pill, timed event) may
   // still dim itself via real opacity.

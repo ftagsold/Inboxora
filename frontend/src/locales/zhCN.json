@@ -1988,7 +1988,8 @@
     "invitationNotifyTitle": "回复组织者？",
     "invitationNotifyBody": "你的答复“{{answer}}”已保存到日历。是否通知组织者？",
     "invitationNotifyYes": "发送答复",
-    "invitationNotifyNo": "不发送"
+    "invitationNotifyNo": "不发送",
+    "yourReply": "你的回复"
   },
   "mailFolders": {
     "inbox": "收件箱",
