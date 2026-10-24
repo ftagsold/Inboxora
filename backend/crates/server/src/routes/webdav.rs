@@ -24,8 +24,10 @@ const ATTACH_LIMIT: usize = 25 * 1024 * 1024;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/servers", get(list_servers).post(create))
+        .route("/view", get(get_view).put(put_view))
         .route("/servers/{id}", axum::routing::patch(update).delete(remove))
         .route("/servers/{id}/list", get(list))
+        .route("/servers/{id}/search", get(search))
         .route("/servers/{id}/file", get(download).put(upload).delete(delete))
         .route("/servers/{id}/mkdir", post(mkdir))
         .route("/servers/{id}/move", post(move_item))
@@ -245,6 +247,62 @@ fn guess_type(name: &str) -> Option<&'static str> {
     })
 }
 
+async fn search(State(s): State<AppState>, auth: Auth, Path(id): Path<String>, q: Qs) -> Result<Response> {
+    let conn = conn!(s, auth, id);
+    let query = q.str("q").unwrap_or("").to_owned();
+    if query.trim().is_empty() {
+        return Ok(err(400, "q is required"));
+    }
+    match webdav::search(&conn, &path_param(&q), &query).await {
+        Ok(result) => Ok(ok(json!(result))),
+        Err(e) => Ok(dav_err(e)),
+    }
+}
+
+/// Explorer columns that can be shown or hidden (the name column always shows).
+const VIEW_COLUMNS: [&str; 4] = ["type", "size", "modified", "location"];
+
+/// The stored explorer view, cleaned: `{ columns: [...], widths: { column: px } }`.
+fn clean_view(v: &Value) -> Value {
+    let columns: Vec<Value> = v
+        .get("columns")
+        .and_then(Value::as_array)
+        .map(|list| {
+            VIEW_COLUMNS
+                .iter()
+                .filter(|c| list.iter().any(|x| x.as_str() == Some(**c)))
+                .map(|c| Value::String((*c).to_owned()))
+                .collect()
+        })
+        .unwrap_or_else(|| ["size", "modified", "location"].iter().map(|c| Value::String((*c).into())).collect());
+    let mut widths = serde_json::Map::new();
+    if let Some(w) = v.get("widths").and_then(Value::as_object) {
+        for key in std::iter::once("name").chain(VIEW_COLUMNS) {
+            if let Some(px) = w.get(key).and_then(Value::as_f64).filter(|n| n.is_finite()) {
+                widths.insert(key.to_owned(), Value::from(px.round().clamp(48.0, 1200.0) as i64));
+            }
+        }
+    }
+    json!({ "columns": columns, "widths": widths })
+}
+
+async fn get_view(State(s): State<AppState>, auth: Auth) -> Result<Response> {
+    let row =
+        s.db.opt("SELECT preferences->'filesView' AS view FROM users WHERE id = $1", params![&auth.user_id]).await?;
+    let stored = row.and_then(|r| r.try_get::<_, Option<Value>>("view").ok().flatten()).unwrap_or(Value::Null);
+    Ok(ok(json!({ "view": clean_view(&stored) })))
+}
+
+async fn put_view(State(s): State<AppState>, auth: Auth, body: Body) -> Result<Response> {
+    let view = clean_view(&body.0);
+    s.db.exec(
+        "UPDATE users SET preferences = COALESCE(preferences, '{}'::jsonb) || jsonb_build_object('filesView', $2::jsonb) WHERE id = $1",
+        params![&auth.user_id, inboxora_core::json::stringify(&view)],
+    )
+    .await?;
+    Ok(ok(json!({ "view": view })))
+}
+
 /// Types a browser may render inline from our origin without running script.
 fn inline_safe(content_type: &str) -> bool {
     let t = content_type.to_ascii_lowercase();
@@ -392,4 +450,18 @@ async fn attachments(State(s): State<AppState>, auth: Auth, Path(id): Path<Strin
         }));
     }
     Ok(ok(json!({ "attachments": out })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn view_is_cleaned() {
+        assert_eq!(clean_view(&Value::Null), json!({ "columns": ["size", "modified", "location"], "widths": {} }));
+        let v = clean_view(
+            &json!({ "columns": ["modified", "bogus", "type"], "widths": { "name": 3000.4, "size": 20, "x": 5, "type": "a" } }),
+        );
+        assert_eq!(v, json!({ "columns": ["type", "modified"], "widths": { "name": 1200, "size": 48 } }));
+    }
 }

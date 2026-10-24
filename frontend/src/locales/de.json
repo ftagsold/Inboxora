@@ -2127,7 +2127,6 @@
     "refresh": "Aktualisieren",
     "up": "Ordner nach oben",
     "breadcrumbs": "Ordnerpfad",
-    "filter": "Diesen Ordner filtern",
     "view": "Ansicht",
     "listView": "Listenansicht",
     "gridView": "Rasteransicht",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "Von {{name}} anhängen",
     "pickHint": "Dateien zum Anhängen wählen (insgesamt 25 MB)",
     "attaching": "Wird angehängt …",
-    "attachCount": "Anhängen ({{count}})"
+    "attachCount": "Anhängen ({{count}})",
+    "search": "Dateien suchen",
+    "clearSearch": "Suche löschen",
+    "searching": "Suche läuft …",
+    "searchResults": "{{count}} Treffer",
+    "searchTruncated": "Suche vorzeitig beendet – bitte eingrenzen",
+    "showInFolder": "Im Ordner anzeigen",
+    "type": "Typ",
+    "location": "Ort",
+    "columns": "Spalten",
+    "resetWidths": "Spaltenbreiten zurücksetzen",
+    "resizeColumn": "Spalte {{column}} anpassen"
   }
 }

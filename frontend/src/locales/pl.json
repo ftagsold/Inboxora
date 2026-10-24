@@ -2127,7 +2127,6 @@
     "refresh": "Odśwież",
     "up": "Folder wyżej",
     "breadcrumbs": "Ścieżka folderu",
-    "filter": "Filtruj ten folder",
     "view": "Widok",
     "listView": "Widok listy",
     "gridView": "Widok siatki",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "Załącz z {{name}}",
     "pickHint": "Wybierz pliki do załączenia (łącznie 25 MB)",
     "attaching": "Załączanie…",
-    "attachCount": "Załącz ({{count}})"
+    "attachCount": "Załącz ({{count}})",
+    "search": "Szukaj plików",
+    "clearSearch": "Wyczyść wyszukiwanie",
+    "searching": "Wyszukiwanie…",
+    "searchResults": "Wyniki: {{count}}",
+    "searchTruncated": "wyszukiwanie przerwane — zawęź je",
+    "showInFolder": "Pokaż w folderze",
+    "type": "Typ",
+    "location": "Lokalizacja",
+    "columns": "Kolumny",
+    "resetWidths": "Przywróć szerokość kolumn",
+    "resizeColumn": "Zmień szerokość kolumny {{column}}"
   }
 }

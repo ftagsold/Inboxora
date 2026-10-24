@@ -483,6 +483,7 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'files.folder': [['en', 'pl']],
   'files.name': [['de', 'en']],
   'files.uploads': [['de', 'en']],
+  'files.type': [['cs', 'de', 'pl'], ['en', 'fr'], ['es', 'it']],
   'calendar.localCalendars': 'any', // "Local" is the same word in several languages.
   'contacts.addressBooks.local': 'any',
   'admin.imapLimits.colAccount': [['de', 'pl'], ['en', 'it']], // "Konto" / "Account" in both languages.

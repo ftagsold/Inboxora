@@ -2,11 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
-import type { WebDavEntry, WebDavServer } from '../utils/api.ts';
+import type { WebDavColumn, WebDavEntry, WebDavServer, WebDavView } from '../utils/api.ts';
 import { toAppError } from '../utils/errors.ts';
 import { Button, Dialog, EmptyState, inputStyle } from './ui.tsx';
 import { EditIcon, TrashIcon } from './menuIcons.tsx';
-import { FileIcon, fileKind, previewable } from './fileIcons.tsx';
+import { FileIcon, extensionOf, fileKind, previewable } from './fileIcons.tsx';
 import { useUiScale } from '../hooks/useUiScale.ts';
 import './files.css';
 
@@ -20,10 +20,10 @@ interface FileExplorerProps {
   onPickChange?: (entries: WebDavEntry[]) => void;
 }
 
-type SortKey = 'name' | 'size' | 'modified';
+type SortKey = 'name' | 'type' | 'size' | 'modified' | 'location';
 interface Clipboard { op: 'copy' | 'cut'; serverId: string; entries: WebDavEntry[] }
 interface Upload { id: number; name: string; progress: number; error?: string; done?: boolean }
-interface MenuState { x: number; y: number; target: WebDavEntry | null }
+interface MenuState { x: number; y: number; target: WebDavEntry | null; kind?: 'columns' }
 type NameDialog = { kind: 'mkdir' } | { kind: 'rename'; entry: WebDavEntry };
 
 const VIEW_KEY = 'inboxora_files_view';
@@ -32,6 +32,47 @@ const DRAG_TYPE = 'application/x-inboxora-webdav';
 // One clipboard for the whole app, so cut/copy survives switching folders (same server only).
 let sharedClipboard: Clipboard | null = null;
 let uploadSeq = 0;
+
+// ── column layout (stored per user in the backend) ───────────────────────────
+const COLUMN_ORDER: WebDavColumn[] = ['location', 'type', 'size', 'modified'];
+const DEFAULT_WIDTHS: Record<WebDavColumn, number> = { location: 220, type: 110, size: 96, modified: 170 };
+const DEFAULT_VIEW: WebDavView = { columns: ['size', 'modified', 'location'], widths: {} };
+let viewCache: WebDavView | null = null;
+let viewRequest: Promise<WebDavView> | null = null;
+let viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const viewListeners = new Set<(view: WebDavView) => void>();
+
+function loadView(): Promise<WebDavView> {
+  if (viewCache) return Promise.resolve(viewCache);
+  viewRequest ??= api.webdav.getView().then(result => { viewCache = result.view; return result.view; }).catch(() => { viewRequest = null; return DEFAULT_VIEW; });
+  return viewRequest;
+}
+
+/** Apply a layout change everywhere at once and save it shortly after. */
+function updateView(next: WebDavView, persist = true) {
+  viewCache = next;
+  viewListeners.forEach(listener => listener(next));
+  if (!persist) return;
+  if (viewSaveTimer) clearTimeout(viewSaveTimer);
+  viewSaveTimer = setTimeout(() => { api.webdav.saveView(next).catch(() => {}); }, 500);
+}
+
+function useExplorerView(): WebDavView {
+  const [view, setView] = useState<WebDavView>(viewCache ?? DEFAULT_VIEW);
+  useEffect(() => {
+    viewListeners.add(setView);
+    void loadView().then(setView);
+    return () => { viewListeners.delete(setView); };
+  }, []);
+  return view;
+}
+
+/** What the type column shows: "Folder", or the extension in capitals. */
+function typeLabel(entry: WebDavEntry, folder: string): string {
+  if (entry.isDir) return folder;
+  const ext = extensionOf(entry.name);
+  return ext ? ext.toUpperCase() : (entry.contentType?.split('/')[1]?.toUpperCase() ?? '');
+}
 const MOD_KEY = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+';
 
 function readStored<T>(key: string, fallback: T): T {
@@ -104,6 +145,11 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [clipboard, setClipboardState] = useState<Clipboard | null>(sharedClipboard);
+  const [searchResult, setSearchResult] = useState<{ query: string; entries: WebDavEntry[]; truncated: boolean } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchRun, setSearchRun] = useState(0);
+  const layout = useExplorerView();
+  const scale = useUiScale();
   const listRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const loadSeq = useRef(0);
@@ -139,22 +185,79 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 3500); return () => clearTimeout(timer); }, [notice]);
 
   const navigate = (target: string) => { setFilter(''); void load(target); listRef.current?.focus(); };
-  const refresh = () => load(path, { keepSelection: true });
+  const query = filter.trim();
+  const refresh = () => { if (query) setSearchRun(run => run + 1); return load(path, { keepSelection: true }); };
+
+  // Deep search: the server walks every folder below the current one. Until it answers, the
+  // current folder is filtered locally so typing still shows something at once.
+  useEffect(() => {
+    if (!query) { setSearchResult(null); setSearching(false); return; }
+    const controller = new AbortController();
+    setSearching(true);
+    const timer = setTimeout(() => {
+      api.webdav.search(server.id, path, query, controller.signal)
+        .then(result => setSearchResult({ query, entries: result.entries, truncated: result.truncated }))
+        .catch(err => { if (!controller.signal.aborted) setError(toAppError(err).message); })
+        .finally(() => { if (!controller.signal.aborted) setSearching(false); });
+    }, 350);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [query, path, server.id, searchRun]);
+  const searchActive = Boolean(query && searchResult?.query === query);
 
   const visible = useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    const list = query ? entries.filter(entry => entry.name.toLowerCase().includes(query)) : [...entries];
+    const needle = query.toLowerCase();
+    const list = searchActive && searchResult ? [...searchResult.entries]
+      : needle ? entries.filter(entry => entry.name.toLowerCase().includes(needle)) : [...entries];
     const direction = sort.desc ? -1 : 1;
+    const text = (entry: WebDavEntry) => sort.key === 'type' ? typeLabel(entry, '') : sort.key === 'location' ? parentPath(entry.path) : entry.name;
     list.sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
       let diff = 0;
       if (sort.key === 'size') diff = (a.size ?? 0) - (b.size ?? 0);
       else if (sort.key === 'modified') diff = (a.modified ? Date.parse(a.modified) : 0) - (b.modified ? Date.parse(b.modified) : 0);
+      else if (sort.key !== 'name') diff = text(a).localeCompare(text(b), undefined, { numeric: true, sensitivity: 'base' });
       if (diff === 0) diff = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
       return diff * direction;
     });
     return list;
-  }, [entries, filter, sort]);
+  }, [entries, query, searchActive, searchResult, sort]);
+
+  // Columns shown after the name; "location" only means something in search results.
+  const columns = COLUMN_ORDER.filter(column => layout.columns.includes(column) && (column !== 'location' || searchActive));
+  const [liveWidths, setLiveWidths] = useState<WebDavView['widths'] | null>(null);
+  const widths = liveWidths ?? layout.widths;
+  const gridTemplate = [
+    picking ? '22px' : null,
+    widths.name ? `${widths.name}px` : 'minmax(160px, 1fr)',
+    ...columns.map(column => `${widths[column] ?? DEFAULT_WIDTHS[column]}px`),
+    widths.name ? 'minmax(0, 1fr)' : null,
+  ].filter(Boolean).join(' ');
+
+  const startResize = (event: ReactMouseEvent, column: 'name' | WebDavColumn) => {
+    event.preventDefault(); event.stopPropagation();
+    const cell = (event.currentTarget as HTMLElement).parentElement;
+    const startX = event.clientX;
+    const startWidth = (cell?.getBoundingClientRect().width ?? 100) / scale;
+    let latest = { ...widths };
+    const move = (moveEvent: MouseEvent) => {
+      latest = { ...widths, [column]: Math.round(Math.max(48, Math.min(1200, startWidth + (moveEvent.clientX - startX) / scale))) };
+      setLiveWidths(latest);
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      document.body.classList.remove('files-resizing');
+      setLiveWidths(null);
+      updateView({ ...layout, widths: latest });
+    };
+    document.body.classList.add('files-resizing');
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  };
+  const toggleColumn = (column: WebDavColumn) => {
+    const next = layout.columns.includes(column) ? layout.columns.filter(item => item !== column) : [...layout.columns, column];
+    updateView({ ...layout, columns: COLUMN_ORDER.filter(item => next.includes(item)) });
+  };
 
   const selectedEntries = useMemo(() => visible.filter(entry => selected.has(entry.path)), [visible, selected]);
   const dateFormat = useMemo(() => new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language || undefined, { dateStyle: 'medium', timeStyle: 'short' }), [i18n.resolvedLanguage, i18n.language]);
@@ -336,7 +439,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
   useEffect(() => {
     if (!menu) return;
     const close = (event: Event) => {
-      if (event instanceof MouseEvent && event.target instanceof Element && event.target.closest('.files-menu')) return;
+      if (event instanceof MouseEvent && event.target instanceof Element && event.target.closest('.files-menu, .files-columns-button')) return;
       setMenu(null);
     };
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setMenu(null); } };
@@ -428,7 +531,12 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
 
   // ── rendering ──────────────────────────────────────────────────────────────
   const single = menu?.target && selectedEntries.length <= 1 ? menu.target : null;
-  const menuItems = menu ? (menu.target ? [
+  const columnLabels: Record<WebDavColumn, string> = { location: t('files.location'), type: t('files.type'), size: t('files.size'), modified: t('files.modified') };
+  const menuItems = menu ? (menu.kind === 'columns' ? [
+    ...COLUMN_ORDER.map(column => ({ key: `col-${column}`, label: columnLabels[column], checked: layout.columns.includes(column), keepOpen: true, onClick: () => toggleColumn(column), show: true })),
+    { key: 'sep-cols', separator: true, show: true },
+    { key: 'reset', label: t('files.resetWidths'), icon: <RefreshIcon />, onClick: () => updateView({ ...layout, widths: {} }), show: Object.keys(layout.widths).length > 0 },
+  ] : menu.target ? [
     { key: 'open', label: menu.target.isDir ? t('files.open') : (previewable(menu.target) ? t('files.preview') : t('files.download')), icon: <OpenIcon />, onClick: () => open(menu.target!), show: Boolean(single) },
     { key: 'download', label: selectedEntries.length > 1 ? t('files.downloadCount', { count: selectedEntries.filter(item => !item.isDir).length }) : t('files.download'), icon: <DownloadIcon />, onClick: () => download(selectedEntries), show: selectedEntries.some(item => !item.isDir) },
     { key: 'sep1', separator: true, show: !picking },
@@ -438,6 +546,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
     { key: 'cut', label: t('files.cut'), icon: <CutIcon />, onClick: () => copyOrCut('cut', selectedEntries), show: !picking, hint: `${MOD_KEY}X` },
     { key: 'paste-into', label: t('files.pasteInto'), icon: <PasteIcon />, onClick: () => paste(menu.target!.path), show: Boolean(single?.isDir) && canPaste && !picking },
     { key: 'link', label: t('files.copyLink'), icon: <LinkIcon />, onClick: () => copyLink(menu.target!), show: Boolean(single) },
+    { key: 'reveal', label: t('files.showInFolder'), icon: <FolderIcon />, onClick: () => navigate(parentPath(menu.target!.path)), show: Boolean(single) && searchActive && parentPath(menu.target.path) !== path },
     { key: 'sep2', separator: true, show: !picking },
     { key: 'delete', label: selectedEntries.length > 1 ? t('files.deleteCount', { count: selectedEntries.length }) : t('files.delete'), icon: <TrashIcon />, onClick: () => setConfirmDelete(selectedEntries.length ? selectedEntries : [menu.target!]), show: !picking, danger: true, hint: MOD_KEY === '⌘' ? '⌘⌫' : 'Del' },
   ] : [
@@ -473,11 +582,21 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
     ...(entry.isDir ? folderDropProps(entry.path) : {}),
   });
 
-  const sortHeader = (key: SortKey, label: string, className: string) => (
-    <button type="button" role="columnheader" className={`files-col ${className}`} aria-sort={sort.key === key ? (sort.desc ? 'descending' : 'ascending') : 'none'} onClick={() => changeSort(key)}>
-      {label}{sort.key === key && <span aria-hidden="true" className="files-sort-arrow">{sort.desc ? '↓' : '↑'}</span>}
-    </button>
+  const sortHeader = (key: 'name' | WebDavColumn, label: string) => (
+    <span key={key} role="columnheader" className={`files-col files-col-${key}`} aria-sort={sort.key === key ? (sort.desc ? 'descending' : 'ascending') : 'none'}>
+      <button type="button" className="files-sort" onClick={() => changeSort(key)}>
+        {label}{sort.key === key && <span aria-hidden="true" className="files-sort-arrow">{sort.desc ? '↓' : '↑'}</span>}
+      </button>
+      <span className="files-col-resize" role="separator" aria-orientation="vertical" aria-label={t('files.resizeColumn', { column: label })} onMouseDown={event => startResize(event, key)} onDoubleClick={() => updateView({ ...layout, widths: Object.fromEntries(Object.entries(layout.widths).filter(([column]) => column !== key)) })} />
+    </span>
   );
+  const cell = (entry: WebDavEntry, column: WebDavColumn) => {
+    if (column === 'size') return <span key={column} className="files-col files-col-size">{entry.isDir ? '—' : formatSize(entry.size)}</span>;
+    if (column === 'modified') return <span key={column} className="files-col files-col-modified">{entry.modified ? dateFormat.format(new Date(entry.modified)) : ''}</span>;
+    if (column === 'type') return <span key={column} className="files-col files-col-type">{typeLabel(entry, t('files.folder'))}</span>;
+    const parent = parentPath(entry.path);
+    return <span key={column} className="files-col files-col-location"><button type="button" className="files-location-link" title={parent} onClick={event => { event.stopPropagation(); navigate(parent); }}>{parent === '/' ? server.displayName : parent.slice(1, -1)}</button></span>;
+  };
 
   return <div className={`files-explorer${picking ? ' files-picking' : ''}`} data-testid="file-explorer">
     <div className="files-toolbar">
@@ -496,12 +615,21 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
       <div className="files-actions">
         <div className="files-search">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.4-4.4" /></svg>
-          <input type="search" value={filter} onChange={event => setFilter(event.target.value)} placeholder={t('files.filter')} aria-label={t('files.filter')} data-testid="files-filter" />
+          <input type="search" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === 'Escape' && filter) { event.preventDefault(); event.stopPropagation(); setFilter(''); } }} placeholder={t('files.search')} aria-label={t('files.search')} data-testid="files-filter" />
+          {searching && <span className="files-spinner files-spinner-small files-search-spinner" aria-label={t('files.searching')} />}
+          {filter && <button type="button" className="files-search-clear" data-testid="files-search-clear" aria-label={t('files.clearSearch')} title={t('files.clearSearch')} onClick={() => { setFilter(''); listRef.current?.focus(); }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>}
         </div>
         <div role="group" className="files-segments" aria-label={t('files.view')}>
           <button type="button" aria-pressed={view === 'list'} aria-label={t('files.listView')} title={t('files.listView')} onClick={() => changeView('list')}><ListIcon /></button>
           <button type="button" aria-pressed={view === 'grid'} aria-label={t('files.gridView')} title={t('files.gridView')} onClick={() => changeView('grid')}><GridIcon /></button>
         </div>
+        {view === 'list' && <Button variant="ghost" className="files-icon-button files-columns-button" aria-label={t('files.columns')} title={t('files.columns')} aria-haspopup="menu" aria-expanded={menu?.kind === 'columns'} data-testid="files-columns" onClick={event => {
+          if (menu?.kind === 'columns') { setMenu(null); return; }
+          const rect = event.currentTarget.getBoundingClientRect();
+          setMenu({ x: rect.left, y: rect.bottom + 4, target: null, kind: 'columns' });
+        }}><SlidersIcon /></Button>}
         <Button variant="ghost" className="files-icon-button" aria-label={t('files.refresh')} title={t('files.refresh')} onClick={() => refresh()} disabled={loading}><RefreshIcon /></Button>
         {!picking && <>
           <Button onClick={() => openNameDialog({ kind: 'mkdir' })} disabled={busy} data-testid="files-new-folder" aria-label={t('files.newFolder')} title={t('files.newFolder')}><FolderPlusIcon /><span className="files-button-label">{t('files.newFolder')}</span></Button>
@@ -521,6 +649,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
       aria-busy={loading}
       aria-multiselectable
       className={`files-surface${dropTarget === path ? ' is-drop' : ''}`}
+      style={{ '--files-cols': gridTemplate } as CSSProperties}
       onKeyDown={onKeyDown}
       onClick={event => { if (event.target === event.currentTarget || (event.target as Element).classList.contains('files-grid') || (event.target as Element).classList.contains('files-rows')) setSelected(new Set()); }}
       onContextMenu={event => openMenu(event, null)}
@@ -528,18 +657,16 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
     >
       {view === 'list' && visible.length > 0 && <div className="files-header" role="row">
         {picking && <span className="files-check-col" />}
-        {sortHeader('name', t('files.name'), 'files-col-name')}
-        {sortHeader('size', t('files.size'), 'files-col-size')}
-        {sortHeader('modified', t('files.modified'), 'files-col-modified')}
+        {sortHeader('name', t('files.name'))}
+        {columns.map(column => sortHeader(column, columnLabels[column]))}
       </div>}
       {loading && !entries.length && <div className="files-loading" role="status"><span className="files-spinner" />{t('files.loading')}</div>}
-      {!loading && !error && !visible.length && <EmptyState title={filter ? t('files.noMatches') : t('files.emptyFolder')}>{!filter && !picking ? t('files.emptyFolderHint') : null}</EmptyState>}
+      {!loading && !searching && !error && !visible.length && <EmptyState title={filter ? t('files.noMatches') : t('files.emptyFolder')}>{!filter && !picking ? t('files.emptyFolderHint') : null}</EmptyState>}
       {view === 'list' ? <div className="files-rows">
         {visible.map(entry => <div key={entry.path} {...rowProps(entry)}>
           {picking && <span className="files-check-col">{!entry.isDir && <input type="checkbox" tabIndex={-1} aria-label={t('files.pick', { name: entry.name })} checked={picked.has(entry.path)} onChange={() => togglePick(entry)} onClick={event => event.stopPropagation()} />}</span>}
           <span className="files-col files-col-name"><FileIcon kind={fileKind(entry)} /><span className="files-name" title={entry.name}>{entry.name}</span></span>
-          <span className="files-col files-col-size">{entry.isDir ? '—' : formatSize(entry.size)}</span>
-          <span className="files-col files-col-modified">{entry.modified ? dateFormat.format(new Date(entry.modified)) : ''}</span>
+          {columns.map(column => cell(entry, column))}
         </div>)}
       </div> : <div className="files-grid">
         {visible.map(entry => <div key={entry.path} {...rowProps(entry)} title={entry.name}>
@@ -553,7 +680,8 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
     </div>
 
     <div className="files-status" aria-live="polite">
-      <span>{t('files.itemCount', { count: visible.length })}</span>
+      <span>{searchActive ? t('files.searchResults', { count: visible.length }) : t('files.itemCount', { count: visible.length })}</span>
+      {searchActive && searchResult?.truncated && <span>· {t('files.searchTruncated')}</span>}
       {selectedEntries.length > 0 && <span>· {t('files.selectedCount', { count: selectedEntries.length })}{totalSelectedSize > 0 ? ` · ${formatSize(totalSelectedSize)}` : ''}</span>}
       {picking && picked.size > 0 && <span className="files-status-picked">· {t('files.pickedCount', { count: picked.size })}</span>}
       {notice && <span className="files-status-notice">{notice}</span>}
@@ -568,11 +696,15 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
       </div>)}
     </div>}
 
-    {menu && menuItems.length > 0 && <FloatingMenu x={menu.x} y={menu.y} title={menu.target ? (selectedEntries.length > 1 ? t('files.selectedCount', { count: selectedEntries.length }) : menu.target.name) : (path === '/' ? server.displayName : crumbs(path).at(-1)?.name ?? '')}>
+    {menu && menuItems.length > 0 && <FloatingMenu focusFirst={menu.kind !== 'columns'} x={menu.x} y={menu.y} title={menu.kind === 'columns' ? t('files.columns') : menu.target ? (selectedEntries.length > 1 ? t('files.selectedCount', { count: selectedEntries.length }) : menu.target.name) : (path === '/' ? server.displayName : crumbs(path).at(-1)?.name ?? '')}>
       {menuItems.map(item => 'separator' in item && item.separator
         ? <div key={item.key} className="files-menu-sep" role="separator" />
-        : <button key={item.key} type="button" role="menuitem" className={`app-menu-item${'danger' in item && item.danger ? ' danger' : ''}`} onClick={() => { setMenu(null); void (item as { onClick: () => unknown }).onClick(); }}>
-          {(item as { icon?: React.ReactNode }).icon}<span className="files-menu-label">{(item as { label: string }).label}</span>{'hint' in item && item.hint && <kbd>{item.hint}</kbd>}
+        : 'checked' in item
+          ? <button key={item.key} type="button" role="menuitemcheckbox" aria-checked={item.checked} className="app-menu-item" onClick={() => item.onClick()}>
+            <span className="files-menu-check" aria-hidden="true">{item.checked ? <CheckIcon /> : null}</span><span className="files-menu-label">{item.label}</span>
+          </button>
+          : <button key={item.key} type="button" role="menuitem" className={`app-menu-item${'danger' in item && item.danger ? ' danger' : ''}`} onClick={() => { setMenu(null); void (item as { onClick: () => unknown }).onClick(); }}>
+          {(item as { icon?: React.ReactNode }).icon}<span className="files-menu-label">{(item as { label: string }).label}</span>{'hint' in item && typeof item.hint === 'string' && <kbd>{item.hint}</kbd>}
         </button>)}
     </FloatingMenu>}
 
@@ -611,7 +743,7 @@ function NameInput({ value, onChange, selectStem }: { value: string; onChange: (
 }
 
 /** A context menu at the pointer, kept inside the viewport. */
-function FloatingMenu({ x, y, title, children }: { x: number; y: number; title: string; children: React.ReactNode }) {
+function FloatingMenu({ x, y, title, children, focusFirst = true }: { x: number; y: number; title: string; children: React.ReactNode; focusFirst?: boolean }) {
   const ref = useRef<HTMLDivElement | null>(null);
   // Pointer coordinates are viewport pixels; the menu sits inside the UI-scaled app, so its
   // CSS offsets are divided by the scale (like the mail context menu).
@@ -624,12 +756,12 @@ function FloatingMenu({ x, y, title, children }: { x: number; y: number; title: 
     const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
     const top = Math.max(8, Math.min(y, window.innerHeight - height - 8));
     setPosition({ left: left / scale, top: top / scale });
-    menu.querySelector<HTMLElement>('[role=menuitem]')?.focus();
-  }, [x, y, scale]);
+    if (focusFirst) menu.querySelector<HTMLElement>('[role=menuitem]')?.focus();
+  }, [x, y, scale, focusFirst]);
   const onKeyDown = (event: ReactKeyboardEvent) => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
-    const items = [...(ref.current?.querySelectorAll<HTMLElement>('[role=menuitem]') ?? [])];
+    const items = [...(ref.current?.querySelectorAll<HTMLElement>('[role=menuitem], [role=menuitemcheckbox]') ?? [])];
     const index = items.indexOf(document.activeElement as HTMLElement);
     items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
   };
@@ -695,4 +827,7 @@ const RefreshIcon = () => <svg {...icon}><path d="M20 7v5h-5M4 17v-5h5" /><path 
 const UpIcon = () => <svg {...icon}><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>;
 const ListIcon = () => <svg {...icon}><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>;
 const GridIcon = () => <svg {...icon}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>;
+const SlidersIcon = () => <svg {...icon}><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>;
+const CheckIcon = () => <svg {...icon}><path d="m5 12 5 5 9-10" /></svg>;
+const FolderIcon = () => <svg {...icon}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>;
 export const ServerIcon = () => <svg {...icon}><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></svg>;

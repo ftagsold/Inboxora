@@ -266,6 +266,74 @@ pub async fn list(conn: &Conn, rel: &str) -> R<Vec<Entry>> {
     parse_listing(&xml, &conn.base, rel)
 }
 
+/// Limits of one deep search: folders listed, matches returned, wall time.
+const SEARCH_MAX_FOLDERS: usize = 2000;
+const SEARCH_MAX_RESULTS: usize = 500;
+const SEARCH_TIME: Duration = Duration::from_secs(25);
+const SEARCH_PARALLEL: usize = 6;
+
+/// The outcome of a deep search; `truncated` when a limit stopped it early.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResult {
+    pub entries: Vec<Entry>,
+    pub truncated: bool,
+}
+
+/// Every file and folder under `rel` whose name contains `query` (case-insensitive). Walks the
+/// tree breadth-first with Depth: 1 listings, since many servers refuse Depth: infinity.
+pub async fn search(conn: &Conn, rel: &str, query: &str) -> R<SearchResult> {
+    use futures_util::stream::{FuturesUnordered, StreamExt};
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Err(DavError::new(400, "Search query is required"));
+    }
+    let started = std::time::Instant::now();
+    let mut pending = std::collections::VecDeque::from([normalize(rel, true)?]);
+    let mut running = FuturesUnordered::new();
+    let mut visited = 0usize;
+    let mut truncated = false;
+    let mut entries = Vec::new();
+    loop {
+        while running.len() < SEARCH_PARALLEL && visited < SEARCH_MAX_FOLDERS {
+            let Some(folder) = pending.pop_front() else { break };
+            visited += 1;
+            running.push(async move {
+                let listed = list(conn, &folder).await;
+                (folder, listed)
+            });
+        }
+        if running.is_empty() {
+            truncated |= !pending.is_empty();
+            break;
+        }
+        let remaining = SEARCH_TIME.saturating_sub(started.elapsed());
+        let Ok(Some((folder, listed))) = tokio::time::timeout(remaining, running.next()).await else {
+            truncated = true;
+            break;
+        };
+        let children = match listed {
+            Ok(c) => c,
+            // The starting folder must exist; an unreadable subfolder is skipped.
+            Err(e) if visited == 1 && folder == normalize(rel, true)? => return Err(e),
+            Err(_) => continue,
+        };
+        for child in children {
+            if child.is_dir {
+                pending.push_back(child.path.clone());
+            }
+            if child.name.to_lowercase().contains(&needle) {
+                entries.push(child);
+                if entries.len() >= SEARCH_MAX_RESULTS {
+                    return Ok(SearchResult { entries, truncated: true });
+                }
+            }
+        }
+    }
+    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    Ok(SearchResult { entries, truncated })
+}
+
 /// A file's GET response, for streaming to the browser.
 pub async fn download(conn: &Conn, rel: &str) -> R<reqwest::Response> {
     if segments(rel)?.is_empty() {
@@ -441,9 +509,15 @@ mod tests {
         transfer(&conn, "MOVE", "/it-test/sub", "/it-test/moved", true, false).await.unwrap();
         assert!(transfer(&conn, "MOVE", "/it-test/moved", "/it-test/moved/inner", true, false).await.is_err());
         let root = list(&conn, "/it-test/").await.unwrap();
-        assert_eq!(root.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(), ["/it-test/moved/", "/it-test/hello wörld.txt"]);
+        assert_eq!(
+            root.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(),
+            ["/it-test/moved/", "/it-test/hello wörld.txt"]
+        );
         assert_eq!(list(&conn, "/it-test/moved").await.unwrap()[0].name, "copy.txt");
 
+        let found = search(&conn, "/it-test", "COPY").await.unwrap();
+        assert_eq!(found.entries.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(), ["/it-test/moved/copy.txt"]);
+        assert!(!found.truncated);
         delete(&conn, "/it-test", true).await.unwrap();
         assert_eq!(list(&conn, "/it-test").await.unwrap_err().status, 404);
     }

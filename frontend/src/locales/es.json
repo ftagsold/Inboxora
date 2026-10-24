@@ -2127,7 +2127,6 @@
     "refresh": "Actualizar",
     "up": "Subir un nivel",
     "breadcrumbs": "Ruta de la carpeta",
-    "filter": "Filtrar esta carpeta",
     "view": "Vista",
     "listView": "Vista de lista",
     "gridView": "Vista de cuadrícula",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "Adjuntar desde {{name}}",
     "pickHint": "Selecciona archivos para adjuntar (25 MB en total)",
     "attaching": "Adjuntando…",
-    "attachCount": "Adjuntar ({{count}})"
+    "attachCount": "Adjuntar ({{count}})",
+    "search": "Buscar archivos",
+    "clearSearch": "Borrar búsqueda",
+    "searching": "Buscando…",
+    "searchResults": "{{count}} resultados",
+    "searchTruncated": "búsqueda detenida antes de tiempo: acótala",
+    "showInFolder": "Mostrar en la carpeta",
+    "type": "Tipo",
+    "location": "Ubicación",
+    "columns": "Columnas",
+    "resetWidths": "Restablecer el ancho de las columnas",
+    "resizeColumn": "Cambiar el ancho de la columna {{column}}"
   }
 }

@@ -2127,7 +2127,6 @@
     "refresh": "Обновить",
     "up": "На уровень выше",
     "breadcrumbs": "Путь к папке",
-    "filter": "Фильтр папки",
     "view": "Вид",
     "listView": "Список",
     "gridView": "Сетка",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "Прикрепить из {{name}}",
     "pickHint": "Выберите файлы для вложения (всего 25 МБ)",
     "attaching": "Прикрепление…",
-    "attachCount": "Прикрепить ({{count}})"
+    "attachCount": "Прикрепить ({{count}})",
+    "search": "Поиск файлов",
+    "clearSearch": "Очистить поиск",
+    "searching": "Поиск…",
+    "searchResults": "Результатов: {{count}}",
+    "searchTruncated": "поиск остановлен — уточните запрос",
+    "showInFolder": "Показать в папке",
+    "type": "Тип",
+    "location": "Расположение",
+    "columns": "Столбцы",
+    "resetWidths": "Сбросить ширину столбцов",
+    "resizeColumn": "Изменить ширину столбца {{column}}"
   }
 }

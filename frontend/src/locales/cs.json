@@ -2127,7 +2127,6 @@
     "refresh": "Obnovit",
     "up": "O složku výš",
     "breadcrumbs": "Cesta ke složce",
-    "filter": "Filtrovat tuto složku",
     "view": "Zobrazení",
     "listView": "Zobrazení seznamu",
     "gridView": "Zobrazení mřížky",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "Připojit z {{name}}",
     "pickHint": "Vyberte soubory k připojení (celkem 25 MB)",
     "attaching": "Připojování…",
-    "attachCount": "Připojit ({{count}})"
+    "attachCount": "Připojit ({{count}})",
+    "search": "Hledat soubory",
+    "clearSearch": "Vymazat hledání",
+    "searching": "Hledání…",
+    "searchResults": "Výsledky: {{count}}",
+    "searchTruncated": "hledání skončilo předčasně — upřesněte ho",
+    "showInFolder": "Zobrazit ve složce",
+    "type": "Typ",
+    "location": "Umístění",
+    "columns": "Sloupce",
+    "resetWidths": "Obnovit šířku sloupců",
+    "resizeColumn": "Změnit šířku sloupce {{column}}"
   }
 }

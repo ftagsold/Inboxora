@@ -2127,7 +2127,6 @@
     "refresh": "Refresh",
     "up": "Up one folder",
     "breadcrumbs": "Folder path",
-    "filter": "Filter this folder",
     "view": "View",
     "listView": "List view",
     "gridView": "Grid view",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "Attach from {{name}}",
     "pickHint": "Select files to attach (25 MB in total)",
     "attaching": "Attaching…",
-    "attachCount": "Attach ({{count}})"
+    "attachCount": "Attach ({{count}})",
+    "search": "Search files",
+    "clearSearch": "Clear search",
+    "searching": "Searching…",
+    "searchResults": "{{count}} results",
+    "searchTruncated": "search stopped early — narrow it down",
+    "showInFolder": "Show in folder",
+    "type": "Type",
+    "location": "Location",
+    "columns": "Columns",
+    "resetWidths": "Reset column widths",
+    "resizeColumn": "Resize {{column}} column"
   }
 }

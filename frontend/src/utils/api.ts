@@ -49,6 +49,13 @@ export interface WebDavEntry {
   contentType?: string | null;
 }
 
+/** The explorer's column layout, stored per user. */
+export type WebDavColumn = 'type' | 'size' | 'modified' | 'location';
+export interface WebDavView {
+  columns: WebDavColumn[];
+  widths: Partial<Record<'name' | WebDavColumn, number>>;
+}
+
 export type QueryParams =Record<string, string | number | boolean | null | undefined>;
 
 export interface ThreadResponse {
@@ -540,6 +547,9 @@ export const api = {
     updateServer: (id: string, data: { displayName?: string; url?: string; username?: string; password?: string }) => request('PATCH', `/webdav/servers/${encodeURIComponent(id)}`, data) as Promise<{ server: WebDavServer }>,
     removeServer: (id: string) => request('DELETE', `/webdav/servers/${encodeURIComponent(id)}`),
     list: (id: string, path: string, signal?: AbortSignal) => request('GET', `/webdav/servers/${encodeURIComponent(id)}/list?${toSearchParams({ path })}`, undefined, undefined, signal ? { signal } : {}) as Promise<{ path: string; entries: WebDavEntry[] }>,
+    search: (id: string, path: string, q: string, signal?: AbortSignal) => request('GET', `/webdav/servers/${encodeURIComponent(id)}/search?${toSearchParams({ path, q })}`, undefined, undefined, signal ? { signal } : {}) as Promise<{ entries: WebDavEntry[]; truncated: boolean }>,
+    getView: () => request('GET', '/webdav/view') as Promise<{ view: WebDavView }>,
+    saveView: (view: WebDavView) => request('PUT', '/webdav/view', view) as Promise<{ view: WebDavView }>,
     fileUrl: (id: string, path: string, inline = false) => `${BASE}/webdav/servers/${encodeURIComponent(id)}/file?${toSearchParams({ path, ...(inline ? { inline: '1' } : {}) })}`,
     remove: (id: string, path: string, dir: boolean) => request('DELETE', `/webdav/servers/${encodeURIComponent(id)}/file?${toSearchParams({ path, ...(dir ? { dir: '1' } : {}) })}`),
     mkdir: (id: string, path: string) => request('POST', `/webdav/servers/${encodeURIComponent(id)}/mkdir`, { path }),

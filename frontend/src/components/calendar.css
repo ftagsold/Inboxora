@@ -22,9 +22,11 @@
 .calendar-rail { width: var(--calendar-rail-width, 320px); min-width: 0; }
 .calendar-rail-heading { margin: 0 0 12px; padding: 0 8px; font-family: var(--font-display); font-size: 20px; font-weight: 600; line-height: 30px; }
 /* Same box as the mail sidebar's compose button: 38px tall, top edge at 68px (13px rail padding
-   + 30px heading + 12 + 13 here = its 56px header + 12px). The button, the mini month and the
-   calendar groups sit 16px apart. */
-.calendar-rail-create { width: 100%; height: 38px; box-sizing: border-box; margin-top: 13px; margin-bottom: 16px; }
+   + 30px heading + 12 + 13 here = its 56px header + 12px). Like the sidebar, 12px below it the
+   first card starts (the mini month's top edge meets the first account card's at 118px), and
+   the cards below stack 8px apart. */
+.calendar-rail-create { width: 100%; height: 38px; box-sizing: border-box; margin-top: 13px; margin-bottom: 12px; }
+.calendar-rail .cal-row input[type=checkbox] { margin: 0; width: 14px; height: 14px; flex-shrink: 0; }
 /* Mini-month control sizing. Kept in CSS (not inline) so the bottom sheet can raise
    the touch targets on a phone without fighting an inline style. */
 .calendar-mini-day { width: 24px; height: 22px; min-height: 22px; }

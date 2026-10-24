@@ -2127,7 +2127,6 @@
     "refresh": "刷新",
     "up": "上一级",
     "breadcrumbs": "文件夹路径",
-    "filter": "筛选此文件夹",
     "view": "视图",
     "listView": "列表视图",
     "gridView": "网格视图",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "从 {{name}} 附加",
     "pickHint": "选择要附加的文件（总计 25 MB）",
     "attaching": "正在附加…",
-    "attachCount": "附加（{{count}}）"
+    "attachCount": "附加（{{count}}）",
+    "search": "搜索文件",
+    "clearSearch": "清除搜索",
+    "searching": "正在搜索…",
+    "searchResults": "{{count}} 个结果",
+    "searchTruncated": "搜索已提前停止，请缩小范围",
+    "showInFolder": "在文件夹中显示",
+    "type": "类型",
+    "location": "位置",
+    "columns": "列",
+    "resetWidths": "重置列宽",
+    "resizeColumn": "调整“{{column}}”列宽"
   }
 }

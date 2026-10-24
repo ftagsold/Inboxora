@@ -2127,7 +2127,6 @@
     "refresh": "Actualiser",
     "up": "Dossier parent",
     "breadcrumbs": "Chemin du dossier",
-    "filter": "Filtrer ce dossier",
     "view": "Affichage",
     "listView": "Vue en liste",
     "gridView": "Vue en grille",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "Joindre depuis {{name}}",
     "pickHint": "Sélectionnez les fichiers à joindre (25 Mo au total)",
     "attaching": "Ajout en cours…",
-    "attachCount": "Joindre ({{count}})"
+    "attachCount": "Joindre ({{count}})",
+    "search": "Rechercher des fichiers",
+    "clearSearch": "Effacer la recherche",
+    "searching": "Recherche…",
+    "searchResults": "{{count}} résultats",
+    "searchTruncated": "recherche interrompue — affinez-la",
+    "showInFolder": "Afficher dans le dossier",
+    "type": "Type",
+    "location": "Emplacement",
+    "columns": "Colonnes",
+    "resetWidths": "Réinitialiser la largeur des colonnes",
+    "resizeColumn": "Redimensionner la colonne {{column}}"
   }
 }

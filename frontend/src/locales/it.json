@@ -2127,7 +2127,6 @@
     "refresh": "Aggiorna",
     "up": "Cartella superiore",
     "breadcrumbs": "Percorso cartella",
-    "filter": "Filtra questa cartella",
     "view": "Visualizzazione",
     "listView": "Vista elenco",
     "gridView": "Vista griglia",
@@ -2166,6 +2165,17 @@
     "attachFromServer": "Allega da {{name}}",
     "pickHint": "Seleziona i file da allegare (25 MB in totale)",
     "attaching": "Allegando…",
-    "attachCount": "Allega ({{count}})"
+    "attachCount": "Allega ({{count}})",
+    "search": "Cerca file",
+    "clearSearch": "Cancella ricerca",
+    "searching": "Ricerca in corso…",
+    "searchResults": "{{count}} risultati",
+    "searchTruncated": "ricerca interrotta: restringila",
+    "showInFolder": "Mostra nella cartella",
+    "type": "Tipo",
+    "location": "Posizione",
+    "columns": "Colonne",
+    "resetWidths": "Ripristina larghezza colonne",
+    "resizeColumn": "Ridimensiona colonna {{column}}"
   }
 }
