@@ -1586,7 +1586,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
           the gap between them stays put regardless of how many accounts/
           folders there are. The gap between items equals the padding above the
           first and below the last, so the three sit evenly in their band. */}
-      <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border-subtle)' }}>
+      <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, borderTop: '1px solid var(--border-subtle)' }}>
         {!isMobile && (
           <NavItem testId="calendar-nav-primary" icon={ICONS.calendar} label={t('calendar.title')} active={showCalendar} collapsed={sidebarCollapsed} onClick={() => setShowCalendar(true)} />
         )}
