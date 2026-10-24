@@ -1611,7 +1611,8 @@
     "emptyFolderInboxDesc": "Tout est lu",
     "emptyFolderDesc": "Ce dossier ne contient aucun message",
     "searchTitle": "Recherche : « {{query}} »",
-    "changeLayout": "Changer la disposition"
+    "changeLayout": "Changer la disposition",
+    "emptyTrash": "Vider la corbeille"
   },
   "notifications": {
     "newMessage": "Nouveau message"
@@ -2177,6 +2178,11 @@
     "resetWidths": "Réinitialiser la largeur des colonnes",
     "resizeColumn": "Redimensionner la colonne {{column}}",
     "remaining": "{{size}} sur 25 Mo encore libres",
-    "tooLargeToAttach": "Trop volumineux : il ne reste que {{size}} sur la limite de 25 Mo"
+    "tooLargeToAttach": "Trop volumineux : il ne reste que {{size}} sur la limite de 25 Mo",
+    "selectMode": "Sélection multiple",
+    "attachToEmail": "Joindre à un nouvel e-mail",
+    "attachToEmailCount": "Envoyer {{count}} fichier(s)",
+    "attachTooLarge": "{{size}} sélectionnés : les pièces jointes sont limitées à 25 Mo au total",
+    "composeOpen": "Fermez ou envoyez d'abord le brouillon ouvert, puis joignez ces fichiers."
   }
 }

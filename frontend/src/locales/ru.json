@@ -1611,7 +1611,8 @@
     "emptyFolderInboxDesc": "Всё прочитано",
     "emptyFolderDesc": "В этой папке нет сообщений",
     "searchTitle": "Поиск: «{{query}}»",
-    "changeLayout": "Изменить расположение"
+    "changeLayout": "Изменить расположение",
+    "emptyTrash": "Очистить корзину"
   },
   "notifications": {
     "newMessage": "Новое сообщение"
@@ -2177,6 +2178,11 @@
     "resetWidths": "Сбросить ширину столбцов",
     "resizeColumn": "Изменить ширину столбца {{column}}",
     "remaining": "Свободно ещё {{size}} из 25 МБ",
-    "tooLargeToAttach": "Слишком большой — от лимита 25 МБ осталось только {{size}}"
+    "tooLargeToAttach": "Слишком большой — от лимита 25 МБ осталось только {{size}}",
+    "selectMode": "Выбрать несколько",
+    "attachToEmail": "Прикрепить к новому письму",
+    "attachToEmailCount": "Отправить файлы: {{count}}",
+    "attachTooLarge": "Выбрано {{size}} — вложения ограничены 25 МБ в сумме",
+    "composeOpen": "Сначала закройте или отправьте открытый черновик, затем прикрепите файлы."
   }
 }

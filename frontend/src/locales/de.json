@@ -1611,7 +1611,8 @@
     "emptyFolderInboxDesc": "Alles gelesen",
     "emptyFolderDesc": "Dieser Ordner enthält keine Nachrichten",
     "searchTitle": "Suche: „{{query}}“",
-    "changeLayout": "Layout ändern"
+    "changeLayout": "Layout ändern",
+    "emptyTrash": "Papierkorb leeren"
   },
   "notifications": {
     "newMessage": "Neue Nachricht"
@@ -2177,6 +2178,11 @@
     "resetWidths": "Spaltenbreiten zurücksetzen",
     "resizeColumn": "Spalte {{column}} anpassen",
     "remaining": "{{size}} von 25 MB noch frei",
-    "tooLargeToAttach": "Zu groß – vom Anhangslimit (25 MB) sind nur noch {{size}} frei"
+    "tooLargeToAttach": "Zu groß – vom Anhangslimit (25 MB) sind nur noch {{size}} frei",
+    "selectMode": "Mehrere auswählen",
+    "attachToEmail": "An neue E-Mail anhängen",
+    "attachToEmailCount": "{{count}} Datei(en) mailen",
+    "attachTooLarge": "{{size}} ausgewählt – Anhänge sind auf insgesamt 25 MB begrenzt",
+    "composeOpen": "Schließe oder sende zuerst den offenen Entwurf und hänge die Dateien dann an."
   }
 }

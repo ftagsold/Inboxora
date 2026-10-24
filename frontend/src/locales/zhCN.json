@@ -1611,7 +1611,8 @@
     "emptyFolderInboxDesc": "所有邮件已读",
     "emptyFolderDesc": "此文件夹没有邮件",
     "searchTitle": "搜索：“{{query}}”",
-    "changeLayout": "更改布局"
+    "changeLayout": "更改布局",
+    "emptyTrash": "清空废纸篓"
   },
   "notifications": {
     "newMessage": "新邮件"
@@ -2177,6 +2178,11 @@
     "resetWidths": "重置列宽",
     "resizeColumn": "调整“{{column}}”列宽",
     "remaining": "25 MB 中还剩 {{size}}",
-    "tooLargeToAttach": "文件过大：25 MB 附件限额仅剩 {{size}}"
+    "tooLargeToAttach": "文件过大：25 MB 附件限额仅剩 {{size}}",
+    "selectMode": "多选",
+    "attachToEmail": "附加到新邮件",
+    "attachToEmailCount": "发送 {{count}} 个文件",
+    "attachTooLarge": "已选 {{size}}，附件总计不能超过 25 MB",
+    "composeOpen": "请先关闭或发送已打开的草稿，再附加这些文件。"
   }
 }

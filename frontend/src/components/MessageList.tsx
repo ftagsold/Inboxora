@@ -1,5 +1,6 @@
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
+import { Button, Dialog } from './ui.tsx';
 import MobileFloatingAction from './MobileFloatingAction.tsx';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import i18n from '../i18n.ts';
@@ -2692,6 +2693,28 @@ export default function MessageList() {
     return folderInfo?.special_use === '\\Drafts';
   })();
 
+  // Trash (by mapping or \Trash special-use) gets an "Empty trash" action in the list header.
+  const isTrashFolder = (() => {
+    if (!selectedAccountId) return false;
+    const account = accounts.find(a => a.id === selectedAccountId);
+    if (!account) return false;
+    if (account.folder_mappings?.trash && account.folder_mappings.trash === selectedFolder) return true;
+    const folderInfo = (folders[selectedAccountId] || []).find(f => f.path === selectedFolder);
+    return String(folderInfo?.special_use || '').toLowerCase() === '\\trash';
+  })();
+  const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false);
+  const emptyTrash = async () => {
+    setConfirmEmptyTrash(false);
+    if (!selectedAccountId) return;
+    try {
+      // The server empties in the background (202) and broadcasts folder_emptied when done.
+      await api.emptyFolder(selectedAccountId, selectedFolder);
+      addNotification({ title: t('sidebar.emptying', { name: label }) });
+    } catch (err) {
+      addNotification({ title: t('sidebar.emptyFailed'), body: toAppError(err).message });
+    }
+  };
+
   const formatAddressArray = (arr: unknown) => {
     if (!Array.isArray(arr)) return [];
     return arr.map(a => {
@@ -2944,10 +2967,18 @@ export default function MessageList() {
 
       {isMobile && mailListActive && <MobileModuleHeader title={label} subtitle={[selectedAccount?.name, headerUnread > 0 ? `${headerUnread} · ${t('messageList.unread')}` : null].filter(Boolean).join(' · ')}>
         <HeaderAction icon="unread" label={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(value => !value)} />
+        {isTrashFolder && messagesTotal > 0 && <HeaderAction icon="trash" label={t('messageList.emptyTrash')} data-testid="empty-trash-mobile" onClick={() => setConfirmEmptyTrash(true)} />}
         <HeaderAction icon="sync" label={t('messageList.sync')} disabled={syncing} aria-busy={syncing} onClick={handleSync} />
         <HeaderAction icon={selectionMode ? 'close' : 'select'} label={selectionMode ? t('common.cancel') : t('messageList.selectMessages')} aria-pressed={selectionMode} onClick={() => selectionMode ? clearSelection() : setSelectionModeActive(true)} />
         <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={() => openCompose({ accountId: selectedAccountId || undefined })} />
       </MobileModuleHeader>}
+
+      {confirmEmptyTrash && <Dialog testId="empty-trash-dialog" title={t('messageList.emptyTrash')} closeLabel={t('common.cancel')} onClose={() => setConfirmEmptyTrash(false)} footer={<>
+        <Button onClick={() => setConfirmEmptyTrash(false)}>{t('common.cancel')}</Button>
+        <Button variant="danger" autoFocus onClick={() => { void emptyTrash(); }}>{t('messageList.emptyTrash')}</Button>
+      </>}>
+        <p className="settings-choice-description">{t('sidebar.confirmEmpty', { name: label })}</p>
+      </Dialog>}
 
       {/* ── Desktop header ──────────────────────────────────────────────── */}
       {!isMobile && <div style={{
@@ -2987,6 +3018,24 @@ export default function MessageList() {
               <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                 {messagesTotal}
               </span>
+            )}
+            {isTrashFolder && messagesTotal > 0 && !searchQuery && (
+              <button
+                type="button"
+                data-testid="empty-trash"
+                onClick={() => setConfirmEmptyTrash(true)}
+                title={t('messageList.emptyTrash')}
+                style={{
+                  background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px',
+                  color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                  fontSize: 12, transition: 'color 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                {!isNarrow && t('messageList.emptyTrash')}
+              </button>
             )}
             {/* Sync button */}
             <button

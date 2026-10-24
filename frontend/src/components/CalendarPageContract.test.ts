@@ -431,7 +431,7 @@ test('the ghost and the preview never square off against each other — each rou
 test('a month-view event\'s own border-radius longhands are always set, never conditionally omitted', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.doesNotMatch(source, /\.\.\.\(spanning \? \{ borderTopLeftRadius/);
-  assert.match(source, /borderTopLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderBottomLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderTopRightRadius: segment\?\.continuesTo \? 0 : 4, borderBottomRightRadius: segment\?\.continuesTo \? 0 : 4, paddingLeft: segment\?\.continuesFrom \? 10 : 6, paddingRight: segment\?\.continuesTo \? 10 : 6, overflow: 'visible' \}\}>/);
+  assert.match(source, /borderTopLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderBottomLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderTopRightRadius: segment\?\.continuesTo \? 0 : 4, borderBottomRightRadius: segment\?\.continuesTo \? 0 : 4,\s+\/\/[^\n]*\n\s+\/\/[^\n]*\n\s+paddingLeft: timedCard \? 0 : segment\?\.continuesFrom \? 10 : 6, paddingRight: timedCard \? 0 : segment\?\.continuesTo \? 10 : 6, overflow: 'visible' \}\}>/);
 });
 
 // A cell shows every event its fixed row height fits; only past that does the last fitting row

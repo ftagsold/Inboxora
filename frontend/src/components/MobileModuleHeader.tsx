@@ -23,7 +23,7 @@ export function MobileModuleHeader({ leading = null, title = '', subtitle = unde
   </>, host);
 }
 
-export type HeaderActionIcon = 'back' | 'previous' | 'next' | 'unread' | 'sync' | 'select' | 'close' | 'compose' | 'add' | 'books' | 'calendars' | 'agenda';
+export type HeaderActionIcon = 'back' | 'previous' | 'next' | 'unread' | 'sync' | 'select' | 'close' | 'compose' | 'add' | 'books' | 'calendars' | 'agenda' | 'trash';
 
 export interface HeaderActionProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon: HeaderActionIcon;
@@ -45,6 +45,7 @@ export function HeaderAction({ icon, label, ...props }: HeaderActionProps) {
     books: <><path d="M4 4h14a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Z"/><path d="M4 16h16M8 4v12M12 8h4M12 11h4"/></>,
     calendars: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M7 15h3M14 15h3"/></>,
     agenda: <><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></>,
+    trash: <><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></>,
   };
   return <button type="button" className="mobile-header-action" aria-label={label} title={label} {...props}>
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">{paths[icon]}</svg>

@@ -1611,7 +1611,8 @@
     "emptyFolderInboxDesc": "Tutto letto",
     "emptyFolderDesc": "Questa cartella non contiene messaggi",
     "searchTitle": "Ricerca: «{{query}}»",
-    "changeLayout": "Cambia disposizione"
+    "changeLayout": "Cambia disposizione",
+    "emptyTrash": "Svuota cestino"
   },
   "notifications": {
     "newMessage": "Nuovo messaggio"
@@ -2177,6 +2178,11 @@
     "resetWidths": "Ripristina larghezza colonne",
     "resizeColumn": "Ridimensiona colonna {{column}}",
     "remaining": "{{size}} di 25 MB ancora liberi",
-    "tooLargeToAttach": "Troppo grande: restano solo {{size}} del limite di 25 MB"
+    "tooLargeToAttach": "Troppo grande: restano solo {{size}} del limite di 25 MB",
+    "selectMode": "Selezione multipla",
+    "attachToEmail": "Allega a una nuova e-mail",
+    "attachToEmailCount": "Invia {{count}} file",
+    "attachTooLarge": "{{size}} selezionati: gli allegati sono limitati a 25 MB in totale",
+    "composeOpen": "Chiudi o invia prima la bozza aperta, poi allega questi file."
   }
 }

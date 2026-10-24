@@ -46,13 +46,13 @@
 .files-crumb.is-current { color: var(--text-primary); font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 .files-crumb.is-drop { border-color: var(--accent); background: var(--accent-dim); }
 .files-crumb-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-/* Picking adds a 22px checkbox column, so the toolbar shifts with it: the up arrow centres over
+/* A checkbox column (attach picker, or browse select mode) adds 22px, so the toolbar shifts with it: the up arrow centres over
    the checkboxes (x = 31), the root icon sits in an 18px slot over the file icons (x = 54) and
    its name starts over the file names (x = 82). */
-.files-picking .files-toolbar { padding-left: 19px; }
-.files-picking .files-nav { gap: 4px; }
-.files-picking .files-breadcrumbs > .files-crumb:first-child { gap: 10px; }
-.files-picking .files-crumb-icon { width: 18px; }
+.files-checking .files-toolbar { padding-left: 19px; }
+.files-checking .files-nav { gap: 4px; }
+.files-checking .files-breadcrumbs > .files-crumb:first-child { gap: 10px; }
+.files-checking .files-crumb-icon { width: 18px; }
 .files-crumb-sep { color: var(--text-tertiary); padding: 0 6px; }
 .files-search { position: relative; }
 .files-search > svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
@@ -129,6 +129,10 @@ body.files-resizing, body.files-resizing * { cursor: col-resize !important; user
 .files-status { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 18px; border-top: 1px solid var(--border-subtle); color: var(--text-tertiary); font-size: 11.5px; flex-shrink: 0; }
 .files-status-picked { color: var(--accent); font-weight: 600; }
 .files-status-notice { margin-left: auto; color: var(--text-secondary); }
+.files-status-action { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 2px 9px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent-dim); color: var(--text-primary); font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.files-status-notice + .files-status-action { margin-left: 8px; }
+.files-status-action:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.files-status-action:disabled { opacity: .5; cursor: not-allowed; }
 
 .files-uploads { position: absolute; right: 16px; bottom: 42px; z-index: 5; width: min(320px, calc(100% - 32px)); max-height: 260px; overflow: auto; padding: 8px 12px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--shadow-modal); }
 .files-uploads-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
@@ -176,7 +180,7 @@ body.files-resizing, body.files-resizing * { cursor: col-resize !important; user
   .files-button-label { display: none; }
   .files-row, .files-tile { -webkit-touch-callout: none; }
   .files-header, .files-row { grid-template-columns: minmax(0, 1fr) 72px !important; }
-  .files-picking .files-header, .files-picking .files-row { grid-template-columns: 22px minmax(0, 1fr) 72px !important; }
+  .files-checking .files-header, .files-checking .files-row { grid-template-columns: 22px minmax(0, 1fr) 72px !important; }
   .files-col-modified, .files-col-type, .files-col-location, .files-col-resize, .files-columns-button { display: none !important; }
   .files-row { padding: 11px 8px; }
   .files-actions .ui-button { padding: 8px 10px; }

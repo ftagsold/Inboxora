@@ -1611,7 +1611,8 @@
     "emptyFolderInboxDesc": "You’re all caught up",
     "emptyFolderDesc": "This folder has no messages",
     "searchTitle": "Search: “{{query}}”",
-    "changeLayout": "Change layout"
+    "changeLayout": "Change layout",
+    "emptyTrash": "Empty trash"
   },
   "notifications": {
     "newMessage": "New message"
@@ -2177,6 +2178,11 @@
     "resetWidths": "Reset column widths",
     "resizeColumn": "Resize {{column}} column",
     "remaining": "{{size}} of 25 MB still free",
-    "tooLargeToAttach": "Too large — only {{size}} of the 25 MB attachment limit is left"
+    "tooLargeToAttach": "Too large — only {{size}} of the 25 MB attachment limit is left",
+    "selectMode": "Select multiple",
+    "attachToEmail": "Attach to new email",
+    "attachToEmailCount": "Email {{count}} file(s)",
+    "attachTooLarge": "{{size}} selected — attachments are limited to 25 MB in total",
+    "composeOpen": "Close or send the open draft first, then attach these files."
   }
 }

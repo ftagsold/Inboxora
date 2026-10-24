@@ -1611,7 +1611,8 @@
     "emptyFolderInboxDesc": "Vše přečteno",
     "emptyFolderDesc": "V této složce nejsou žádné zprávy",
     "searchTitle": "Hledat: „{{query}}“",
-    "changeLayout": "Změnit rozložení"
+    "changeLayout": "Změnit rozložení",
+    "emptyTrash": "Vysypat koš"
   },
   "notifications": {
     "newMessage": "Nová zpráva"
@@ -2177,6 +2178,11 @@
     "resetWidths": "Obnovit šířku sloupců",
     "resizeColumn": "Změnit šířku sloupce {{column}}",
     "remaining": "Volné ještě {{size}} z 25 MB",
-    "tooLargeToAttach": "Příliš velký — z limitu 25 MB zbývá jen {{size}}"
+    "tooLargeToAttach": "Příliš velký — z limitu 25 MB zbývá jen {{size}}",
+    "selectMode": "Vybrat více",
+    "attachToEmail": "Připojit k novému e-mailu",
+    "attachToEmailCount": "Poslat soubory: {{count}}",
+    "attachTooLarge": "Vybráno {{size}} — přílohy jsou omezeny na celkem 25 MB",
+    "composeOpen": "Nejprve zavřete nebo odešlete otevřený koncept, pak připojte tyto soubory."
   }
 }

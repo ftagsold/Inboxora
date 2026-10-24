@@ -8,6 +8,10 @@ import { Button, Dialog, EmptyState, inputStyle } from './ui.tsx';
 import { EditIcon, TrashIcon } from './menuIcons.tsx';
 import { FileIcon, extensionOf, fileKind, previewable } from './fileIcons.tsx';
 import { useUiScale } from '../hooks/useUiScale.ts';
+import { useStore } from '../store/index.ts';
+
+/** The compose send limit for all attachments together (backend: 25 MB). */
+const ATTACH_LIMIT = 25 * 1024 * 1024;
 import './files.css';
 
 /** What the explorer is for: managing files, or choosing files to attach. */
@@ -128,6 +132,10 @@ function freeName(name: string, taken: Set<string>): string {
 export default function FileExplorer({ server, mode = 'browse', onPickChange, pickBudget = Infinity }: FileExplorerProps) {
   const { t, i18n } = useTranslation();
   const picking = mode === 'pick';
+  // Browse mode's checkbox column: toggled from the toolbar, it shows the same 22px column the
+  // attach picker uses (so the toolbar alignment rules for it apply unchanged).
+  const [selectMode, setSelectMode] = useState(false);
+  const checking = picking || selectMode;
   const [path, setPath] = useState('/');
   const [entries, setEntries] = useState<WebDavEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -230,7 +238,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
   const [liveWidths, setLiveWidths] = useState<WebDavView['widths'] | null>(null);
   const widths = liveWidths ?? layout.widths;
   const gridTemplate = [
-    picking ? '22px' : null,
+    checking ? '22px' : null,
     widths.name ? `${widths.name}px` : 'minmax(160px, 1fr)',
     ...columns.map(column => `${widths[column] ?? DEFAULT_WIDTHS[column]}px`),
     widths.name ? 'minmax(0, 1fr)' : null,
@@ -288,6 +296,11 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
     } else {
       setSelected(new Set([entry.path]));
     }
+    setAnchor(entry.path);
+  };
+
+ const toggleSelected = (entry: WebDavEntry) => {
+    setSelected(current => { const next = new Set(current); if (next.has(entry.path)) next.delete(entry.path); else next.add(entry.path); return next; });
     setAnchor(entry.path);
   };
 
@@ -540,6 +553,9 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
 
   // ── rendering ──────────────────────────────────────────────────────────────
   const single = menu?.target && selectedEntries.length <= 1 ? menu.target : null;
+  const selectedFiles = selectedEntries.filter(entry => !entry.isDir);
+  const selectedFileBytes = selectedFiles.reduce((sum, entry) => sum + (entry.size ?? 0), 0);
+  const attachTooLarge = selectedFileBytes > ATTACH_LIMIT;
   const columnLabels: Record<WebDavColumn, string> = { location: t('files.location'), type: t('files.type'), size: t('files.size'), modified: t('files.modified') };
   const menuItems = menu ? (menu.kind === 'columns' ? [
     ...COLUMN_ORDER.map(column => ({ key: `col-${column}`, label: columnLabels[column], checked: layout.columns.includes(column), keepOpen: true, onClick: () => toggleColumn(column), show: true })),
@@ -548,6 +564,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
   ] : menu.target ? [
     { key: 'open', label: menu.target.isDir ? t('files.open') : (previewable(menu.target) ? t('files.preview') : t('files.download')), icon: <OpenIcon />, onClick: () => open(menu.target!), show: Boolean(single) },
     { key: 'download', label: selectedEntries.length > 1 ? t('files.downloadCount', { count: selectedEntries.filter(item => !item.isDir).length }) : t('files.download'), icon: <DownloadIcon />, onClick: () => download(selectedEntries), show: selectedEntries.some(item => !item.isDir) },
+    { key: 'attach', label: t('files.attachToEmailCount', { count: selectedFiles.length || 1 }), icon: <MailIcon />, onClick: () => attachToEmail(selectedEntries.length ? selectedEntries : [menu.target!]), show: !picking && (selectedFiles.length > 0 || !menu.target.isDir) && !attachTooLarge },
     { key: 'sep1', separator: true, show: !picking },
     { key: 'rename', label: t('files.rename'), icon: <EditIcon />, onClick: () => openNameDialog({ kind: 'rename', entry: menu.target! }), show: Boolean(single) && !picking, hint: 'F2' },
     { key: 'duplicate', label: t('files.duplicate'), icon: <CopyIcon />, onClick: () => duplicate(menu.target!), show: Boolean(single) && !picking },
@@ -586,7 +603,11 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
       cutPaths?.has(entry.path) ? 'is-cut' : '',
       entry.isDir && dropTarget === entry.path ? 'is-drop' : '',
     ].filter(Boolean).join(' '),
-    onClick: (event: ReactMouseEvent) => { selectClick(entry, event); if (picking && !entry.isDir && !event.shiftKey && !event.metaKey && !event.ctrlKey) togglePick(entry); },
+    onClick: (event: ReactMouseEvent) => {
+      if (selectMode && !event.shiftKey) { toggleSelected(entry); return; }
+      selectClick(entry, event);
+      if (picking && !entry.isDir && !event.shiftKey && !event.metaKey && !event.ctrlKey) togglePick(entry);
+    },
     onDoubleClick: () => { if (!(picking && !entry.isDir)) open(entry); },
     onContextMenu: (event: ReactMouseEvent) => openMenu(event, entry),
     ...touchMenuProps(entry),
@@ -610,7 +631,25 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
     return <span key={column} className="files-col files-col-location"><button type="button" className="files-location-link" title={parent} onClick={event => { event.stopPropagation(); navigate(parent); }}>{parent === '/' ? server.displayName : parent.slice(1, -1)}</button></span>;
   };
 
-  return <div className={`files-explorer${picking ? ' files-picking' : ''}`} data-testid="file-explorer">
+  const attachToEmail = async (items: WebDavEntry[]) => {
+    const files = items.filter(entry => !entry.isDir);
+    if (!files.length) return;
+    if (useStore.getState().composing) { setError(t('files.composeOpen')); return; }
+    setBusy(true); setError(null);
+    try {
+      const result = await api.webdav.attachments(server.id, files.map(entry => entry.path));
+      const { selectedAccountId, openCompose } = useStore.getState();
+      openCompose({ accountId: selectedAccountId || undefined, attachments: result.attachments });
+    } catch (err) {
+      setError(toAppError(err).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const allSelected = visible.length > 0 && visible.every(entry => selected.has(entry.path));
+  const selectBox = (entry: WebDavEntry, className?: string) => <input type="checkbox" className={className} tabIndex={-1} aria-label={t('files.pick', { name: entry.name })} checked={selected.has(entry.path)} onChange={() => toggleSelected(entry)} onClick={event => event.stopPropagation()} />;
+
+  return <div className={`files-explorer${picking ? ' files-picking' : ''}${checking ? ' files-checking' : ''}`} data-testid="file-explorer">
     <div className="files-toolbar">
       <div className="files-nav">
         <Button variant="ghost" className="files-icon-button files-up" aria-label={t('files.up')} title={t('files.up')} disabled={path === '/'} onClick={() => navigate(parentPath(path))}><UpIcon /></Button>
@@ -625,6 +664,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
         </nav>
       </div>
       <div className="files-actions">
+        {!picking && <Button variant="ghost" className="files-icon-button" aria-pressed={selectMode} data-testid="files-select-mode" aria-label={t('files.selectMode')} title={t('files.selectMode')} onClick={() => { setSelectMode(on => !on); setSelected(new Set()); }} style={selectMode ? { color: 'var(--accent)', background: 'var(--accent-dim)' } : undefined}><SelectIcon /></Button>}
         <Button variant="ghost" className="files-icon-button" aria-label={t('files.refresh')} title={t('files.refresh')} onClick={() => refresh()} disabled={loading}><RefreshIcon /></Button>
         <div className="files-search">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.4-4.4" /></svg>
@@ -668,7 +708,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
       {...surfaceDrop}
     >
       {view === 'list' && visible.length > 0 && <div className="files-header" role="row">
-        {picking && <span className="files-check-col" />}
+        {checking && <span className="files-check-col">{selectMode && <input type="checkbox" aria-label={t('files.selectAll')} checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(visible.map(item => item.path)))} />}</span>}
         {sortHeader('name', t('files.name'))}
         {columns.map(column => sortHeader(column, columnLabels[column]))}
       </div>}
@@ -676,12 +716,14 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
       {!loading && !searching && !error && !visible.length && <EmptyState title={filter ? t('files.noMatches') : t('files.emptyFolder')}>{!filter && !picking ? t('files.emptyFolderHint') : null}</EmptyState>}
       {view === 'list' ? <div className="files-rows">
         {visible.map(entry => <div key={entry.path} {...rowProps(entry)}>
+          {selectMode && <span className="files-check-col">{selectBox(entry)}</span>}
           {picking && <span className="files-check-col">{!entry.isDir && <input type="checkbox" tabIndex={-1} aria-label={t('files.pick', { name: entry.name })} checked={picked.has(entry.path)} disabled={tooLarge(entry)} onChange={() => togglePick(entry)} onClick={event => event.stopPropagation()} />}</span>}
           <span className="files-col files-col-name"><FileIcon kind={fileKind(entry)} /><span className="files-name" title={entry.name}>{entry.name}</span></span>
           {columns.map(column => cell(entry, column))}
         </div>)}
       </div> : <div className="files-grid">
         {visible.map(entry => <div key={entry.path} {...rowProps(entry)} title={entry.name}>
+          {selectMode && selectBox(entry, 'files-tile-check')}
           {picking && !entry.isDir && <input type="checkbox" className="files-tile-check" tabIndex={-1} aria-label={t('files.pick', { name: entry.name })} checked={picked.has(entry.path)} disabled={tooLarge(entry)} onChange={() => togglePick(entry)} onClick={event => event.stopPropagation()} />}
           <span className="files-tile-icon">{fileKind(entry) === 'image' && previewable(entry) ? <img src={api.webdav.fileUrl(server.id, entry.path, true)} alt="" loading="lazy" draggable={false} /> : <FileIcon kind={fileKind(entry)} size={40} />}</span>
           <span className="files-tile-name">{entry.name}</span>
@@ -697,6 +739,8 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
       {selectedEntries.length > 0 && <span>· {t('files.selectedCount', { count: selectedEntries.length })}{totalSelectedSize > 0 ? ` · ${formatSize(totalSelectedSize)}` : ''}</span>}
       {picking && picked.size > 0 && <span className="files-status-picked">· {t('files.pickedCount', { count: picked.size })}</span>}
       {notice && <span className="files-status-notice">{notice}</span>}
+      {/* Selection actions live here, not in the toolbar, so the toolbar never re-wraps. */}
+      {!picking && selectedFiles.length > 0 && <button type="button" className="files-status-action" onClick={() => { void attachToEmail(selectedFiles); }} disabled={busy || attachTooLarge} data-testid="files-attach-email" title={attachTooLarge ? t('files.attachTooLarge', { size: formatSize(selectedFileBytes) }) : t('files.attachToEmail')}><MailIcon />{t('files.attachToEmailCount', { count: selectedFiles.length })}</button>}
       {busy && <span className="files-spinner files-spinner-small" aria-label={t('files.working')} />}
     </div>
 
@@ -840,6 +884,7 @@ const UpIcon = () => <svg {...icon}><path d="M12 19V5" /><path d="m5 12 7-7 7 7"
 const ListIcon = () => <svg {...icon}><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>;
 const GridIcon = () => <svg {...icon}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>;
 const SlidersIcon = () => <svg {...icon}><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>;
+const MailIcon = () => <svg {...icon}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
 const CheckIcon = () => <svg {...icon}><path d="m5 12 5 5 9-10" /></svg>;
 const FolderIcon = () => <svg {...icon}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>;
 export const ServerIcon = () => <svg {...icon}><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></svg>;
