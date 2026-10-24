@@ -36,6 +36,7 @@ import { APP_NAME } from '../appName.ts';
 
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
+const FilesPage    = lazy(() => import('./FilesPage.tsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.tsx'));
 const ScheduledReader = lazy(() => import('./ScheduledReader.tsx'));
 
@@ -97,7 +98,7 @@ export default function MailApp() {
     mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, addNotification,
     fontSize, showAppBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
-    showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
+    showContacts, showCalendar, showFiles, setShowContacts, setShowCalendar, setShowFiles, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
     conversationReaderViewEnabled, authEpoch,
@@ -442,9 +443,10 @@ export default function MailApp() {
   const userId = useStore(state => state.user?.id);
   const refreshAiStatus = useStore(state => state.refreshAiStatus);
   useEffect(() => { if (userId) void refreshAiStatus(); }, [userId, refreshAiStatus]);
-  useBackLayer(readerOpen && !showContacts && !showCalendar, closeReader, 10);
+  useBackLayer(readerOpen && !showContacts && !showCalendar && !showFiles, closeReader, 10);
   useBackLayer(showContacts, () => setShowContacts(false), 20);
   useBackLayer(showCalendar, () => setShowCalendar(false), 20);
+  useBackLayer(showFiles, () => setShowFiles(false), 20);
   useBackLayer(mobileSidebarOpen, () => setMobileSidebarOpen(false), 1300);
   useBackLayer(showAdmin, () => setShowAdmin(false), 2000);
 
@@ -888,10 +890,13 @@ export default function MailApp() {
           {showCalendar && <div data-testid="mobile-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
             <Suspense fallback={lazyFallback}><CalendarPage isActive={showCalendar} /></Suspense>
           </div>}
-          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !selectedScheduledId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          {showFiles && <div data-testid="mobile-files-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><FilesPage /></Suspense>
+          </div>}
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !showFiles && !selectedMessageId && !selectedScheduledId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
-          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || selectedScheduledId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
+          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && !showFiles && (selectedMessageId || selectedScheduledId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
             {selectedScheduledId
               ? <Suspense fallback={lazyFallback}><ScheduledReader id={selectedScheduledId} onBack={closeReader} /></Suspense>
               : <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />}
@@ -924,10 +929,13 @@ export default function MailApp() {
             {showContacts && <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
             </div>}
+            {showFiles && <div data-testid="desktop-files-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+              <Suspense fallback={lazyFallback}><FilesPage /></Suspense>
+            </div>}
             {showCalendar && <div data-testid="desktop-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
             </div>}
-            <div style={{ position: 'relative', display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayoutDirection }}>
+            <div style={{ position: 'relative', display: showContacts || showCalendar || showFiles ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayoutDirection }}>
               <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
                 display: compactMail && readerOpen ? 'none' : 'flex', flex: compactMail ? 1 : currentLayoutDirection === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
                 width: compactMail ? '100%' : currentLayoutDirection === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',

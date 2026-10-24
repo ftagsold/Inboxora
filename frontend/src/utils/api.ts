@@ -30,7 +30,26 @@ export interface CalendarEventPayload {
   [key: string]: unknown;
 }
 
-export type QueryParams = Record<string, string | number | boolean | null | undefined>;
+/** A WebDAV file server as GET /webdav/servers returns it (never the password). */
+export interface WebDavServer {
+  id: string;
+  displayName: string;
+  url: string;
+  username: string;
+  createdAt?: string | null;
+}
+
+/** One file or folder in a WebDAV listing; `path` is relative to the server root. */
+export interface WebDavEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size?: number | null;
+  modified?: string | null;
+  contentType?: string | null;
+}
+
+export type QueryParams =Record<string, string | number | boolean | null | undefined>;
 
 export interface ThreadResponse {
   messages: StoreMessageRow[];
@@ -511,6 +530,41 @@ export const api = {
     update:    (id: string, data: unknown) => request('PATCH', `/dav/servers/${encodeURIComponent(id)}`, data),
     sync:      (id: string) => request('POST', `/dav/servers/${encodeURIComponent(id)}/sync`),
     remove:    (id: string) => request('DELETE', `/dav/servers/${encodeURIComponent(id)}`),
+  },
+
+  // WebDAV file servers: the Files explorer and "attach from WebDAV" in compose.
+  // Paths are relative to the server's root URL; folders end with "/".
+  webdav: {
+    listServers:  () => request('GET', '/webdav/servers') as Promise<{ servers: WebDavServer[] }>,
+    createServer: (data: { displayName: string; url: string; username: string; password: string }) => request('POST', '/webdav/servers', data) as Promise<{ server: WebDavServer }>,
+    updateServer: (id: string, data: { displayName?: string; url?: string; username?: string; password?: string }) => request('PATCH', `/webdav/servers/${encodeURIComponent(id)}`, data) as Promise<{ server: WebDavServer }>,
+    removeServer: (id: string) => request('DELETE', `/webdav/servers/${encodeURIComponent(id)}`),
+    list: (id: string, path: string, signal?: AbortSignal) => request('GET', `/webdav/servers/${encodeURIComponent(id)}/list?${toSearchParams({ path })}`, undefined, undefined, signal ? { signal } : {}) as Promise<{ path: string; entries: WebDavEntry[] }>,
+    fileUrl: (id: string, path: string, inline = false) => `${BASE}/webdav/servers/${encodeURIComponent(id)}/file?${toSearchParams({ path, ...(inline ? { inline: '1' } : {}) })}`,
+    remove: (id: string, path: string, dir: boolean) => request('DELETE', `/webdav/servers/${encodeURIComponent(id)}/file?${toSearchParams({ path, ...(dir ? { dir: '1' } : {}) })}`),
+    mkdir: (id: string, path: string) => request('POST', `/webdav/servers/${encodeURIComponent(id)}/mkdir`, { path }),
+    move: (id: string, from: string, to: string, dir: boolean, overwrite = false) => request('POST', `/webdav/servers/${encodeURIComponent(id)}/move`, { from, to, dir, overwrite }),
+    copy: (id: string, from: string, to: string, dir: boolean, overwrite = false) => request('POST', `/webdav/servers/${encodeURIComponent(id)}/copy`, { from, to, dir, overwrite }),
+    attachments: (id: string, paths: string[]) => request('POST', `/webdav/servers/${encodeURIComponent(id)}/attachments`, { paths }) as Promise<{ attachments: Array<{ name: string; size: number; type: string; data: string }> }>,
+    /** Upload one file; XHR so the caller gets progress. Rejects with the server's error message. */
+    upload: (id: string, path: string, file: Blob, { overwrite = false, onProgress }: { overwrite?: boolean; onProgress?: (fraction: number) => void } = {}) => new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', `${BASE}/webdav/servers/${encodeURIComponent(id)}/file?${toSearchParams({ path, ...(overwrite ? { overwrite: '1' } : {}) })}`);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader(CSRF_HEADER, CSRF_VALUE);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      if (onProgress) xhr.upload.onprogress = event => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
+        let message = 'Upload failed';
+        try { message = JSON.parse(xhr.responseText).error || message; } catch { /* not JSON */ }
+        const error = new Error(message) as Error & { status?: number };
+        error.status = xhr.status;
+        reject(error);
+      };
+      xhr.onerror = () => reject(new Error('Upload failed'));
+      xhr.send(file);
+    }),
   },
 
   // DAV Hub — dedicated, revocable app passwords for CardDAV/CalDAV clients.

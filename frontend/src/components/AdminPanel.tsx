@@ -6,6 +6,7 @@ import { inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
 import DavServersSettings from './DavServersSettings.tsx';
+import WebDavFilesSettings from './WebDavFilesSettings.tsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -7089,7 +7090,7 @@ const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
   { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
-  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'dav-servers', 'integrations', 'ai', 'ai-actions', 'plugins'] },
+  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'dav-servers', 'webdav-files', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
 ];
 
@@ -7138,6 +7139,10 @@ const TABS = [
   {
     id: 'dav-servers', labelKey: 'admin.tabs.davServers',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg>,
+  },
+  {
+    id: 'webdav-files', labelKey: 'admin.tabs.webdavFiles',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>,
   },
   {
     id: 'integrations', labelKey: 'admin.tabs.integrations',
@@ -8666,6 +8671,7 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     // Security
     { label: tabLabel('davCredentials'), keywords: ['dav', 'davx5', 'carddav', 'caldav', 'app password', 'sync password'], tab: 'dav-credentials', breadcrumb: tabLabel('davCredentials') },
     { label: tabLabel('davServers'), keywords: ['caldav', 'carddav', 'dav', 'nextcloud', 'radicale', 'address book', 'contacts server', 'calendar server'], tab: 'dav-servers', breadcrumb: tabLabel('davServers') },
+    { label: tabLabel('webdavFiles'), keywords: ['webdav', 'files', 'file server', 'nextcloud', 'owncloud', 'cloud', 'attachments', 'dateien'], tab: 'webdav-files', breadcrumb: tabLabel('webdavFiles') },
     { label: t('admin.security.totpTitle'), keywords: ['2fa', 'totp', 'authenticator', 'two factor', 'otp', 'two-factor', 'mfa', 'security code'], tab: 'security', subtab: 'security', breadcrumb: secCrumb },
     { label: t('admin.security.ssoTitle'), keywords: ['sso', 'linked', 'identity', 'provider', 'link', 'unlink', 'oidc', 'connect identity'], tab: 'security', subtab: 'security', breadcrumb: secCrumb },
     { label: t('admin.security.loginProtectionTitle'), keywords: ['login', 'attempts', 'brute force', 'lockout', 'max attempts', 'rate limit'], tab: 'security', subtab: 'security', adminOnly: true, breadcrumb: secCrumb },
@@ -8825,6 +8831,7 @@ export default function AdminPanel() {
       {adminTab === 'security' && <SecurityPrivacyTab initialSubTab={pendingSubTab} />}
       {adminTab === 'dav-credentials' && <DavCredentialsTab />}
       {adminTab === 'dav-servers' && <DavServersSettings />}
+      {adminTab === 'webdav-files' && <WebDavFilesSettings />}
       {adminTab === 'notifications' && <NotificationsTab />}
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
       {adminTab === 'ai' && <AISection />}

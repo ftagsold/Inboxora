@@ -12,6 +12,7 @@ function applyPath(pathname: string): boolean {
   if (pathForView(target) === currentPath()) return true;
   if (target.kind === 'calendar') state.setShowCalendar(true);
   else if (target.kind === 'contacts') state.setShowContacts(true);
+  else if (target.kind === 'files') state.setShowFiles(true);
   else {
     if (target.accountId && state.accountsReady && !state.accounts.some(account => account.id === target.accountId)) return false;
     state.setSelectedAccount(target.accountId, target.folder);

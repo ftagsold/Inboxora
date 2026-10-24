@@ -31,6 +31,9 @@ import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSig
 import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
 import { parseInertHtml } from '../utils/inertHtml.ts';
+import { useWebDavServers } from './FilesPage.tsx';
+import { AttachSourceDialog, WebDavPickerDialog } from './WebDavAttachDialog.tsx';
+import type { PickedAttachment } from './WebDavAttachDialog.tsx';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -382,6 +385,14 @@ export default function ComposeModal() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldPositionCursorRef = useRef(isReply || isForward);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // With WebDAV file servers configured, attaching first asks where the files come from.
+  const { servers: webdavServers } = useWebDavServers();
+  const [attachChooserOpen, setAttachChooserOpen] = useState(false);
+  const [webdavPickerServer, setWebdavPickerServer] = useState<string | null>(null);
+  const requestAttach = () => {
+    if (webdavServers?.length) setAttachChooserOpen(true);
+    else fileInputRef.current?.click();
+  };
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const signatureRef = useRef<HTMLDivElement | null>(null);
   const quotedHtmlRef = useRef<HTMLDivElement | null>(null);
@@ -735,6 +746,29 @@ export default function ComposeModal() {
     });
     e.target.value = '';
   };
+
+  const addPickedAttachments = (picked: PickedAttachment[]) => {
+    setWebdavPickerServer(null);
+    setAttachments(prev => {
+      const names = new Set(prev.map(a => a.name));
+      return [...prev, ...picked.filter(a => !names.has(a.name)).map(a => ({ ...a }))];
+    });
+  };
+
+  const attachDialogs = <>
+    {attachChooserOpen && webdavServers && <AttachSourceDialog
+      servers={webdavServers}
+      onClose={() => setAttachChooserOpen(false)}
+      onLocal={() => { setAttachChooserOpen(false); fileInputRef.current?.click(); }}
+      onWebDav={serverId => { setAttachChooserOpen(false); setWebdavPickerServer(serverId); }}
+    />}
+    {webdavPickerServer && webdavServers && <WebDavPickerDialog
+      servers={webdavServers}
+      initialServerId={webdavPickerServer}
+      onClose={() => setWebdavPickerServer(null)}
+      onAttach={addPickedAttachments}
+    />}
+  </>;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -1309,6 +1343,7 @@ export default function ComposeModal() {
         }}
       >
         <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+        {attachDialogs}
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center',
@@ -1540,7 +1575,7 @@ export default function ComposeModal() {
             />
           ) : (
             <div className="tiptap-compose" style={{ flex: '1 0 auto', minHeight: 200, display: 'flex', flexDirection: 'column' }}>
-              {editor && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
+              {editor && <RichToolbar editor={editor} onAttach={requestAttach}
                 htmlMode={htmlMode}
                 onToggleHtml={() => {
                   if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -1961,6 +1996,7 @@ export default function ComposeModal() {
       }}
     >
       <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+      {attachDialogs}
       <input ref={imageInputRef} type="file" accept="image/*" onChange={ (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) insertImageIntoEditor(f); e.target.value = ''; }} style={{ display: 'none' }} />
       {/* Title bar */}
       <div
@@ -2171,7 +2207,7 @@ export default function ComposeModal() {
       </div>
 
       {/* Toolbar — sits outside overflow container so dropdowns are never clipped */}
-      {!plaintextCompose && editor && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
+      {!plaintextCompose && editor && <RichToolbar editor={editor} onAttach={requestAttach} onInsertImage={() => imageInputRef.current?.click()}
         htmlMode={htmlMode}
         onToggleHtml={() => {
           if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -2356,7 +2392,7 @@ export default function ComposeModal() {
           <button
             type="button"
             title={t('compose.toolbar.attachFile')}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={requestAttach}
             style={{
               background: 'none', border: 'none', borderRadius: 5, padding: '4px 8px',
               color: 'var(--text-tertiary)', cursor: 'pointer', display: 'flex', alignItems: 'center',

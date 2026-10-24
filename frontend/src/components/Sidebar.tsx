@@ -87,6 +87,14 @@ const ICONS = {
   calendar: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
   ),
+  files: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="8" y1="13" x2="16" y2="13"/>
+      <line x1="8" y1="17" x2="13" y2="17"/>
+    </svg>
+  ),
   contacts: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
       <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
@@ -289,7 +297,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
     accountsReady,
     sidebarWidth,
     isSidebarResizing,
-    showContacts, setShowContacts, showCalendar, setShowCalendar,
+    showContacts, setShowContacts, showCalendar, setShowCalendar, showFiles, setShowFiles,
   } = useStore();
 
   const isMobile = useMobile();
@@ -911,7 +919,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             testId="all-inboxes"
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && !showContacts && !showCalendar}
+            active={isUnified && !showContacts && !showCalendar && !showFiles}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             onClick={() => setSelectedAccount(null, 'INBOX')}
@@ -922,7 +930,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
         {accounts.map(account => {
           const unread = unreadCounts.byAccount[account.id] || 0;
           const expanded = expandedAccounts[account.id];
-          const isSelected = !showContacts && !showCalendar && selectedAccountId === account.id;
+          const isSelected = !showContacts && !showCalendar && !showFiles && selectedAccountId === account.id;
           const accountFolders = folders[account.id] || [];
 
           const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
@@ -1142,7 +1150,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                   if (isHidden && !showingHidden) return null;
 
                   const isRenaming = renamingFolder?.accountId === account.id && renamingFolder?.path === folder.path;
-                  const isFolderSelected = !showContacts && !showCalendar && selectedAccountId === account.id && selectedFolder === folder.path;
+                  const isFolderSelected = !showContacts && !showCalendar && !showFiles && selectedAccountId === account.id && selectedFolder === folder.path;
                   const visibleChildren = showingHidden ? children : children.filter(c => !accountHiddenPaths.includes(c.path));
                   const hasChildren = visibleChildren.length > 0;
                   const collapseKey = `${account.id}:${folder.path}`;
@@ -1376,7 +1384,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                 if (!account || !accountId) return null;
                 const accountFolders = folders[accountId] || [];
                 const folderObj = accountFolders.find(f => f.path === path);
-                const isActive = !showContacts && !showCalendar && selectedAccountId === accountId && selectedFolder === path;
+                const isActive = !showContacts && !showCalendar && !showFiles && selectedAccountId === accountId && selectedFolder === path;
                 const unreadCount = folderObj?.unread_count || 0;
                 const isRenamingThis = renamingFav?.accountId === accountId && renamingFav?.path === path;
                 const isDragging = favDragIdx === idx;
@@ -1573,11 +1581,12 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
           );
         })()}
 
-      {/* Calendar and Contacts are pinned to the bottom of the rail, above the
+      {/* Calendar, Contacts and Files are pinned to the bottom of the rail, above the
           profile section — not part of the scrollable account list above, so
           the gap between them stays put regardless of how many accounts/
-          folders there are. */}
-      <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+          folders there are. The gap between items equals the padding above the
+          first and below the last, so the three sit evenly in their band. */}
+      <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border-subtle)' }}>
         {!isMobile && (
           <NavItem testId="calendar-nav-primary" icon={ICONS.calendar} label={t('calendar.title')} active={showCalendar} collapsed={sidebarCollapsed} onClick={() => setShowCalendar(true)} />
         )}
@@ -1618,6 +1627,17 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             }}
           />
         )}
+        <NavItem
+          testId={isMobile ? 'files-nav-mobile' : 'files-nav-primary'}
+          icon={ICONS.files}
+          label={t('files.title')}
+          active={showFiles}
+          collapsed={sidebarCollapsed}
+          onClick={() => {
+            setShowFiles(true);
+            if (isMobile) setMobileSidebarOpen(false);
+          }}
+        />
       </div>
 
       {/* Bottom — mobile: inline user section; desktop: user menu button */}

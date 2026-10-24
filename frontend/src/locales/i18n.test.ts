@@ -478,6 +478,11 @@ type SameValueRule = 'any' | string[][];
 
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'preload.messages': [['en', 'fr']], // "messages" in both.
+  // Files explorer: "URL WebDAV" (fr/it), "Folder" (en/pl), "Name" and "Uploads" (de/en).
+  'admin.webdavFiles.url': [['fr', 'it']],
+  'files.folder': [['en', 'pl']],
+  'files.name': [['de', 'en']],
+  'files.uploads': [['de', 'en']],
   'calendar.localCalendars': 'any', // "Local" is the same word in several languages.
   'contacts.addressBooks.local': 'any',
   'admin.imapLimits.colAccount': [['de', 'pl'], ['en', 'it']], // "Konto" / "Account" in both languages.

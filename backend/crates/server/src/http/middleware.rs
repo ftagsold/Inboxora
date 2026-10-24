@@ -115,7 +115,10 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
         h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
     }
     h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    // A handler may relax framing for itself (inline file previews use SAMEORIGIN).
+    if !h.contains_key(header::X_FRAME_OPTIONS) {
+        h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    }
     h.insert(header::REFERRER_POLICY, HeaderValue::from_static("same-origin"));
     res
 }

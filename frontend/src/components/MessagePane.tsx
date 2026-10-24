@@ -161,7 +161,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     replyDefault, shortcuts,
     categorizationEnabled: _categorizationEnabled, setCategoryCounts, adjustCategoryCount,
     aiActions, setShowAdmin, setAdminTab,
-    showContacts, showCalendar,
+    showContacts, showCalendar, showFiles,
   } = useStore();
 
   // Detached-window mode (#219): when a message id is passed in, this pane renders that
@@ -184,7 +184,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // The shell's mobile top bar hosts exactly one module's header at a time. The reader
   // claims it only while its pane is the visible module — when Contacts/Calendar are
   // shown the pane is hidden, so the reader must not portal into the shared host.
-  const showMobileHeader = isMobile && !showContacts && !showCalendar;
+  const showMobileHeader = isMobile && !showContacts && !showCalendar && !showFiles;
   const defaultReplyAll = replyDefault === 'replyAll';
 
   const effectiveShortcuts = getEffectiveShortcuts(shortcuts);

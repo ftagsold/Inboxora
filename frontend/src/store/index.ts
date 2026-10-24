@@ -218,6 +218,8 @@ export interface StoreState {
   setShowContacts: (showContacts: boolean) => void;
   showCalendar: boolean;
   setShowCalendar: (showCalendar: boolean) => void;
+  showFiles: boolean;
+  setShowFiles: (showFiles: boolean) => void;
   calendarWeekStartsOn: number;
   setCalendarWeekStartsOn: (calendarWeekStartsOn: number) => void;
   visibleCalendarIds: string[] | null;
@@ -444,6 +446,7 @@ type StoreStateRead = Pick<StoreState,
   | 'senderFaviconsEpoch'
   | 'showCalendar'
   | 'showContacts'
+  | 'showFiles'
   | 'sidebarCollapsed'
   | 'swipeActions'
   | 'threadMessages'
@@ -674,8 +677,8 @@ export const useStore = create<StoreState>()((set, get) => ({
       // Returning from Calendar/Contacts is a presentation change, not a reload.
       // The mounted mail list still receives background updates. Preserve its
       // loaded pages, scroll position and native thread membership immediately.
-      if (!navChanged && (state.showCalendar || state.showContacts)) {
-        return { showContacts: false, showCalendar: false, selectedMessageId: null, selectedScheduledId: null, mobileSidebarOpen: false };
+      if (!navChanged && (state.showCalendar || state.showContacts || state.showFiles)) {
+        return { showContacts: false, showCalendar: false, showFiles: false, selectedMessageId: null, selectedScheduledId: null, mobileSidebarOpen: false };
       }
       return {
         selectedAccountId: accountId,
@@ -689,7 +692,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         messagesRefreshToken: state.messagesRefreshToken + 1,
         expandedThreadId: null,
         threadMessages: {},
-        showContacts: false, showCalendar: false,
+        showContacts: false, showCalendar: false, showFiles: false,
         ...(navChanged && wasScopedSearch ? { searchQuery: '' } : {}),
       };
     });
@@ -991,9 +994,11 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   // Contacts view
   showContacts: false,
-  setShowContacts: (showContacts: boolean) =>set({ showContacts, ...(showContacts ? { showCalendar: false } : {}) }),
+  setShowContacts: (showContacts: boolean) =>set({ showContacts, ...(showContacts ? { showCalendar: false, showFiles: false } : {}) }),
   showCalendar: false,
-  setShowCalendar: (showCalendar: boolean) =>set({ showCalendar, ...(showCalendar ? { showContacts: false } : {}) }),
+  setShowCalendar: (showCalendar: boolean) =>set({ showCalendar, ...(showCalendar ? { showContacts: false, showFiles: false } : {}) }),
+  showFiles: false,
+  setShowFiles: (showFiles: boolean) =>set({ showFiles, ...(showFiles ? { showContacts: false, showCalendar: false } : {}) }),
   // Calendar presentation preferences are persisted per user. A missing visibility list means
   // all known calendars are visible, so upgrades never hide an existing source unexpectedly.
   calendarWeekStartsOn: 1,

@@ -28,6 +28,7 @@ pub mod rules;
 pub mod search;
 pub mod sender_favicons;
 pub mod system;
+pub mod webdav;
 pub mod todoist;
 pub mod totp;
 pub mod util;
@@ -72,6 +73,7 @@ fn groups() -> Vec<(&'static str, Router<AppState>)> {
         ("/api/calendar", calendar::router()),
         ("/api/dav/servers", dav_servers::router()),
         ("/api/dav-credentials", dav_credentials::router()),
+        ("/api/webdav", webdav::router()),
         ("/api/ai", ai::router()),
         ("/api/diagnostics", diagnostics::router()),
     ]
