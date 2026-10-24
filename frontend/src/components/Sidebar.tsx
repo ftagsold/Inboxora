@@ -837,7 +837,8 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
         paddingTop: 'calc(var(--sat) + 12.5px)',
         paddingBottom: 11.5, paddingLeft: 8, paddingRight: 8,
         display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
+        // Collapsed, only the toggle remains: centred over the icon column like the buttons below.
+        justifyContent: sidebarCollapsed ? 'center' : 'space-between', borderBottom: '1px solid var(--border-subtle)',
         minHeight: 56, flexShrink: 0,
       }}>
         {!sidebarCollapsed && (
@@ -863,7 +864,6 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             background: 'transparent', border: '1px solid transparent', color: 'var(--text-secondary)',
             cursor: 'pointer', padding: 6, borderRadius: 6, transition: 'all 0.1s',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            marginLeft: sidebarCollapsed ? 'auto' : 0,
           }}
           onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
           onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}

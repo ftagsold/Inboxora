@@ -363,7 +363,10 @@ export function layoutWeekAllDayEvents(events: CalendarViewEvent[] | null | unde
         if (localDayKey(days[index]) >= endKey) { endIndex = index; break; }
       }
       if (endIndex <= startIndex) return null;
-      return { event, startIndex, endIndex, continuesFrom: startKey < weekStartKey, continuesTo: endKey > weekEndKey, spanDays: allDaySpanDays(event) };
+      // `span_days` lets a caller rank an item by a span other than its date range (month view's
+      // drag preview, whose range is the union of where the event was and where it is going).
+      const spanDays = typeof event.span_days === 'number' ? event.span_days : allDaySpanDays(event);
+      return { event, startIndex, endIndex, continuesFrom: startKey < weekStartKey, continuesTo: endKey > weekEndKey, spanDays };
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)
     .sort((a, b) => b.spanDays - a.spanDays || a.startIndex - b.startIndex || String(a.event.id).localeCompare(String(b.event.id)));

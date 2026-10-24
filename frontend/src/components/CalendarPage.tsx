@@ -1395,9 +1395,9 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
     // exclusive end (one day past its last visible day) and multi-day timed events are rare
     // enough here not to special-case: a timed event always previews as exactly the one day
     // it's being dragged to.
-    // A timed spanner keeps its whole day range (from its local start day, like startsAt below).
+    // A timed spanner keeps its whole local day range (`shift()` below moves it by the drag).
     const timedSpan = !isAllDay && monthSpanDays(moving.event) > 1 ? monthSpanKeys(moving.event) : null;
-    const endKey = timedSpan ? dateOnly(new Date(dayFromKey(timedSpan.endKey).getTime() + (dayFromKey(startKey).getTime() - dayFromKey(timedSpan.startKey).getTime())))
+    const endKey = timedSpan ? timedSpan.endKey
       : isAllDay && rawEndKey > startKey ? rawEndKey : dateOnly(new Date(dayFromKey(startKey).getFullYear(), dayFromKey(startKey).getMonth(), dayFromKey(startKey).getDate() + 1));
     // `shift()` above is date-only — correct for an all-day event's `starts_at`, which never
     // carries a meaningful time, but for a *timed* event it discarded the clock time entirely,
@@ -1479,7 +1479,9 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
       if (real || previewTouchesWeek) {
         const startKeys = [real ? String(real.starts_at ?? real.startsAt ?? '').slice(0, 10) : null, previewTouchesWeek ? previewStartKey : null].filter((key): key is string => key != null);
         const endKeys = [real ? String(real.ends_at ?? real.endsAt ?? '').slice(0, 10) : null, previewTouchesWeek ? previewEndKey : null].filter((key): key is string => key != null);
-        spanningById.set(draggedId, { ...draggedEvent, starts_at: startKeys.sort()[0], ends_at: endKeys.sort().at(-1) });
+        // Packed as all-day (a timed spanner too, or the packer drops it) and ranked by its own
+        // span, not the wider union, so bars keep ordering by days spanned, longest first.
+        spanningById.set(draggedId, { ...draggedEvent, all_day: true, starts_at: startKeys.sort()[0], ends_at: endKeys.sort().at(-1), span_days: monthSpanDays(draggedEvent) });
       }
     }
     const placements = layoutWeekAllDayEvents([...spanningById.values()], week);
@@ -1687,7 +1689,7 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
                 shrinks — always stays fully visible at the end of the line instead of getting
                 clipped along with an overly long title. A timed event has no fill (month view has no
                 time axis to give it a block) — just its calendar-colored bar ahead of the title. */}{timedCard && <span aria-hidden="true" style={{ ...eventCardBar, background: eventTint(event.calendar_color, 1) }} />}{titleRun
-                ? <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, flex: 'none', minWidth: '100%', maxWidth: titleRun }}><span style={eventCardTitle}>{event.summary || t('calendar.untitled')}</span>{timeLabel && <strong style={eventCardTime}>{timeLabel}</strong>}</span>
+                ? <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, flex: 'none', minWidth: '100%', maxWidth: titleRun, pointerEvents: 'none' }}><span style={eventCardTitle}>{event.summary || t('calendar.untitled')}</span>{timeLabel && <strong style={eventCardTime}>{timeLabel}</strong>}</span>
                 : <><span style={titleVisible ? eventCardTitle : { ...eventCardTitle, visibility: 'hidden' }}>{event.summary || t('calendar.untitled')}</span>{timeLabel && <strong style={timedCard ? eventCardTimedTime : eventCardTime}>{timeLabel}</strong>}</>}</button>
             {resizable && !segment?.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start" onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, eventLastInclusiveDay, dayFromKey(startKey)); }} />}
             {resizable && !segment?.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end" style={{ left: 'auto', right: 0 }} onMouseDown={mouseDownEvent => { mouseDownEvent.stopPropagation(); monthResize.startResize(event, dayFromKey(startKey), eventLastInclusiveDay); }} />}

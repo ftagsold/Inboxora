@@ -342,7 +342,7 @@ test('a dragged multi-day event\'s lane accounts for the preview\'s shifted rang
   assert.match(source, /if \(draggedEvent && previewEvent\) \{/);
   assert.match(source, /const real = spanningById\.get\(draggedId\);/);
   assert.match(source, /const previewTouchesWeek = previewEndKey > weekStartKey && previewStartKey < weekEndKeyExclusive;/);
-  assert.match(source, /spanningById\.set\(draggedId, \{ \.\.\.draggedEvent, starts_at: startKeys\.sort\(\)\[0\], ends_at: endKeys\.sort\(\)\.at\(-1\) \}\);/);
+  assert.match(source, /spanningById\.set\(draggedId, \{ \.\.\.draggedEvent, all_day: true, starts_at: startKeys\.sort\(\)\[0\], ends_at: endKeys\.sort\(\)\.at\(-1\), span_days: monthSpanDays\(draggedEvent\) \}\);/);
 });
 
 // A lower lane an event shares with another one that doesn't reach this particular day would
