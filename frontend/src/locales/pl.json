@@ -2163,7 +2163,6 @@
     "attachLocalHint": "Wybierz pliki z komputera lub telefonu",
     "attachWebDavHint": "Przeglądaj ten serwer WebDAV",
     "attachFromServer": "Załącz z {{name}}",
-    "pickHint": "Wybierz pliki do załączenia (łącznie 25 MB)",
     "attaching": "Załączanie…",
     "attachCount": "Załącz ({{count}})",
     "search": "Szukaj plików",
@@ -2176,6 +2175,8 @@
     "location": "Lokalizacja",
     "columns": "Kolumny",
     "resetWidths": "Przywróć szerokość kolumn",
-    "resizeColumn": "Zmień szerokość kolumny {{column}}"
+    "resizeColumn": "Zmień szerokość kolumny {{column}}",
+    "remaining": "Wolne jeszcze {{size}} z 25 MB",
+    "tooLargeToAttach": "Za duży — z limitu 25 MB zostało tylko {{size}}"
   }
 }

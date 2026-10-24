@@ -18,6 +18,9 @@ interface FileExplorerProps {
   mode?: ExplorerMode;
   /** Pick mode: the files currently chosen (folders are only navigated). */
   onPickChange?: (entries: WebDavEntry[]) => void;
+  /** Pick mode: bytes still allowed in total. Files that would push the chosen set past it are
+   * shown disabled; a file of unknown size is allowed. */
+  pickBudget?: number;
 }
 
 type SortKey = 'name' | 'type' | 'size' | 'modified' | 'location';
@@ -122,7 +125,7 @@ function freeName(name: string, taken: Set<string>): string {
   for (let n = 2; ; n += 1) { const candidate = `${stem} (${n})${ext}`; if (!taken.has(candidate)) return candidate; }
 }
 
-export default function FileExplorer({ server, mode = 'browse', onPickChange }: FileExplorerProps) {
+export default function FileExplorer({ server, mode = 'browse', onPickChange, pickBudget = Infinity }: FileExplorerProps) {
   const { t, i18n } = useTranslation();
   const picking = mode === 'pick';
   const [path, setPath] = useState('/');
@@ -288,9 +291,15 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
     setAnchor(entry.path);
   };
 
+  const pickedBytes = [...picked.values()].reduce((sum, entry) => sum + (entry.size ?? 0), 0);
+  // Re-evaluated after every pick: what was choosable may stop fitting once others are chosen.
+  const tooLarge = (entry: WebDavEntry) => picking && !entry.isDir && !picked.has(entry.path) && pickedBytes + (entry.size ?? 0) > pickBudget;
   const togglePick = (entry: WebDavEntry) => setPicked(current => {
     const next = new Map(current);
-    if (next.has(entry.path)) next.delete(entry.path); else next.set(entry.path, entry);
+    if (next.has(entry.path)) { next.delete(entry.path); return next; }
+    const used = [...current.values()].reduce((sum, item) => sum + (item.size ?? 0), 0);
+    if (used + (entry.size ?? 0) > pickBudget) return current;
+    next.set(entry.path, entry);
     return next;
   });
 
@@ -566,11 +575,14 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
     'data-testid': 'files-entry',
     role: 'row' as const,
     'aria-selected': selected.has(entry.path),
+    'aria-disabled': tooLarge(entry) || undefined,
+    title: tooLarge(entry) ? t('files.tooLargeToAttach', { size: formatSize(Math.max(0, pickBudget - pickedBytes)) }) : undefined,
     draggable: !picking,
     className: [
       view === 'grid' ? 'files-tile' : 'files-row',
       selected.has(entry.path) ? 'is-selected' : '',
       picked.has(entry.path) ? 'is-picked' : '',
+      tooLarge(entry) ? 'is-disabled' : '',
       cutPaths?.has(entry.path) ? 'is-cut' : '',
       entry.isDir && dropTarget === entry.path ? 'is-drop' : '',
     ].filter(Boolean).join(' '),
@@ -664,13 +676,13 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
       {!loading && !searching && !error && !visible.length && <EmptyState title={filter ? t('files.noMatches') : t('files.emptyFolder')}>{!filter && !picking ? t('files.emptyFolderHint') : null}</EmptyState>}
       {view === 'list' ? <div className="files-rows">
         {visible.map(entry => <div key={entry.path} {...rowProps(entry)}>
-          {picking && <span className="files-check-col">{!entry.isDir && <input type="checkbox" tabIndex={-1} aria-label={t('files.pick', { name: entry.name })} checked={picked.has(entry.path)} onChange={() => togglePick(entry)} onClick={event => event.stopPropagation()} />}</span>}
+          {picking && <span className="files-check-col">{!entry.isDir && <input type="checkbox" tabIndex={-1} aria-label={t('files.pick', { name: entry.name })} checked={picked.has(entry.path)} disabled={tooLarge(entry)} onChange={() => togglePick(entry)} onClick={event => event.stopPropagation()} />}</span>}
           <span className="files-col files-col-name"><FileIcon kind={fileKind(entry)} /><span className="files-name" title={entry.name}>{entry.name}</span></span>
           {columns.map(column => cell(entry, column))}
         </div>)}
       </div> : <div className="files-grid">
         {visible.map(entry => <div key={entry.path} {...rowProps(entry)} title={entry.name}>
-          {picking && !entry.isDir && <input type="checkbox" className="files-tile-check" tabIndex={-1} aria-label={t('files.pick', { name: entry.name })} checked={picked.has(entry.path)} onChange={() => togglePick(entry)} onClick={event => event.stopPropagation()} />}
+          {picking && !entry.isDir && <input type="checkbox" className="files-tile-check" tabIndex={-1} aria-label={t('files.pick', { name: entry.name })} checked={picked.has(entry.path)} disabled={tooLarge(entry)} onChange={() => togglePick(entry)} onClick={event => event.stopPropagation()} />}
           <span className="files-tile-icon">{fileKind(entry) === 'image' && previewable(entry) ? <img src={api.webdav.fileUrl(server.id, entry.path, true)} alt="" loading="lazy" draggable={false} /> : <FileIcon kind={fileKind(entry)} size={40} />}</span>
           <span className="files-tile-name">{entry.name}</span>
           <span className="files-tile-meta">{entry.isDir ? t('files.folder') : formatSize(entry.size)}</span>

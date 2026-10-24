@@ -99,6 +99,9 @@ body.files-resizing, body.files-resizing * { cursor: col-resize !important; user
 .files-row.is-selected, .files-tile.is-selected { background: var(--accent-dim); }
 .files-row.is-picked { box-shadow: inset 3px 0 0 var(--accent); }
 .files-row.is-cut, .files-tile.is-cut { opacity: .5; }
+/* Attach picker: files that no longer fit under the size limit stay visible but inert. */
+.files-row.is-disabled, .files-tile.is-disabled { opacity: .4; cursor: not-allowed; }
+.files-row.is-disabled:hover, .files-tile.is-disabled:hover { background: transparent; }
 .files-row.is-drop, .files-tile.is-drop { box-shadow: inset 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .files-col-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .files-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -2163,7 +2163,6 @@
     "attachLocalHint": "Dateien vom Computer oder Smartphone wählen",
     "attachWebDavHint": "Diesen WebDAV-Server durchsuchen",
     "attachFromServer": "Von {{name}} anhängen",
-    "pickHint": "Dateien zum Anhängen wählen (insgesamt 25 MB)",
     "attaching": "Wird angehängt …",
     "attachCount": "Anhängen ({{count}})",
     "search": "Dateien suchen",
@@ -2176,6 +2175,8 @@
     "location": "Ort",
     "columns": "Spalten",
     "resetWidths": "Spaltenbreiten zurücksetzen",
-    "resizeColumn": "Spalte {{column}} anpassen"
+    "resizeColumn": "Spalte {{column}} anpassen",
+    "remaining": "{{size}} von 25 MB noch frei",
+    "tooLargeToAttach": "Zu groß – vom Anhangslimit (25 MB) sind nur noch {{size}} frei"
   }
 }

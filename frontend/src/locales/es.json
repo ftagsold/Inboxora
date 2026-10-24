@@ -2163,7 +2163,6 @@
     "attachLocalHint": "Elegir archivos del ordenador o el móvil",
     "attachWebDavHint": "Explorar este servidor WebDAV",
     "attachFromServer": "Adjuntar desde {{name}}",
-    "pickHint": "Selecciona archivos para adjuntar (25 MB en total)",
     "attaching": "Adjuntando…",
     "attachCount": "Adjuntar ({{count}})",
     "search": "Buscar archivos",
@@ -2176,6 +2175,8 @@
     "location": "Ubicación",
     "columns": "Columnas",
     "resetWidths": "Restablecer el ancho de las columnas",
-    "resizeColumn": "Cambiar el ancho de la columna {{column}}"
+    "resizeColumn": "Cambiar el ancho de la columna {{column}}",
+    "remaining": "{{size}} de 25 MB aún libres",
+    "tooLargeToAttach": "Demasiado grande: solo quedan {{size}} del límite de 25 MB"
   }
 }

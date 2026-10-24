@@ -2163,7 +2163,6 @@
     "attachLocalHint": "从电脑或手机选择文件",
     "attachWebDavHint": "浏览此 WebDAV 服务器",
     "attachFromServer": "从 {{name}} 附加",
-    "pickHint": "选择要附加的文件（总计 25 MB）",
     "attaching": "正在附加…",
     "attachCount": "附加（{{count}}）",
     "search": "搜索文件",
@@ -2176,6 +2175,8 @@
     "location": "位置",
     "columns": "列",
     "resetWidths": "重置列宽",
-    "resizeColumn": "调整“{{column}}”列宽"
+    "resizeColumn": "调整“{{column}}”列宽",
+    "remaining": "25 MB 中还剩 {{size}}",
+    "tooLargeToAttach": "文件过大：25 MB 附件限额仅剩 {{size}}"
   }
 }

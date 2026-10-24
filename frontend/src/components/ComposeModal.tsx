@@ -765,6 +765,7 @@ export default function ComposeModal() {
     {webdavPickerServer && webdavServers && <WebDavPickerDialog
       servers={webdavServers}
       initialServerId={webdavPickerServer}
+      usedBytes={[...attachments, ...fwdAttachments].reduce((sum, a) => sum + (Number(a.size) || 0), 0)}
       onClose={() => setWebdavPickerServer(null)}
       onAttach={addPickedAttachments}
     />}

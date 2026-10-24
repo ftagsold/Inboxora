@@ -2163,7 +2163,6 @@
     "attachLocalHint": "Выбрать файлы на компьютере или телефоне",
     "attachWebDavHint": "Обзор этого сервера WebDAV",
     "attachFromServer": "Прикрепить из {{name}}",
-    "pickHint": "Выберите файлы для вложения (всего 25 МБ)",
     "attaching": "Прикрепление…",
     "attachCount": "Прикрепить ({{count}})",
     "search": "Поиск файлов",
@@ -2176,6 +2175,8 @@
     "location": "Расположение",
     "columns": "Столбцы",
     "resetWidths": "Сбросить ширину столбцов",
-    "resizeColumn": "Изменить ширину столбца {{column}}"
+    "resizeColumn": "Изменить ширину столбца {{column}}",
+    "remaining": "Свободно ещё {{size}} из 25 МБ",
+    "tooLargeToAttach": "Слишком большой — от лимита 25 МБ осталось только {{size}}"
   }
 }

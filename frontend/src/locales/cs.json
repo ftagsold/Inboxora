@@ -2163,7 +2163,6 @@
     "attachLocalHint": "Vyberte soubory z počítače nebo telefonu",
     "attachWebDavHint": "Procházet tento server WebDAV",
     "attachFromServer": "Připojit z {{name}}",
-    "pickHint": "Vyberte soubory k připojení (celkem 25 MB)",
     "attaching": "Připojování…",
     "attachCount": "Připojit ({{count}})",
     "search": "Hledat soubory",
@@ -2176,6 +2175,8 @@
     "location": "Umístění",
     "columns": "Sloupce",
     "resetWidths": "Obnovit šířku sloupců",
-    "resizeColumn": "Změnit šířku sloupce {{column}}"
+    "resizeColumn": "Změnit šířku sloupce {{column}}",
+    "remaining": "Volné ještě {{size}} z 25 MB",
+    "tooLargeToAttach": "Příliš velký — z limitu 25 MB zbývá jen {{size}}"
   }
 }

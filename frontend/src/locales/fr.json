@@ -2163,7 +2163,6 @@
     "attachLocalHint": "Choisir des fichiers sur votre ordinateur ou téléphone",
     "attachWebDavHint": "Parcourir ce serveur WebDAV",
     "attachFromServer": "Joindre depuis {{name}}",
-    "pickHint": "Sélectionnez les fichiers à joindre (25 Mo au total)",
     "attaching": "Ajout en cours…",
     "attachCount": "Joindre ({{count}})",
     "search": "Rechercher des fichiers",
@@ -2176,6 +2175,8 @@
     "location": "Emplacement",
     "columns": "Colonnes",
     "resetWidths": "Réinitialiser la largeur des colonnes",
-    "resizeColumn": "Redimensionner la colonne {{column}}"
+    "resizeColumn": "Redimensionner la colonne {{column}}",
+    "remaining": "{{size}} sur 25 Mo encore libres",
+    "tooLargeToAttach": "Trop volumineux : il ne reste que {{size}} sur la limite de 25 Mo"
   }
 }
