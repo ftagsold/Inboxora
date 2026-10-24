@@ -1134,7 +1134,8 @@
       "show": "Show",
       "importGoogle": "Import Google CSV",
       "exportGoogle": "Google CSV",
-      "exportOutlook": "Outlook CSV"
+      "exportOutlook": "Outlook CSV",
+      "local": "Local"
     }
   },
   "contextMenu": {
@@ -1989,7 +1990,8 @@
     "invitationNotifyBody": "Your answer “{{answer}}” is saved in your calendar. Should the organizer be told?",
     "invitationNotifyYes": "Send reply",
     "invitationNotifyNo": "Don't send",
-    "yourReply": "Your reply"
+    "yourReply": "Your reply",
+    "localCalendars": "Local"
   },
   "mailFolders": {
     "inbox": "Inbox",

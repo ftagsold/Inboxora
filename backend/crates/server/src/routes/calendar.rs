@@ -76,8 +76,13 @@ async fn list_calendars(State(s): State<AppState>, auth: Auth) -> Result<Respons
     let mut rows = s
         .db
         .json_rows(
-            "SELECT id, name, description, color, source, external_url, read_only, display_visible, owner_user_id, sync_token, created_at, updated_at \
-             FROM calendars WHERE user_id = $1 AND owner_user_id = $1 ORDER BY created_at ASC",
+            // `source_name`: the DAV server / feed a synced calendar comes from (`source:<id>[:<hash>]`),
+            // so the sidebar can group calendars by origin.
+            "SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible, c.owner_user_id, \
+             c.sync_token, c.created_at, c.updated_at, NULLIF(src.display_name, '') AS source_name \
+             FROM calendars c LEFT JOIN calendar_import_sources src ON c.external_url LIKE 'source:%' \
+               AND src.id::text = split_part(substr(c.external_url, 8), ':', 1) AND src.user_id = c.user_id \
+             WHERE c.user_id = $1 AND c.owner_user_id = $1 ORDER BY c.created_at ASC",
             params![&auth.user_id],
         )
         .await?;
@@ -264,6 +269,7 @@ async fn list_events(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Res
                      COALESCE(o.summary, e.summary) AS summary, COALESCE(o.description, e.description) AS description, \
                      COALESCE(o.location, e.location) AS location, COALESCE(o.url, e.url) AS url, COALESCE(o.organizer, e.organizer) AS organizer, \
                      COALESCE(o.attendees, e.attendees) AS attendees, e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invite_hide_attendees, e.invitation_sequence, \
+                     CASE WHEN e.raw_ical LIKE '%PARTSTAT%' THEN e.raw_ical END AS partstat_ical, \
                      {SOURCE_COLUMNS} FROM calendar_occurrences o JOIN calendar_events e ON e.id = o.event_id JOIN calendars c ON c.id = o.calendar_id \
                      {SOURCE_JOINS} LEFT JOIN calendar_occurrence_state s ON s.event_id = e.id \
                      WHERE o.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND o.starts_at < $3 AND o.ends_at > $2 AND NOT {cov}{filter} \
@@ -322,6 +328,35 @@ async fn list_events(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Res
         }
     }
     let projection = cal::project_resources(fallback, from, to, Some(&auth.user_id), true).await;
+    // Each attendee's answer (as the projection adds for unmaterialized rows), parsed once per
+    // series from the stored resource — only resources carrying a PARTSTAT ship it at all.
+    let mut answers: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+    for row in materialized.iter_mut().filter_map(Value::as_object_mut) {
+        let raw = row.shift_remove("partstat_ical");
+        let partstats = match raw.as_ref().and_then(Value::as_str) {
+            Some(raw) => {
+                let key = row
+                    .get("series_id")
+                    .filter(|v| !v.is_null())
+                    .or(row.get("id"))
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+                answers
+                    .entry(key)
+                    .or_insert_with(|| {
+                        Value::Object(
+                            inboxora_pim::ical::attendee_statuses(raw)
+                                .into_iter()
+                                .map(|a| (a.email, Value::String(a.partstat)))
+                                .collect(),
+                        )
+                    })
+                    .clone()
+            }
+            None => json!({}),
+        };
+        row.insert("partstats".into(), partstats);
+    }
     let mut events: Vec<Value> = materialized;
     events.extend(projection.events.into_iter().map(|e| Value::Object(e.fields)));
     events.extend(contact_events);

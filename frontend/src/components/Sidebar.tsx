@@ -830,17 +830,18 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
       {/* Header */}
       <div style={{
         // Centred at y = 28: the logo and name sit on the same 28px centre
-        // line as the first header row of the mail list, calendar and contacts. 16px left
-        // puts the logo on the sidebar's icon column (centre x = 28, see ICON_COLUMN).
+        // line as the first header row of the mail list, calendar and contacts. The same 8px
+        // side inset as the compose button and the nav below; the logo's own 8px margin puts it
+        // on the sidebar's icon column (centre x = 28, like the compose and account icons).
         // (The row is 31px and the 1px border counts toward the 56px, hence the half pixels.)
         paddingTop: 'calc(var(--sat) + 12.5px)',
-        paddingBottom: 11.5, paddingLeft: 16, paddingRight: 12,
+        paddingBottom: 11.5, paddingLeft: 8, paddingRight: 8,
         display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
         minHeight: 56, flexShrink: 0,
       }}>
         {!sidebarCollapsed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8 }}>
             <LogoMark size={24} />
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 0 }}>
               <span style={{
@@ -886,7 +887,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
           onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
           className="btn-press"
           style={{
-            width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px 10px 10px',
+            width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px 10px 12px',
             background: 'var(--accent)', border: 'none', borderRadius: 8,
             color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
             cursor: 'pointer', display: 'flex', alignItems: 'center',

@@ -184,6 +184,15 @@ enum Local {
     Denied(u16, &'static str),
 }
 
+async fn book_source(s: &AppState, user_id: &str, id: &str) -> Result<Option<String>> {
+    if !inboxora_mail::util::is_uuid(id) {
+        return Ok(None);
+    }
+    let row =
+        s.db.json_opt("SELECT source FROM address_books WHERE id = $1 AND user_id = $2", params![id, user_id]).await?;
+    Ok(row.and_then(|r| r.get("source").and_then(Value::as_str).map(str::to_owned)))
+}
+
 async fn require_local_book(s: &AppState, user_id: &str, id: &str) -> Result<Local> {
     let row =
         s.db.json_opt(
@@ -338,7 +347,7 @@ async fn list(State(s): State<AppState>, auth: Auth, q: Qs) -> Result<Response> 
          c.notes, c.birthday, c.anniversary, c.contact_dates AS \"contactDates\", c.title, c.role, c.nickname, \
          c.urls, c.addresses, c.instant_messages AS \"instantMessages\", c.categories, \
          c.address_book_id, ab.name AS address_book_name, c.is_auto, c.send_count, c.last_sent, \
-         c.etag, c.created_at, c.updated_at, (c.photo_data IS NOT NULL) AS has_contact_photo, (ab.source = 'carddav') AS read_only \
+         c.etag, c.created_at, c.updated_at, (c.photo_data IS NOT NULL) AS has_contact_photo, false AS read_only \
          FROM {relation} c JOIN address_books ab ON ab.id = c.address_book_id WHERE {where_} \
          ORDER BY c.is_auto ASC, c.send_count DESC, lower(coalesce(c.display_name, c.primary_email, '')) ASC LIMIT ${} OFFSET ${}",
         n + 1,
@@ -681,7 +690,9 @@ async fn live_contact_detail(s: &AppState, user: &str, id: &str) -> Option<Map<S
     m.insert("last_sent".into(), Value::Null);
     m.insert("created_at".into(), Value::Null);
     m.insert("updated_at".into(), Value::Null);
-    m.insert("read_only".into(), json!(true));
+    m.insert("address_book_id".into(), g("address_book_id"));
+    m.insert("address_book_source".into(), json!("carddav"));
+    m.insert("read_only".into(), json!(false));
     Some(m)
 }
 
@@ -694,7 +705,7 @@ async fn get_one(State(s): State<AppState>, auth: Auth, Path(id): Path<String>) 
                  c.notes, c.birthday, c.anniversary, c.contact_dates AS \"contactDates\", c.title, c.role, c.nickname, \
                  c.urls, c.addresses, c.instant_messages AS \"instantMessages\", c.categories, c.google_fields AS \"googleFields\", \
                  c.photo_data, c.is_auto, c.send_count, c.last_sent, c.etag, c.vcard, c.created_at, c.updated_at, \
-                 (ab.source = 'carddav') AS read_only FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id \
+                 false AS read_only FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id \
                  WHERE c.id = $1 AND c.user_id = $2",
                 params![&id, &auth.user_id],
             )
@@ -795,12 +806,17 @@ async fn create(State(s): State<AppState>, auth: Auth, body: Body) -> Result<Res
             Some(r) => r.clone(),
             None => default_address_book(&s, &auth.user_id).await?,
         };
-        if let Some(r) = &requested {
-            match require_local_book(&s, &auth.user_id, r).await? {
-                Local::Denied(code, msg) => return Ok(err(code, msg)),
-                Local::Book(_) => {}
-            }
-        }
+        // A CardDAV address book takes the new contact on its server instead of a local row.
+        let carddav = match &requested {
+            Some(r) => match book_source(&s, &auth.user_id, r).await?.as_deref() {
+                Some("carddav") => true,
+                _ => match require_local_book(&s, &auth.user_id, r).await? {
+                    Local::Denied(code, msg) => return Ok(err(code, msg)),
+                    Local::Book(_) => false,
+                },
+            },
+            None => false,
+        };
         let uid = crypto::random_uuid();
         let mut card_in = Map::new();
         card_in.insert("uid".into(), Value::String(uid.clone()));
@@ -823,6 +839,14 @@ async fn create(State(s): State<AppState>, auth: Auth, body: Body) -> Result<Res
             card_in.insert(k.clone(), v.clone());
         }
         let card = vcard::generate(&Value::Object(card_in));
+        if carddav {
+            return Ok(match remote_dav::write_card(&s.db, &auth.user_id, &book_id, &uid, &card, None).await {
+                Ok(id) => {
+                    json(201, live_contact_detail(&s, &auth.user_id, &id).await.map_or(Value::Null, Value::Object))
+                }
+                Err(e) => err(502, &e),
+            });
+        }
         let etag = crypto::md5_hex(&card);
         let sql = format!(
             "INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, \
@@ -896,13 +920,15 @@ async fn update(State(s): State<AppState>, auth: Auth, Path(id): Path<String>, b
                 params![&id, &auth.user_id],
             )
             .await?;
-        let Some(c) = cur else {
-            if remote_dav::is_live_contact(&s.db, &auth.user_id, &id).await {
-                return Ok(err(403, "This contact is synced from CardDAV and is read-only"));
-            }
-            return Ok(err(404, "Contact not found"));
+        // A contact of a live CardDAV book has the same fields; its vCard is written back below.
+        let (c, live) = match cur {
+            Some(c) => (c, false),
+            None => match remote_dav::live_contact(&s.db, &auth.user_id, &id).await {
+                Some(c) => (c, true),
+                None => return Ok(err(404, "Contact not found")),
+            },
         };
-        if c.get("book_source").and_then(Value::as_str) == Some("carddav") {
+        if !live && c.get("book_source").and_then(Value::as_str) == Some("carddav") {
             return Ok(err(403, "This contact is synced from CardDAV and is read-only"));
         }
         let rich_keys = [
@@ -1015,6 +1041,23 @@ async fn update(State(s): State<AppState>, auth: Auth, Path(id): Path<String>, b
             Some(existing) => vcard::merge(existing, &card_value),
             None => vcard::generate(&card_value),
         };
+        if live {
+            let field = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+            let existing = (field("dav_href"), field("dav_etag"));
+            let written = remote_dav::write_card(
+                &s.db,
+                &auth.user_id,
+                &field("address_book_id"),
+                &field("uid"),
+                &card,
+                Some((&existing.0, &existing.1)),
+            )
+            .await;
+            return Ok(match written {
+                Ok(id) => ok(live_contact_detail(&s, &auth.user_id, &id).await.map_or(Value::Null, Value::Object)),
+                Err(e) => err(502, &e),
+            });
+        }
         let etag = crypto::md5_hex(&card);
         let r = |k: &str| rich.get(k).cloned().unwrap_or(Value::Null);
         let sql = format!(
@@ -1073,10 +1116,24 @@ async fn remove(State(s): State<AppState>, auth: Auth, Path(id): Path<String>) -
             )
             .await?;
         let Some(owner) = owner else {
-            if remote_dav::is_live_contact(&s.db, &auth.user_id, &id).await {
-                return Ok(err(403, "This contact is synced from CardDAV and is read-only"));
-            }
-            return Ok(err(404, "Contact not found"));
+            let Some(c) = remote_dav::live_contact(&s.db, &auth.user_id, &id).await else {
+                return Ok(err(404, "Contact not found"));
+            };
+            let field = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+            return Ok(
+                match remote_dav::delete_card(
+                    &s.db,
+                    &auth.user_id,
+                    &field("address_book_id"),
+                    &field("dav_href"),
+                    &field("dav_etag"),
+                )
+                .await
+                {
+                    Ok(()) => ok(json!({ "ok": true })),
+                    Err(e) => err(502, &e),
+                },
+            );
         };
         if owner.get("source").and_then(Value::as_str) == Some("carddav") {
             return Ok(err(403, "This contact is synced from CardDAV and is read-only"));

@@ -61,6 +61,15 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const [calendarEdit, setCalendarEdit] = useState<CalendarEditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
+  // Collapsed origin groups, remembered per browser.
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>(() => {
+    try { const stored = JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) || '[]'); return Array.isArray(stored) ? stored.filter((key): key is string => typeof key === 'string') : []; } catch { return []; }
+  });
+  const toggleGroup = (key: string) => setCollapsedGroups(current => {
+    const next = current.includes(key) ? current.filter(item => item !== key) : [...current, key];
+    try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+    return next;
+  });
   useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   // Close the "⋮" menu on an outside click. `.calendar-menu-wrap` covers both
   // the trigger button and the open menu, so clicking the button itself (which
@@ -100,6 +109,21 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     try { await api.calendar.deleteCalendar(calendar.id, calendar.name); setOpenCalendarMenu(null); await onCalendarsChanged?.(); }
     catch (error) { setEditError(toAppError(error).message); } finally { setCalendarSaving(false); }
   };
+  const renderCalendar = (calendar: CalendarRow) => <div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}</label>{<div className="calendar-menu-wrap" style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} className="app-menu" style={contextMenu}><button type="button" role="menuitem" className="app-menu-item" onClick={() => editCalendar(calendar)}><EditIcon />{t('calendar.rename')}</button><button type="button" role="menuitem" className="app-menu-item" onClick={() => editCalendar(calendar)}><PaletteIcon />{t('calendar.changeColor')}</button>{ownedCalendar(calendar) && <button type="button" role="menuitem" className="app-menu-item danger" onClick={() => deleteCalendar(calendar)}><TrashIcon />{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div>;
+  // Calendars grouped by where they live: Inboxora's own (and contact dates) under "Local",
+  // every synced one under the name of the DAV server / feed it comes from.
+  const calendarGroups = useMemo(() => {
+    const groups: Array<{ key: string; title: string; calendars: CalendarRow[] }> = [];
+    for (const calendar of calendars) {
+      const local = calendar.source === 'local' || calendar.source === 'contacts';
+      const sourceName = typeof calendar.source_name === 'string' && calendar.source_name ? calendar.source_name : null;
+      const key = local ? 'local' : `remote:${sourceName ?? calendar.source ?? ''}`;
+      const title = local ? t('calendar.localCalendars') : sourceName ?? (calendar.source === 'caldav' ? 'CalDAV' : String(calendar.source ?? '').toUpperCase());
+      const group = groups.find(item => item.key === key);
+      if (group) group.calendars.push(calendar); else groups.push({ key, title, calendars: [calendar] });
+    }
+    return groups.sort((a, b) => Number(b.key === 'local') - Number(a.key === 'local'));
+  }, [calendars, t]);
   return <aside data-testid="calendar-sidebar" className="calendar-rail" style={panel} aria-label={t('calendar.panel')}>
     <h1 className="calendar-rail-heading">{t('calendar.title')}</h1>
     {onCreate && <Button variant="primary" className="calendar-rail-create" disabled={!canCreate} onClick={onCreate}>+ {t('calendar.newEvent')}</Button>}
@@ -115,7 +139,16 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       <div style={dayGrid}>{cells.map(day => <button key={day.toISOString()} aria-pressed={day.toDateString() === anchor.toDateString()} aria-label={day.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })} className={`calendar-mini-day${day.toDateString() === anchor.toDateString() ? ' calendar-mini-selected' : ''}`} onClick={() => onSelectDate(day)} style={{ ...dayButton, ...(day.toDateString() === new Date().toDateString() ? today : {}), ...(day.getMonth() !== anchor.getMonth() ? muted : {}) }}>{day.getDate()}</button>)}</div>
     </div>
     <section style={section}>
-      {[...calendars].sort((a, b) => Number(a.source !== 'local') - Number(b.source !== 'local')).map(calendar => <div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}</label>{<div className="calendar-menu-wrap" style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} className="app-menu" style={contextMenu}><button type="button" role="menuitem" className="app-menu-item" onClick={() => editCalendar(calendar)}><EditIcon />{t('calendar.rename')}</button><button type="button" role="menuitem" className="app-menu-item" onClick={() => editCalendar(calendar)}><PaletteIcon />{t('calendar.changeColor')}</button>{ownedCalendar(calendar) && <button type="button" role="menuitem" className="app-menu-item danger" onClick={() => deleteCalendar(calendar)}><TrashIcon />{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div>)}
+      {calendarGroups.map(group => {
+        const open = !collapsedGroups.includes(group.key);
+        return <div key={group.key} data-testid="calendar-group" className="calendar-group" style={groupCard}>
+          <button type="button" className="calendar-group-header" aria-expanded={open} onClick={() => toggleGroup(group.key)} style={groupHeader}>
+            <span style={groupTitle}>{group.title}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" aria-hidden="true" style={{ flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform var(--motion-fast) var(--ease-standard)' }}><polyline points="9 18 15 12 9 6" /></svg>
+          </button>
+          {open && <div style={groupBody}>{group.calendars.map(renderCalendar)}</div>}
+        </div>;
+      })}
     </section>
     {calendarEdit && <Dialog testId="calendar-appearance-dialog" title={t('calendar.calendarActions', { name: calendarEdit.calendar.name })} closeLabel={t('calendar.close')} busy={calendarSaving} onClose={() => setCalendarEdit(null)} footer={<>
       <Button onClick={() => setCalendarEdit(null)} disabled={calendarSaving}>{t('calendar.cancel')}</Button>
@@ -143,5 +176,10 @@ const dayGrid: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(7
 // the touch target without inline styles winning over it.
 const dayButton = { margin: '0 auto', padding: 0, border: 0, borderRadius: 5, background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const today = { background: 'var(--accent)', color: 'var(--accent-text)', fontWeight: 600 }; const muted = { opacity: .38 };
-const section: CSSProperties = { display: 'grid', gap: 4, paddingTop: 10 };
+const section: CSSProperties = { display: 'grid', gap: 8, paddingTop: 10 };
+const COLLAPSED_GROUPS_KEY = 'inboxora_calendar_collapsed_groups';
+const groupCard: CSSProperties = { background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8 };
+const groupHeader: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', padding: '8px 10px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 12, fontWeight: 600, textAlign: 'left' };
+const groupTitle: CSSProperties = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const groupBody: CSSProperties = { display: 'grid', gap: 2, padding: '0 4px 6px' };
 const calendarRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderRadius: 6, fontSize: 12.5, color: 'var(--text-secondary)' }; const calendarToggle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, color: 'var(--text-secondary)', fontSize: 12.5, cursor: 'pointer' }; const colorDot = { width: 10, height: 10, borderRadius: 3 }; const menuWrap: CSSProperties = { position: 'relative' }; const menuButton: CSSProperties = { border: 0, background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, padding: '0 6px' }; const contextMenu: CSSProperties = { position: 'absolute', right: 0, top: '100%', zIndex: 3, minWidth: 190 }; // look: .app-menu (ui.css)

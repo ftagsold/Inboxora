@@ -1134,7 +1134,8 @@
       "show": "Pokaż",
       "importGoogle": "Importuj plik CSV z Google",
       "exportGoogle": "Eksport CSV do Google",
-      "exportOutlook": "Eksport CSV do Outlooka"
+      "exportOutlook": "Eksport CSV do Outlooka",
+      "local": "Lokalne"
     }
   },
   "contextMenu": {
@@ -1989,7 +1990,8 @@
     "invitationNotifyBody": "Twoja odpowiedź „{{answer}}” zostanie zapisana w kalendarzu. Powiadomić organizatora?",
     "invitationNotifyYes": "Wyślij odpowiedź",
     "invitationNotifyNo": "Nie wysyłaj",
-    "yourReply": "Twoja odpowiedź"
+    "yourReply": "Twoja odpowiedź",
+    "localCalendars": "Lokalne"
   },
   "mailFolders": {
     "inbox": "Odebrane",

@@ -477,7 +477,7 @@ export function layoutTimedEvents(events: CalendarViewEvent[] | null | undefined
 }
 
 /** Copies the user's own invitation answer — the `partstats` entry for any of their addresses — onto `my_partstat`. */
-export function withOwnReply<T extends CalendarViewEvent>(event: T, ownAddresses: Set<string>): T {
+export function withOwnReply<T extends CalendarViewEvent>(event: T, ownAddresses: Set<string>): T & { my_partstat?: string } {
   const partstats = event.partstats;
   if (!partstats || typeof partstats !== 'object') return event;
   const mine = Object.entries(partstats as Record<string, unknown>).find(([email]) => ownAddresses.has(email.toLowerCase()));

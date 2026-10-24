@@ -1134,7 +1134,8 @@
       "show": "显示",
       "importGoogle": "导入 Google CSV 文件",
       "exportGoogle": "导出 Google CSV 文件",
-      "exportOutlook": "导出 Outlook CSV 文件"
+      "exportOutlook": "导出 Outlook CSV 文件",
+      "local": "本地"
     }
   },
   "contextMenu": {
@@ -1989,7 +1990,8 @@
     "invitationNotifyBody": "你的答复“{{answer}}”已保存到日历。是否通知组织者？",
     "invitationNotifyYes": "发送答复",
     "invitationNotifyNo": "不发送",
-    "yourReply": "你的回复"
+    "yourReply": "你的回复",
+    "localCalendars": "本地"
   },
   "mailFolders": {
     "inbox": "收件箱",

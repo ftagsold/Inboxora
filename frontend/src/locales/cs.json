@@ -1134,7 +1134,8 @@
       "show": "Zobrazit",
       "importGoogle": "Importovat CSV z Google",
       "exportGoogle": "Export CSV pro Google",
-      "exportOutlook": "Export CSV pro Outlook"
+      "exportOutlook": "Export CSV pro Outlook",
+      "local": "Místní"
     }
   },
   "contextMenu": {
@@ -1989,7 +1990,8 @@
     "invitationNotifyBody": "Vaše odpověď „{{answer}}“ se uloží do kalendáře. Informovat organizátora?",
     "invitationNotifyYes": "Odeslat odpověď",
     "invitationNotifyNo": "Neodesílat",
-    "yourReply": "Vaše odpověď"
+    "yourReply": "Vaše odpověď",
+    "localCalendars": "Místní"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

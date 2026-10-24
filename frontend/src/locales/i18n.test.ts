@@ -478,6 +478,8 @@ type SameValueRule = 'any' | string[][];
 
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'preload.messages': [['en', 'fr']], // "messages" in both.
+  'calendar.localCalendars': 'any', // "Local" is the same word in several languages.
+  'contacts.addressBooks.local': 'any',
   'admin.imapLimits.colAccount': [['de', 'pl'], ['en', 'it']], // "Konto" / "Account" in both languages.
   'admin.imapLimits.colLimit': 'any', // "Limit" is the same word in several languages.
   'calendar.contactDateEvent': 'any', // Interpolation-only title template.

@@ -1,5 +1,5 @@
-//! Read-only remote collections — iCalendar feeds, read-only CalDAV calendars and CardDAV
-//! address books — are never stored. Their resources are fetched from the remote server and
+//! Remote collections — iCalendar feeds, read-only CalDAV calendars and CardDAV address books
+//! — are never stored. Their resources are fetched from the remote server and
 //! kept in Redis for `MAIL_CACHE_TTL_SECONDS`; this module turns those snapshots into rows
 //! shaped like `calendar_events` / `contacts` so read paths treat them like stored rows.
 //! (Two-way CalDAV calendars stay in `calendar_events`.)
@@ -15,6 +15,7 @@ use parking_lot::Mutex;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
+use super::dav_client;
 use super::dav_sync::{self, LiveCard, LiveEvent, Source};
 use crate::engine::cache::ContentCache;
 
@@ -344,6 +345,9 @@ async fn book_rows(db: &Db, book: &LiveBook) -> std::sync::Arc<Vec<Map<String, V
             m.insert("is_auto".into(), json!(false));
             m.insert("send_count".into(), json!(0));
             m.insert("dav_filename".into(), json!(filename));
+            // Where the vCard lives and its server etag, for writing it back (see `write_card`).
+            m.insert("dav_href".into(), json!(card.href));
+            m.insert("dav_etag".into(), json!(card.etag));
             if m.get("photo_data").is_some_and(|p| !p.is_null()) {
                 m.insert("photo_data".into(), json!("live"));
             }
@@ -430,9 +434,63 @@ pub async fn contact_photo(db: &Db, user_id: &str, email: &str) -> Option<String
     photo
 }
 
-/// Whether `id` is a contact of a live (read-only) address book.
-pub async fn is_live_contact(db: &Db, user_id: &str, id: &str) -> bool {
-    contact_rows(db, user_id, None).await.iter().any(|m| m.get("id").and_then(Value::as_str) == Some(id))
+/// A contact of a live address book, with its `dav_href`/`dav_etag` and full vCard.
+pub async fn live_contact(db: &Db, user_id: &str, id: &str) -> Option<Map<String, Value>> {
+    contact_rows(db, user_id, None).await.into_iter().find(|m| m.get("id").and_then(Value::as_str) == Some(id))
+}
+
+async fn book_target(db: &Db, user_id: &str, book_id: &str) -> Result<(LiveBook, String, dav_client::Creds), String> {
+    let book = live_books(db, user_id, Some(book_id)).await.into_iter().next().ok_or("Address book not found")?;
+    let Some((source_id, Some(hash))) = parse_external(&book.external_url) else {
+        return Err("Address book not found".into());
+    };
+    let source = load_source(db, &source_id, &book.user_id).await.ok_or("The CardDAV server is disabled")?;
+    let (href, creds) = dav_sync::live_book_target(db, &source, &hash).await?;
+    Ok((book, href, creds))
+}
+
+/// Re-reads a live address book after a write so lists show the server's state right away.
+async fn refresh_book(db: &Db, book: &LiveBook) {
+    let Some((source_id, Some(hash))) = parse_external(&book.external_url) else { return };
+    let Some(source) = load_source(db, &source_id, &book.user_id).await else { return };
+    match dav_sync::fetch_live_book(db, &source, &hash).await {
+        Ok(cards) => store_book(book.id, &cards).await,
+        Err(e) => {
+            tracing::warn!("Live address book {} could not be re-read after a write: {e}", book.id);
+            invalidate(book.id);
+        }
+    }
+}
+
+/// Writes a vCard to a live address book: `existing` is the card's `(href, etag)` for an
+/// update, `None` creates `<uid>.vcf` in the collection. Returns the contact's stable id.
+pub async fn write_card(
+    db: &Db,
+    user_id: &str,
+    book_id: &str,
+    uid: &str,
+    vcard: &str,
+    existing: Option<(&str, &str)>,
+) -> Result<String, String> {
+    let (book, collection, creds) = book_target(db, user_id, book_id).await?;
+    let (href, etag) = match existing {
+        Some((href, etag)) => (href.to_owned(), Some(etag)),
+        None => {
+            let base = if collection.ends_with('/') { collection.clone() } else { format!("{collection}/") };
+            (format!("{base}{}.vcf", inboxora_mail::sanitize::encode_uri_component(uid)), None)
+        }
+    };
+    dav_client::put_card(&href, vcard, etag, &creds).await?;
+    refresh_book(db, &book).await;
+    Ok(stable_id(book.id, uid).to_string())
+}
+
+/// Deletes a contact's vCard from its live address book.
+pub async fn delete_card(db: &Db, user_id: &str, book_id: &str, href: &str, etag: &str) -> Result<(), String> {
+    let (book, _, creds) = book_target(db, user_id, book_id).await?;
+    dav_client::delete_card(href, Some(etag), &creds).await?;
+    refresh_book(db, &book).await;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -555,7 +613,7 @@ END:VCALENDAR\r\n";
         assert_eq!(found[0].get::<_, Option<String>>("primary_email").as_deref(), Some("ada@example.test"));
         assert_eq!(found[0].get::<_, Option<String>>("bday").as_deref(), Some("1815-12-10"));
         let ada = contact_rows(&db, &user, None).await.into_iter().find(|m| m["uid"] == "ada").unwrap();
-        assert!(is_live_contact(&db, &user, ada["id"].as_str().unwrap()).await);
+        assert!(live_contact(&db, &user, ada["id"].as_str().unwrap()).await.is_some());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

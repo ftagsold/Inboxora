@@ -15,7 +15,7 @@ export function chipAddress(chip: string): string {
   return (match ? match[1] : chip || '').trim();
 }
 
-export default function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined, chipAdornment, disabled = false, testId }: { chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties; /** Extra content after a chip's label, e.g. an attendee's answer. */ chipAdornment?: (chip: string) => ReactNode; disabled?: boolean; testId?: string }) {
+export default function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined, chipAdornment, disabled = false, testId, lockedChip, onChipClick }: { chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties; /** Extra content after a chip's label, e.g. an attendee's answer. */ chipAdornment?: (chip: string) => ReactNode; disabled?: boolean; testId?: string; /** A chip that can't be edited or removed (e.g. the user's own attendee entry). */ lockedChip?: (chip: string) => boolean; /** Click on a chip, at the pointer position (e.g. to open a menu for it). */ onChipClick?: (chip: string, x: number, y: number) => void }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
@@ -89,7 +89,7 @@ export default function ChipInput({ chips, onChipsChange, value, onChange, place
     }
     if (e.key === ',' || e.key === 'Enter' || e.key === 'Tab') {
       if (value.trim()) { e.preventDefault(); commitInput(); }
-    } else if (e.key === 'Backspace' && !value && chips.length) {
+    } else if (e.key === 'Backspace' && !value && chips.length && !lockedChip?.(chips[chips.length - 1])) {
       onChipsChange(chips.slice(0, -1));
     }
   };
@@ -133,19 +133,22 @@ export default function ChipInput({ chips, onChipsChange, value, onChange, place
     return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', onKey); };
   }, [menu]);
 
+  const menuLocked = menu ? Boolean(lockedChip?.(chips[menu.index])) : false;
   const menuItems = menu ? [
-    { label: t('common.edit'),                   fn: () => startEdit(menu.index) },
+    ...(menuLocked ? [] : [{ label: t('common.edit'), fn: () => startEdit(menu.index) }]),
     { label: t('compose.recipientMenu.copy'),    fn: () => { copyText(chipEmail(chips[menu.index])); setMenu(null); } },
     { label: t('compose.recipientMenu.copyAll'), fn: () => { copyText(chips.map(chipEmail).join(', ')); setMenu(null); } },
-    { label: t('common.remove'),                 fn: () => { onChipsChange(chips.filter((_, j) => j !== menu.index)); setMenu(null); }, danger: true },
+    ...(menuLocked ? [] : [{ label: t('common.remove'), fn: () => { onChipsChange(chips.filter((_, j) => j !== menu.index)); setMenu(null); }, danger: true }]),
   ] : [];
 
   return (
     <div ref={wrapperRef} data-testid={testId} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0, ...containerStyle }}>
-      {chips.map((chip, i) => (
+      {chips.map((chip, i) => { const locked = Boolean(lockedChip?.(chip)); return (
         <span key={i}
           title={chip}
-          onDoubleClick={() => startEdit(i)}
+          data-locked={locked || undefined}
+          onClick={onChipClick ? (e: React.MouseEvent<HTMLElement>) => onChipClick(chip, e.clientX, e.clientY) : undefined}
+          onDoubleClick={() => { if (!locked) startEdit(i); }}
           onContextMenu={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); openMenu(e.clientX, e.clientY, i); }}
           onTouchStart={ (e: React.TouchEvent) => onChipTouchStart(e, i)}
           onTouchEnd={cancelLongPress}
@@ -155,11 +158,12 @@ export default function ChipInput({ chips, onChipsChange, value, onChange, place
             background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
             border: '1px solid var(--border-subtle)',
             borderRadius: 999, padding: '1px 4px 1px 9px', fontSize: 12,
-            maxWidth: 220, cursor: 'default', userSelect: 'none',
+            maxWidth: 220, cursor: onChipClick ? 'pointer' : 'default', userSelect: 'none',
+            ...(locked && !disabled ? { paddingRight: 9 } : {}),
           }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{chip}</span>
           {chipAdornment?.(chip)}
-          {!disabled && <button
+          {!disabled && !locked && <button
             type="button"
             onClick={() => onChipsChange(chips.filter((_, j) => j !== i))}
             style={{ background: 'none', border: 'none', padding: '1px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0, borderRadius: '50%' }}
@@ -169,7 +173,7 @@ export default function ChipInput({ chips, onChipsChange, value, onChange, place
             </svg>
           </button>}
         </span>
-      ))}
+      ); })}
       <input
         ref={inputRef}
         type="text"

@@ -932,6 +932,17 @@ pub async fn fetch_live_calendar(
 
 /// Fetch a live CardDAV address book by its collection hash.
 pub async fn fetch_live_book(db: &Db, source: &Source, href_hash: &str) -> std::result::Result<Vec<LiveCard>, String> {
+    let (href, creds) = live_book_target(db, source, href_hash).await?;
+    let cards = dav_client::fetch_address_book_cards(&href, &creds).await?;
+    Ok(cards.into_iter().map(|c| LiveCard { vcard: c.vcard, href: c.href, etag: c.etag }).collect())
+}
+
+/// A live address book's collection URL and the credentials to read or write it.
+pub async fn live_book_target(
+    db: &Db,
+    source: &Source,
+    href_hash: &str,
+) -> std::result::Result<(String, Creds), String> {
     let collections = parse_collections(source.address_book_collections.as_deref()).unwrap_or_default();
     let href = collections
         .iter()
@@ -944,9 +955,7 @@ pub async fn fetch_live_book(db: &Db, source: &Source, href_hash: &str) -> std::
     let Some(password) = decrypt_or_empty(source.password.as_deref()) else {
         return Err("CardDAV password could not be decrypted".to_owned());
     };
-    let creds = Creds { username, password, allow_private: policy.allow_private_hosts };
-    let cards = dav_client::fetch_address_book_cards(&href, &creds).await?;
-    Ok(cards.into_iter().map(|c| LiveCard { vcard: c.vcard, href: c.href, etag: c.etag }).collect())
+    Ok((href, Creds { username, password, allow_private: policy.allow_private_hosts }))
 }
 
 /// The contacts-table fields of a vCard (shared by stored and live address books).

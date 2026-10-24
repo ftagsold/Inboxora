@@ -1134,7 +1134,8 @@
       "show": "Показать",
       "importGoogle": "Импорт файла CSV из Google",
       "exportGoogle": "Экспорт CSV для Google",
-      "exportOutlook": "Экспорт CSV для Outlook"
+      "exportOutlook": "Экспорт CSV для Outlook",
+      "local": "Локальные"
     }
   },
   "contextMenu": {
@@ -1989,7 +1990,8 @@
     "invitationNotifyBody": "Ваш ответ «{{answer}}» сохранён в календаре. Сообщить организатору?",
     "invitationNotifyYes": "Отправить ответ",
     "invitationNotifyNo": "Не отправлять",
-    "yourReply": "Ваш ответ"
+    "yourReply": "Ваш ответ",
+    "localCalendars": "Локальные"
   },
   "mailFolders": {
     "inbox": "Входящие",

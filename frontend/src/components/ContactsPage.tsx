@@ -173,6 +173,8 @@ export default function ContactsPage({ isActive = true }) {
   const [contacts, setContacts]     = useState<ContactRow[]>([]);
   const [addressBooks, setAddressBooks] = useState<AddressBookRow[]>([]);
   const [selectedAddressBookId, setSelectedAddressBookId] = useState('');
+  // Where a new contact is saved: a local book or a CardDAV one (written to its server).
+  const [newBookId, setNewBookId] = useState('');
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -380,6 +382,7 @@ export default function ContactsPage({ isActive = true }) {
     contactSelectionRequestRef.current += 1;
     setSelected(null);
     setForm(emptyContact());
+    setNewBookId(selectedAddressBookId || addressBooks.find(book => book.source === 'local')?.id || '');
     setEditing(false);
     setShowNew(true);
     setConfirmDelete(false);
@@ -483,7 +486,7 @@ export default function ContactsPage({ isActive = true }) {
       };
       let saved;
       if (showNew) {
-        saved = await api.createContact({ ...payload, addressBookId: selectedAddressBookId || undefined });
+        saved = await api.createContact({ ...payload, addressBookId: newBookId || undefined });
       } else {
         if (!selected) return;
         saved = await api.updateContact(selected.id, payload);
@@ -759,6 +762,9 @@ export default function ContactsPage({ isActive = true }) {
           key={showNew ? 'new' : selected?.id}
           form={form}
           isNew={showNew}
+          addressBooks={addressBooks}
+          bookId={newBookId}
+          onBook={setNewBookId}
           saving={saving}
           error={error}
           onField={setFormField}
@@ -892,6 +898,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
       ].filter((date): date is { label: string; value: string } => Boolean(date));
   const primaryEmail = c.primary_email || c.emails?.[0]?.value || '';
   const isReadOnly = c.read_only === true;
+  const fromCardDav = c.address_book_source === 'carddav';
   const isAuto = c.is_auto === true;
 
   return (
@@ -922,9 +929,9 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           )}
           {/* Context chips (CardDAV provenance, last contact) sit in flow below the name
               so they can never overlap it, whatever their translated width. */}
-          {(isReadOnly || c.last_sent) && (
+          {(fromCardDav || c.last_sent) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
-              {isReadOnly && (
+              {fromCardDav && (
                 <span style={contactStatChip}>{t('contacts.carddavBadge')}</span>
               )}
               {c.last_sent && (
@@ -1052,6 +1059,9 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
 interface ContactFormProps {
   form: ContactFormState;
   isNew: boolean;
+  addressBooks?: AddressBookRow[];
+  bookId?: string;
+  onBook?: (id: string) => void;
   saving: boolean;
   error: string | null;
   onField: (key: string, val: unknown) => void;
@@ -1070,7 +1080,7 @@ interface ContactFormProps {
   t: TFunction;
 }
 function ContactForm({
-  form, isNew, saving, error,
+  form, isNew, addressBooks = [], bookId = '', onBook, saving, error,
   onField, onSetEmail, onAddEmail, onRemoveEmail,
   onSetPhone, onAddPhone, onRemovePhone,
   onSetCollection, onAddCollection, onRemoveCollection, onSetCategories,
@@ -1086,6 +1096,20 @@ function ContactForm({
       </h2>
 
       {error && <ErrorBanner msg={error} />}
+
+      {isNew && addressBooks.length > 1 && (
+        <div style={{ marginBottom: 12 }}>
+          <label htmlFor="contact-addressBook" style={labelStyle}>{t('contacts.addressBooks.label')}</label>
+          <select id="contact-addressBook" data-testid="contact-address-book" style={inputStyle} value={bookId} onChange={event => onBook?.(event.target.value)}>
+            {(['local', 'carddav'] as const).map(source => {
+              const books = addressBooks.filter(book => book.source === source);
+              return books.length > 0 && <optgroup key={source} label={source === 'local' ? t('contacts.addressBooks.local') : 'CardDAV'}>
+                {books.map(book => <option key={book.id} value={book.id}>{book.name || book.id}</option>)}
+              </optgroup>;
+            })}
+          </select>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>

@@ -548,9 +548,9 @@ test('a timed event shows its full title in bold and a clock icon next to the ti
 // event renders "a little transparent" with nothing left for a seam to show through.
 test('events render a little transparent via a pre-blended color, not real CSS opacity (which broke multi-day seams)', async () => {
   const source = await readFile(calendarPath, 'utf8');
-  assert.match(source, /const EVENT_OPACITY = 0\.55;/);
-  assert.match(source, /function eventTint\(color: string \| null \| undefined, ratio: number = EVENT_OPACITY\): string \{/);
-  assert.match(source, /return `color-mix\(in srgb, \$\{color \|\| 'var\(--accent\)'\} \$\{Math\.round\(ratio \* 100\)\}%, var\(--bg-primary\)\)`;/);
+  assert.match(source, /const EVENT_OPACITY = 0\.32;/);
+  assert.match(source, /function eventTint\(color: string \| null \| undefined, ratio: number = EVENT_OPACITY, glass = false\): string \{/);
+  assert.match(source, /return `color-mix\(in srgb, \$\{color \|\| 'var\(--accent\)'\} \$\{Math\.round\(ratio \* 100\)\}%, \$\{glass \? 'transparent' : 'var\(--bg-primary\)'\}\)`;/);
   // Every real event and every move/resize ghost preview goes through it — none hardcode a raw
   // `event.calendar_color || 'var(--accent)'` background with a separate opacity any more.
   assert.doesNotMatch(source, /background: event\.calendar_color \|\| 'var\(--accent\)', opacity:/);
@@ -571,8 +571,8 @@ test('events render a little transparent via a pre-blended color, not real CSS o
 // opaque (just paler), dimming it the same way without ever exposing what's underneath.
 test('the moving/resizing dim state uses a paler eventTint(), never a real CSS opacity, on multi-day-capable events', async () => {
   const source = await readFile(calendarPath, 'utf8');
-  assert.match(source, /const EVENT_DIM_RATIO = 0\.28;/);
-  const dimmedTintCalls = source.match(/(?:eventTint|eventFill)\([^)]*beingMoved \|\| beingResized \? EVENT_DIM_RATIO : EVENT_OPACITY\)/g);
+  assert.match(source, /const EVENT_DIM_RATIO = 0\.14;/);
+  const dimmedTintCalls = source.match(/(?:eventTint|eventFill)\([^)]*beingMoved \|\| beingResized \? EVENT_DIM_RATIO : EVENT_OPACITY(?:, true)?\)/g);
   assert.equal(dimmedTintCalls?.length, 3, 'expected the dim ratio on the month-view card, the all-day pill, and the timed event');
   // No wrapper around a multi-day-capable event (month card row, all-day pill, timed event) may
   // still dim itself via real opacity.

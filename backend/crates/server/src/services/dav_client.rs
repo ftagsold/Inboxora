@@ -433,6 +433,38 @@ pub async fn delete_calendar_event(
     }
 }
 
+/// Create (`If-None-Match: *`) or update (`If-Match`) one vCard on a CardDAV server.
+pub async fn put_card(
+    href: &str,
+    vcard: &str,
+    if_match: Option<&str>,
+    creds: &Creds,
+) -> std::result::Result<(), String> {
+    let mut headers = vec![("Content-Type", "text/vcard; charset=utf-8".to_owned())];
+    match if_match.filter(|e| !e.is_empty()) {
+        None => headers.insert(0, ("If-None-Match", "*".into())),
+        Some(e) => headers.insert(0, ("If-Match", format!("\"{e}\""))),
+    }
+    let r = dav(Flavor::CardDav, "PUT", href, creds, None, Some(vcard.to_owned()), &headers).await?;
+    match r.status {
+        200 | 201 | 204 => Ok(()),
+        409 | 412 => Err("The contact was changed on the CardDAV server meanwhile — reload and try again".into()),
+        s => Err(format!("CardDAV server rejected the write ({s})")),
+    }
+}
+
+/// Delete one vCard from a CardDAV server; already gone counts as deleted.
+pub async fn delete_card(href: &str, if_match: Option<&str>, creds: &Creds) -> std::result::Result<(), String> {
+    let headers: Vec<(&str, String)> =
+        if_match.filter(|e| !e.is_empty()).map(|e| vec![("If-Match", format!("\"{e}\""))]).unwrap_or_default();
+    let r = dav(Flavor::CardDav, "DELETE", href, creds, None, None, &headers).await?;
+    match r.status {
+        200 | 204 | 404 => Ok(()),
+        409 | 412 => Err("The contact was changed on the CardDAV server meanwhile — reload and try again".into()),
+        s => Err(format!("CardDAV server rejected the delete ({s})")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
