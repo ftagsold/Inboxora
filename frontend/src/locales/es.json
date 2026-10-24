@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "Esta carpeta no contiene mensajes",
     "searchTitle": "Buscar: «{{query}}»",
     "changeLayout": "Cambiar diseño",
-    "emptyTrash": "Vaciar papelera"
+    "emptyTrash": "Vaciar papelera",
+    "starred": "Destacados",
+    "starredOnly": "Solo destacados"
   },
   "notifications": {
     "newMessage": "Nuevo mensaje"

@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "Questa cartella non contiene messaggi",
     "searchTitle": "Ricerca: «{{query}}»",
     "changeLayout": "Cambia disposizione",
-    "emptyTrash": "Svuota cestino"
+    "emptyTrash": "Svuota cestino",
+    "starred": "Speciali",
+    "starredOnly": "Solo speciali"
   },
   "notifications": {
     "newMessage": "Nuovo messaggio"

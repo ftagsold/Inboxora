@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "В этой папке нет сообщений",
     "searchTitle": "Поиск: «{{query}}»",
     "changeLayout": "Изменить расположение",
-    "emptyTrash": "Очистить корзину"
+    "emptyTrash": "Очистить корзину",
+    "starred": "Помеченные",
+    "starredOnly": "Только помеченные"
   },
   "notifications": {
     "newMessage": "Новое сообщение"

@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "此文件夹没有邮件",
     "searchTitle": "搜索：“{{query}}”",
     "changeLayout": "更改布局",
-    "emptyTrash": "清空废纸篓"
+    "emptyTrash": "清空废纸篓",
+    "starred": "已加星标",
+    "starredOnly": "仅已加星标"
   },
   "notifications": {
     "newMessage": "新邮件"

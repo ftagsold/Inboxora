@@ -23,7 +23,7 @@ export function MobileModuleHeader({ leading = null, title = '', subtitle = unde
   </>, host);
 }
 
-export type HeaderActionIcon = 'back' | 'previous' | 'next' | 'unread' | 'sync' | 'select' | 'close' | 'compose' | 'add' | 'books' | 'calendars' | 'agenda' | 'trash';
+export type HeaderActionIcon = 'back' | 'previous' | 'next' | 'unread' | 'sync' | 'select' | 'close' | 'compose' | 'add' | 'books' | 'calendars' | 'agenda' | 'trash' | 'star';
 
 export interface HeaderActionProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon: HeaderActionIcon;
@@ -45,6 +45,7 @@ export function HeaderAction({ icon, label, ...props }: HeaderActionProps) {
     books: <><path d="M4 4h14a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Z"/><path d="M4 16h16M8 4v12M12 8h4M12 11h4"/></>,
     calendars: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M7 15h3M14 15h3"/></>,
     agenda: <><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></>,
+    star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
     trash: <><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></>,
   };
   return <button type="button" className="mobile-header-action" aria-label={label} title={label} {...props}>

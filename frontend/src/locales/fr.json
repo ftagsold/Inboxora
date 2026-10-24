@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "Ce dossier ne contient aucun message",
     "searchTitle": "Recherche : « {{query}} »",
     "changeLayout": "Changer la disposition",
-    "emptyTrash": "Vider la corbeille"
+    "emptyTrash": "Vider la corbeille",
+    "starred": "Suivis",
+    "starredOnly": "Suivis uniquement"
   },
   "notifications": {
     "newMessage": "Nouveau message"

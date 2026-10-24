@@ -107,6 +107,9 @@ pub async fn list(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Response>
     if matches!(q.str("unreadOnly"), Some("1" | "true")) {
         entry.push("m_entry.is_read = false".into());
     }
+    if matches!(q.str("starredOnly"), Some("1" | "true")) {
+        entry.push("m_entry.is_starred = true".into());
+    }
     if let Some(c) = q.str("category").filter(|c| !c.is_empty() && *c != "all") {
         values.push(c.into());
         entry.push(format!("COALESCE(m_entry.category, 'primary') = ${}", values.len()));

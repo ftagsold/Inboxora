@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "Dieser Ordner enthält keine Nachrichten",
     "searchTitle": "Suche: „{{query}}“",
     "changeLayout": "Layout ändern",
-    "emptyTrash": "Papierkorb leeren"
+    "emptyTrash": "Papierkorb leeren",
+    "starred": "Markiert",
+    "starredOnly": "Nur markierte"
   },
   "notifications": {
     "newMessage": "Neue Nachricht"

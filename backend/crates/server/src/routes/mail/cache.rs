@@ -84,7 +84,7 @@ pub async fn changes(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Respon
         &a.user_id,
         query_string(&q, "accountId").as_deref(),
         &folder,
-        query_string(&q, "unreadOnly").as_deref() == Some("true"),
+        super::read::ListFilter::from_query(&q),
         category.as_deref(),
     )
     .await?
@@ -92,6 +92,8 @@ pub async fn changes(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Respon
         return Ok(ok(json!({ "seq": seq, "changed": [], "removed": [] })));
     };
     let from = (since - CHANGE_OVERLAP).max(0);
+    let filter = super::read::ListFilter::from_query(&q);
+    let starred_total = if filter.starred { super::read::count_view(&s, &conds, &values).await } else { None };
     let in_view = conds.join(" AND ");
     values.push(Val::from(scoped.clone()));
     let acc = values.len();
@@ -132,14 +134,10 @@ pub async fn changes(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Respon
     mark_contact_photos(&s, &a.user_id, &mut visible, "from_email").await?;
     let removed: Vec<Value> =
         removed.into_iter().map(Value::String).chain(gone.iter().filter_map(|r| r.get("id").cloned())).collect();
-    let total = view_total(
-        &s,
-        resolved.as_deref(),
-        &folder,
-        &scoped,
-        query_string(&q, "unreadOnly").as_deref() == Some("true"),
-    )
-    .await;
+    let total = match starred_total {
+        Some(n) => n,
+        None => view_total(&s, resolved.as_deref(), &folder, &scoped, filter.unread).await,
+    };
     Ok(ok(json!({ "seq": seq, "changed": visible, "removed": removed, "total": total })))
 }
 

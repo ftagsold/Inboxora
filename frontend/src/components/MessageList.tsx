@@ -230,6 +230,8 @@ export default function MessageList() {
   }, []);
 
   const [unreadOnly, setUnreadOnly] = useState(false);
+  // Starred/flagged-only filter; combines with unread-only.
+  const [starredOnly, setStarredOnly] = useState(false);
   const [activeCategory, setActiveCategory] = useState('primary');
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
@@ -385,6 +387,7 @@ export default function MessageList() {
     accountId?: string;
     folder?: string;
     unreadOnly?: string;
+    starredOnly?: string;
     threaded?: string;
     category?: string;
     /** Keyset cursor `<date>|<id>` of the last loaded row (flat lists). */
@@ -481,6 +484,7 @@ export default function MessageList() {
     account: selectedAccountId || '',
     folder: selectedAccountId ? selectedFolder : 'INBOX',
     unread: unreadOnly,
+    ...(starredOnly ? { starred: true } : {}),
     threaded: threadedView,
     category: selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled) ? activeCategory : '',
   };
@@ -533,6 +537,7 @@ export default function MessageList() {
           params.folder = selectedFolder;
         }
         if (unreadOnly) params.unreadOnly = 'true';
+        if (starredOnly) params.starredOnly = 'true';
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         const key = currentViewKey();
@@ -584,7 +589,7 @@ export default function MessageList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, currentViewKey, settleLoadedRows]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, starredOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, currentViewKey, settleLoadedRows]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -599,6 +604,7 @@ export default function MessageList() {
         params.folder = selectedFolder;
       }
       if (unreadOnly) params.unreadOnly = 'true';
+      if (starredOnly) params.starredOnly = 'true';
       const threaded = useStore.getState().threadedView;
       if (threaded) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -615,7 +621,7 @@ export default function MessageList() {
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset, fillPendingRows]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, starredOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset, fillPendingRows]);
 
   useEffect(() => {
     if (!loadingMessages && pendingLiveRefreshRef.current) {
@@ -635,6 +641,7 @@ export default function MessageList() {
       const params: QueryParams = { since };
       if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
       if (unreadOnly) params.unreadOnly = 'true';
+      if (starredOnly) params.starredOnly = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       const key = currentViewKey();
       const data = await api.getMessageChanges(params);
@@ -678,6 +685,7 @@ export default function MessageList() {
         }
         if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
         if (unreadOnly) params.unreadOnly = 'true';
+        if (starredOnly) params.starredOnly = 'true';
         if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         await refreshRequest.run(
@@ -727,7 +735,7 @@ export default function MessageList() {
       window.removeEventListener('inboxora:refresh', handler);
       clearTimeout(deferredRefreshTimerRef.current);
     };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, currentViewKey, settleLoadedRows]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, starredOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, currentViewKey, settleLoadedRows]);
 
   // Search
   useEffect(() => {
@@ -844,6 +852,7 @@ export default function MessageList() {
       const params: MessageQueryParams = { limit: pageSize, offset: (pageNum - 1) * pageSize };
       if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
       if (unreadOnly) params.unreadOnly = 'true';
+      if (starredOnly) params.starredOnly = 'true';
       if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       await refreshRequest.run(
@@ -862,7 +871,7 @@ export default function MessageList() {
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, starredOnly, activeCategory, pageSize, loadingMessages, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
 
   const handleSync = async () => {
     if (syncing) return;
@@ -2949,6 +2958,43 @@ export default function MessageList() {
   // Grouping always uses the native threaded MessageList and ThreadRow below.
   // Conversation Engine changes server-side identity/data; it never replaces this shell.
 
+  const emptyTrashButton = isTrashFolder && messagesTotal > 0 && !searchQuery ? (
+              <button
+                type="button"
+                data-testid="empty-trash"
+                onClick={() => setConfirmEmptyTrash(true)}
+                title={t('messageList.emptyTrash')}
+                style={{
+                  background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px',
+                  color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                  fontSize: 12, transition: 'color 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                {!isNarrow && t('messageList.emptyTrash')}
+              </button>
+            ) : null;
+  const starredFilterButton = (
+    <button
+      data-testid="starred-filter"
+      onClick={() => setStarredOnly(!starredOnly)}
+      title={starredOnly ? t('messageList.showAll') : t('messageList.starredOnly')}
+      aria-pressed={starredOnly}
+      style={{
+        background: starredOnly ? 'var(--accent-dim)' : 'none',
+        border: `1px solid ${starredOnly ? 'var(--accent)' : 'var(--border)'}`,
+        borderRadius: 6, padding: '4px 8px',
+        color: starredOnly ? 'var(--accent)' : 'var(--text-tertiary)',
+        cursor: 'pointer', fontSize: 11, fontWeight: 500,
+        display: 'flex', alignItems: 'center', gap: 4,
+      }}
+    >
+      <svg width="11" height="11" viewBox="0 0 24 24" fill={starredOnly ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      {t('messageList.starred')}
+    </button>
+  );
   return (
     <div style={{
       // The list always fills the column its shell allocates: in row layouts that
@@ -2966,6 +3012,7 @@ export default function MessageList() {
     }}>
 
       {isMobile && mailListActive && <MobileModuleHeader title={label} subtitle={[selectedAccount?.name, headerUnread > 0 ? `${headerUnread} · ${t('messageList.unread')}` : null].filter(Boolean).join(' · ')}>
+        <HeaderAction icon="star" label={starredOnly ? t('messageList.showAll') : t('messageList.starredOnly')} aria-pressed={starredOnly} data-testid="starred-filter-mobile" onClick={() => setStarredOnly(value => !value)} />
         <HeaderAction icon="unread" label={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(value => !value)} />
         {isTrashFolder && messagesTotal > 0 && <HeaderAction icon="trash" label={t('messageList.emptyTrash')} data-testid="empty-trash-mobile" onClick={() => setConfirmEmptyTrash(true)} />}
         <HeaderAction icon="sync" label={t('messageList.sync')} disabled={syncing} aria-busy={syncing} onClick={handleSync} />
@@ -3014,29 +3061,6 @@ export default function MessageList() {
             ) : label}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
-            {messagesTotal > 0 && !searchQuery && (
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                {messagesTotal}
-              </span>
-            )}
-            {isTrashFolder && messagesTotal > 0 && !searchQuery && (
-              <button
-                type="button"
-                data-testid="empty-trash"
-                onClick={() => setConfirmEmptyTrash(true)}
-                title={t('messageList.emptyTrash')}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px',
-                  color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-                  fontSize: 12, transition: 'color 0.15s, border-color 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)'; }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
-                {!isNarrow && t('messageList.emptyTrash')}
-              </button>
-            )}
             {/* Sync button */}
             <button
               onClick={handleSync}
@@ -3063,6 +3087,12 @@ export default function MessageList() {
                 <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
               </svg>
             </button>
+            {messagesTotal > 0 && !searchQuery && (
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                {messagesTotal}
+              </span>
+            )}
+            {isNarrow && emptyTrashButton}
 
             {/* Layout picker — wide layouts only; narrow layouts render it in the controls row below */}
             {!isNarrow && (
@@ -3142,9 +3172,12 @@ export default function MessageList() {
               </div>
             )}
 
-            {/* In wide layouts, keep filter + page size inline */}
+            {!isNarrow && emptyTrashButton}
+
+            {/* In wide layouts, keep filters + page size inline */}
             {!isNarrow && (
               <>
+                {starredFilterButton}
                 {/* Filter unread */}
                 <button
                   onClick={() => setUnreadOnly(!unreadOnly)}
@@ -3204,6 +3237,7 @@ export default function MessageList() {
         {/* Narrow layouts: filter + page size + layout picker on their own row */}
         {isNarrow && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+            {starredFilterButton}
             <button
               onClick={() => setUnreadOnly(!unreadOnly)}
               title={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')}
@@ -3737,11 +3771,11 @@ export default function MessageList() {
           <EmptyState
             folderSyncing={folderSyncing}
             searchQuery={searchQuery}
-            unreadOnly={unreadOnly}
+            unreadOnly={unreadOnly || starredOnly}
             selectedFolder={selectedFolder}
             accounts={accounts}
             onClearSearch={() => { setSearchQuery(''); }}
-            onShowAll={() => setUnreadOnly(false)}
+            onShowAll={() => { setUnreadOnly(false); setStarredOnly(false); }}
             onCompose={() => openCompose({ accountId: selectedAccountId || undefined })}
           />
         )}

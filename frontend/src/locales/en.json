@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "This folder has no messages",
     "searchTitle": "Search: “{{query}}”",
     "changeLayout": "Change layout",
-    "emptyTrash": "Empty trash"
+    "emptyTrash": "Empty trash",
+    "starred": "Starred",
+    "starredOnly": "Starred only"
   },
   "notifications": {
     "newMessage": "New message"

@@ -40,12 +40,36 @@ pub struct View {
     pub resolved: Option<String>,
 }
 
+/// The list filters a view can apply on top of its folder: unread only and/or starred only.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ListFilter {
+    pub unread: bool,
+    pub starred: bool,
+}
+
+impl ListFilter {
+    /// `unreadOnly=true` / `starredOnly=true` from the query string.
+    pub fn from_query(q: &crate::http::Qs) -> Self {
+        Self {
+            unread: query_string(q, "unreadOnly").as_deref() == Some("true"),
+            starred: query_string(q, "starredOnly").as_deref() == Some("true"),
+        }
+    }
+}
+
+/// How many rows match a view. The folder counters only know totals and unread counts, so a
+/// starred view counts its rows.
+pub async fn count_view(s: &AppState, conds: &[String], values: &[Val]) -> Option<i64> {
+    let sql = format!("SELECT COUNT(*)::bigint AS n FROM messages m WHERE {}", conds.join(" AND "));
+    s.db.opt(&sql, values).await.ok().flatten().map(|r| r.get::<_, i64>("n"))
+}
+
 pub async fn view_of(
     s: &AppState,
     user_id: &str,
     account_id: Option<&str>,
     folder: &str,
-    unread_only: bool,
+    filter: ListFilter,
     category: Option<&str>,
 ) -> Result<Option<View>> {
     let accounts: Vec<(String, Option<bool>)> =
@@ -73,8 +97,11 @@ pub async fn view_of(
         conds.push(format!("m.account_id = ANY(${})", values.len()));
         conds.push("m.folder = 'INBOX'".into());
     }
-    if unread_only {
+    if filter.unread {
         conds.push("m.is_read = false".into());
+    }
+    if filter.starred {
+        conds.push("m.is_starred = true".into());
     }
     match category.filter(|c| !c.is_empty()) {
         Some("primary") => conds.push("(m.category IS NULL OR m.category = 'primary')".into()),
@@ -101,13 +128,13 @@ pub async fn list_messages(
     folder: &str,
     limit: i64,
     offset: i64,
-    unread_only: bool,
+    filter: ListFilter,
     threaded: bool,
     category: Option<&str>,
     before: Option<(String, String)>,
 ) -> Result<(Vec<Value>, i64, bool, Option<String>)> {
     let Some(View { conds, mut values, scoped, resolved }) =
-        view_of(s, user_id, account_id, folder, unread_only, category).await?
+        view_of(s, user_id, account_id, folder, filter, category).await?
     else {
         return Ok((vec![], 0, false, None));
     };
@@ -116,8 +143,11 @@ pub async fn list_messages(
     let safe_limit = if limit == 0 { 50 } else { limit.clamp(1, 500) };
     let safe_offset = offset.max(0);
     let mut total: i64 = 0;
+    let unread_only = filter.unread;
     let totals = async {
-        if specific {
+        if filter.starred {
+            Ok::<_, inboxora_core::Error>(count_view(s, &conds, &values).await.unwrap_or(0))
+        } else if specific {
             let r =
                 s.db.opt(
                     "SELECT total_count, unread_count FROM folders WHERE account_id = $1 AND path = $2",
@@ -341,7 +371,7 @@ pub async fn messages(State(s): State<AppState>, a: Auth, q: Qs) -> Result<Respo
         &folder,
         limit,
         offset,
-        query_string(&q, "unreadOnly").as_deref() == Some("true"),
+        ListFilter::from_query(&q),
         query_string(&q, "threaded").as_deref() == Some("true"),
         category.as_deref(),
         parse_cursor(query_string(&q, "before").as_deref()),

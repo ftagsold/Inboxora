@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "V této složce nejsou žádné zprávy",
     "searchTitle": "Hledat: „{{query}}“",
     "changeLayout": "Změnit rozložení",
-    "emptyTrash": "Vysypat koš"
+    "emptyTrash": "Vysypat koš",
+    "starred": "S hvězdičkou",
+    "starredOnly": "Jen s hvězdičkou"
   },
   "notifications": {
     "newMessage": "Nová zpráva"

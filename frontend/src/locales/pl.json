@@ -1612,7 +1612,9 @@
     "emptyFolderDesc": "W tym folderze nie ma wiadomości",
     "searchTitle": "Szukaj: „{{query}}”",
     "changeLayout": "Zmień układ",
-    "emptyTrash": "Opróżnij kosz"
+    "emptyTrash": "Opróżnij kosz",
+    "starred": "Oznaczone",
+    "starredOnly": "Tylko oznaczone"
   },
   "notifications": {
     "newMessage": "Nowa wiadomość"

@@ -664,8 +664,8 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
         </nav>
       </div>
       <div className="files-actions">
-        {!picking && <Button variant="ghost" className="files-icon-button" aria-pressed={selectMode} data-testid="files-select-mode" aria-label={t('files.selectMode')} title={t('files.selectMode')} onClick={() => { setSelectMode(on => !on); setSelected(new Set()); }} style={selectMode ? { color: 'var(--accent)', background: 'var(--accent-dim)' } : undefined}><SelectIcon /></Button>}
         <Button variant="ghost" className="files-icon-button" aria-label={t('files.refresh')} title={t('files.refresh')} onClick={() => refresh()} disabled={loading}><RefreshIcon /></Button>
+        {!picking && <Button variant="ghost" className="files-icon-button" aria-pressed={selectMode} data-testid="files-select-mode" aria-label={t('files.selectMode')} title={t('files.selectMode')} onClick={() => { setSelectMode(on => !on); setSelected(new Set()); }} style={selectMode ? { color: 'var(--accent)', background: 'var(--accent-dim)' } : undefined}><SelectIcon /></Button>}
         <div className="files-search">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.4-4.4" /></svg>
           <input type="search" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === 'Escape' && filter) { event.preventDefault(); event.stopPropagation(); setFilter(''); } }} placeholder={t('files.search')} aria-label={t('files.search')} data-testid="files-filter" />

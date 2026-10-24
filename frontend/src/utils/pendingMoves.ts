@@ -25,6 +25,8 @@ export type ViewParams = {
   account: string;
   folder: string;
   unread: boolean;
+  /** Only present (true) for the starred-only view, so the other views keep their cache keys. */
+  starred?: boolean;
   threaded: boolean;
   category: string;
 };
@@ -55,6 +57,7 @@ function viewKeysFor(accountId: string, folder: string, unread: boolean): string
 function matches(move: PendingMove, params: ViewParams): boolean {
   if (params.threaded || params.category) return false;
   if (params.unread && move.row.is_read) return false;
+  if (params.starred && !move.row.is_starred) return false;
   if (params.folder !== move.folder) return false;
   return params.account === move.accountId || (params.account === '' && move.folder === 'INBOX');
 }
