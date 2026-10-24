@@ -176,7 +176,7 @@ const dayGrid: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(7
 // the touch target without inline styles winning over it.
 const dayButton = { margin: '0 auto', padding: 0, border: 0, borderRadius: 5, background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const today = { background: 'var(--accent)', color: 'var(--accent-text)', fontWeight: 600 }; const muted = { opacity: .38 };
-const section: CSSProperties = { display: 'grid', gap: 8, paddingTop: 10 };
+const section: CSSProperties = { display: 'grid', gap: 8 };
 const COLLAPSED_GROUPS_KEY = 'inboxora_calendar_collapsed_groups';
 const groupCard: CSSProperties = { background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8 };
 const groupHeader: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', padding: '8px 10px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 12, fontWeight: 600, textAlign: 'left' };

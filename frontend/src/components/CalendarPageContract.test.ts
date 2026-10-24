@@ -253,8 +253,8 @@ test('a multi-day month-view event can be picked up to move from any of its segm
 // day-granularity) or a read-only/non-writable one.
 test('a month-view all-day event — single-day or multi-day — resizes by its left/right edge, via the same hook as the all-day row', async () => {
   const source = await readFile(calendarPath, 'utf8');
-  assert.match(source, /const monthResize = useAllDayResizeDrag\(moveEvent\);/);
-  assert.match(source, /const resizable = allDay && movable;/);
+  assert.match(source, /const monthResize = useAllDayResizeDrag\(\(event, start, end\) => \{/);
+  assert.match(source, /const resizable = movable;/);
   assert.match(source, /\{resizable && !segment\?\.continuesFrom && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-start"/);
   assert.match(source, /\{resizable && !segment\?\.continuesTo && <div className="calendar-event-resize-handle calendar-allday-resize-handle" data-testid="calendar-month-resize-end"/);
   assert.match(source, /monthResize\.startResize\(event, eventLastInclusiveDay, dayFromKey\(startKey\)\);/);

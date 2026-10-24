@@ -144,6 +144,19 @@ function monthSpanKeys(event: CalendarViewEvent): { startKey: string; endKey: st
   const last = new Date(Math.max(start.getTime(), end.getTime() - 1));
   return { startKey: dateOnly(start), endKey: dateOnly(new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1)) };
 }
+// A month-view resize of a timed event: the new first day at its original start time, the new
+// last day at its original end time (an end at midnight stays on the day after the last one).
+// Null when that would end before it starts.
+function resizedTimedRange(event: CalendarViewEvent, startDay: Date, endExclusive: Date): { start: Date; end: Date } | null {
+  const start = new Date(String(event.starts_at ?? event.startsAt ?? ''));
+  const end = new Date(String(event.ends_at ?? event.endsAt ?? ''));
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const endsAtMidnight = end.getHours() === 0 && end.getMinutes() === 0 && end.getSeconds() === 0 && end > start;
+  const lastDay = new Date(endExclusive.getFullYear(), endExclusive.getMonth(), endExclusive.getDate() - (endsAtMidnight ? 0 : 1));
+  const nextStart = new Date(startDay.getFullYear(), startDay.getMonth(), startDay.getDate(), start.getHours(), start.getMinutes(), start.getSeconds());
+  const nextEnd = new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate(), end.getHours(), end.getMinutes(), end.getSeconds());
+  return nextEnd > nextStart ? { start: nextStart, end: nextEnd } : null;
+}
 function monthSpanDays(event: CalendarViewEvent): number {
   if (event.all_day || event.allDay) return allDaySpanDays(event);
   const { startKey, endKey } = monthSpanKeys(event);
@@ -1337,7 +1350,12 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
   const monthEventDrag = useEventDragMove(moveEvent, { vertical: false });
   // Dragging a multi-day event's left or right edge resizes it — same hook the all-day row
   // uses, unmodified: it's already day-only with no week-view-specific internals.
-  const monthResize = useAllDayResizeDrag(moveEvent);
+  // A timed event resizes by whole days too, keeping its own start and end times.
+  const monthResize = useAllDayResizeDrag((event, start, end) => {
+    if (event.all_day || event.allDay) return moveEvent(event, start, end);
+    const timed = resizedTimedRange(event, start, end);
+    return timed ? moveEvent(event, timed.start, timed.end) : undefined;
+  });
   // Hovering any one segment of a multi-day event highlights every one of its segments, not
   // just the one under the cursor — each day's cell stacks its own events as separate DOM
   // elements (there's no single spanning box the way week view's all-day pill is one CSS-grid
@@ -1419,7 +1437,9 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
     const startDay = resizing.day <= resizing.fixed ? resizing.day : resizing.fixed;
     const lastInclusiveDay = resizing.day <= resizing.fixed ? resizing.fixed : resizing.day;
     const endExclusive = new Date(lastInclusiveDay.getFullYear(), lastInclusiveDay.getMonth(), lastInclusiveDay.getDate() + 1);
-    return { ...resizing.event, starts_at: dateOnly(startDay), ends_at: dateOnly(endExclusive) };
+    // A timed event previews from its start time on the new first day (see resizedTimedRange).
+    const timed = resizing.event.all_day || resizing.event.allDay ? null : resizedTimedRange(resizing.event, startDay, endExclusive);
+    return { ...resizing.event, starts_at: timed ? toDateTimeLocal(timed.start) : dateOnly(startDay), ends_at: dateOnly(endExclusive) };
   })() : null;
   // The event actually being dragged, in its real (unmoved) form — its own sort-relevant
   // properties (not the shifted preview's) decide where the preview inserts into a day's
@@ -1639,7 +1659,7 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
           // the resize preview's range into spanningById even when the real event isn't a spanner
           // yet (see its `previewTouchesWeek` fallback above), so the growing bar still lands on
           // the same row across every day it comes to cover.
-          const resizable = allDay && movable;
+          const resizable = movable;
           const timedCard = !segmentRaw;
           const titleVisible = !segment?.continuesFrom;
           // A bar's title may run on over the rest of its days in this row instead of being cut at
@@ -1659,9 +1679,8 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
           // free from plain CSS `:hover`, so this only actually changes anything visible for a
           // spanning one.
           const highlighted = spanning && hoveredEventId != null && hoveredEventId === String(event.id);
-          const startKey = String(event.starts_at ?? event.startsAt ?? '').slice(0, 10);
-          const endKey = String(event.ends_at ?? event.endsAt ?? '').slice(0, 10);
-          const exclusiveEndDay = dayFromKey(endKey);
+          const startKey = span.startKey;
+          const exclusiveEndDay = dayFromKey(span.endKey);
           const eventLastInclusiveDay = new Date(exclusiveEndDay.getFullYear(), exclusiveEndDay.getMonth(), exclusiveEndDay.getDate() - 1);
           // The month grid draws its cell borders as a 1px gap with the border color showing
           // through underneath (gap: 1, background: var(--border-subtle)), so bridging it takes
