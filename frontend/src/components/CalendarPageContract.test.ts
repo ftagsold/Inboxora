@@ -434,12 +434,11 @@ test('a month-view event\'s own border-radius longhands are always set, never co
   assert.match(source, /borderTopLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderBottomLeftRadius: segment\?\.continuesFrom \? 0 : 4, borderTopRightRadius: segment\?\.continuesTo \? 0 : 4, borderBottomRightRadius: segment\?\.continuesTo \? 0 : 4, paddingLeft: segment\?\.continuesFrom \? 10 : 6, paddingRight: segment\?\.continuesTo \? 10 : 6, overflow: 'visible' \}\}>/);
 });
 
-// Capping at 5 and showing a "+1 more" chip for a 6th event takes exactly the same vertical
-// space as just showing that 6th event directly, so the chip is only worth its own row once it
-// actually collapses more than one event — a cell with exactly 6 shows all 6, with no chip.
+// A cell shows every event its fixed row height fits; only past that does the last fitting row
+// become a "+N more" chip, so the chip always collapses at least two events.
 test('a month-view cell only truncates once there is more than one event to hide', async () => {
   const source = await readFile(calendarPath, 'utf8');
-  assert.match(source, /const visibleList = renderList\.length <= 6 \? renderList : renderList\.slice\(0, 5\);/);
+  assert.match(source, /const visibleList = renderList\.length <= cellCapacity \? renderList : renderList\.slice\(0, cellCapacity - 1\);/);
 });
 
 // Dragging an event's top or bottom edge resizes it: the dragged edge tracks the exact day+time

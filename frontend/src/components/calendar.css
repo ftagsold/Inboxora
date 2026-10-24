@@ -20,10 +20,11 @@
 /* The rail has its own persisted width, independent of mail/contacts and of
    the day agenda (a separate, independently sized column). */
 .calendar-rail { width: var(--calendar-rail-width, 320px); min-width: 0; }
-.calendar-rail-heading { margin: 0 0 12px; font-family: var(--font-display); font-size: 20px; font-weight: 600; }
-/* 13px more above puts the button's top edge level with the mail sidebar's compose button
-   (56px header + 12px). The button, the mini month and the calendar groups sit 16px apart. */
-.calendar-rail-create { width: 100%; margin-top: 13px; margin-bottom: 16px; }
+.calendar-rail-heading { margin: 0 0 12px; font-family: var(--font-display); font-size: 20px; font-weight: 600; line-height: 30px; }
+/* Same box as the mail sidebar's compose button: 38px tall, top edge at 68px (13px rail padding
+   + 30px heading + 12 + 13 here = its 56px header + 12px). The button, the mini month and the
+   calendar groups sit 16px apart. */
+.calendar-rail-create { width: 100%; height: 38px; box-sizing: border-box; margin-top: 13px; margin-bottom: 16px; }
 /* Mini-month control sizing. Kept in CSS (not inline) so the bottom sheet can raise
    the touch targets on a phone without fighting an inline style. */
 .calendar-mini-day { width: 24px; height: 22px; min-height: 22px; }

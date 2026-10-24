@@ -1363,6 +1363,22 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
   // the pointer. Tracked by id in JS instead, so every segment can react together. Declared
   // unconditionally alongside the drag hooks above, before the non-month early return.
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
+  // Month rows get a fixed height from the space the grid is given — never from their content —
+  // and each cell shows only as many events as fit that height. A row sized by its content grew
+  // whenever a drag preview added one more event to a full cell, which shifted the grid under the
+  // pointer (and added a scrollbar), moving the drag to another cell and back: flicker.
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const [gridSpace, setGridSpace] = useState(0);
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (!month || !surface) return;
+    const measure = () => setGridSpace(Math.max(0, surface.clientHeight - (headerRef.current?.offsetHeight ?? 0) - 1));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, [month]);
   // Navigating to a different period (month/week) makes any drag against the *old* one
   // meaningless — hard-clear all three regardless of whether anything else already would
   // have. `days[0]`/`days[days.length - 1]` (not the `days` array itself, a new reference on
@@ -1523,9 +1539,15 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
     const laneCount = placements.reduce((max, placement) => Math.max(max, placement.lane + 1), 0);
     monthWeekLanes.set(weekIndex, { laneOf, laneCount });
   });
-  return <div data-testid="calendar-grid" style={{ ...calendarSurface, flex: 1, minWidth: 0 }}>
-    <div style={monthDow}>{days.slice(0, 7).map(day => <div key={`header-${day.toISOString()}`} style={monthDowCell}><span data-testid="calendar-weekday" style={monthDowLabel}>{day.toLocaleDateString(locale, { weekday: 'long' })}</span></div>)}</div>
-    <div data-testid="calendar-month-grid" style={{ ...dayGrid, gridTemplateColumns: `repeat(7, minmax(${isMobile && !month ? 112 : 0}px, 1fr))`, gridAutoRows: 'minmax(108px, 1fr)', gap: 1, background: 'var(--border-subtle)', borderTop: '1px solid var(--border-subtle)' }}>
+  const monthRows = Math.max(1, Math.ceil(days.length / 7));
+  const monthRowHeight = gridSpace > 0 ? Math.max(MONTH_ROW_MIN, Math.floor((gridSpace - (monthRows - 1)) / monthRows)) : 0;
+  // Cell padding 6+6, date chip 20 + 6 margin, 2px gap to the stack; then one event row each
+  // (an 11px card at line-height 1.5 plus 2+2 padding, 24 on a phone) with a 2px gap between.
+  const eventRowHeight = isMobile ? 24 : 21;
+  const cellCapacity = Math.max(1, Math.floor(((monthRowHeight || MONTH_ROW_MIN) - 34 + 2) / (eventRowHeight + 2)));
+  return <div ref={surfaceRef} data-testid="calendar-grid" style={{ ...calendarSurface, flex: 1, minWidth: 0 }}>
+    <div ref={headerRef} style={monthDow}>{days.slice(0, 7).map(day => <div key={`header-${day.toISOString()}`} style={monthDowCell}><span data-testid="calendar-weekday" style={monthDowLabel}>{day.toLocaleDateString(locale, { weekday: 'long' })}</span></div>)}</div>
+    <div data-testid="calendar-month-grid" style={{ ...dayGrid, gridTemplateColumns: `repeat(7, minmax(${isMobile && !month ? 112 : 0}px, 1fr))`, gridAutoRows: monthRowHeight ? `${monthRowHeight}px` : 'minmax(108px, 1fr)', gap: 1, background: 'var(--border-subtle)', borderTop: '1px solid var(--border-subtle)' }}>
       {days.map((day, dayIndex) => {
         const inMonth = day.getMonth() === anchor.getMonth(); const dayEvents = dayEventsFor(day);
         const dayKey = dateOnly(day);
@@ -1605,15 +1627,9 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
         const laneRows: Array<LaneRenderItem | { empty: true }> = [];
         for (let lane = 0; lane <= highestLane; lane += 1) laneRows.push(laneSlots[lane] ?? { empty: true });
         const renderList: Array<LaneRenderItem | OtherRenderItem | { empty: true }> = [...laneRows, ...others];
-        // Capping at 5 and showing a "+1 more" chip for a 6th event takes exactly the same
-        // vertical space as just showing that 6th event directly — the chip is only ever worth
-        // its own row when it's actually collapsing more than one event into it. So the cap
-        // only kicks in once there's more than one to hide; a cell with exactly 6 shows all 6.
-        // 5 (not the smaller number it used to be) because a month row's height is already set
-        // by whichever cell truncates the most — every other, less-busy cell in that same row
-        // sits there with that same height regardless, so a lower cap was throwing away room
-        // the row had already paid for rather than actually saving any vertical space.
-        const visibleList = renderList.length <= 6 ? renderList : renderList.slice(0, 5);
+        // A cell shows every event that fits its fixed height (cellCapacity above); once more
+        // than that, the last fitting row becomes a "+N more" chip instead.
+        const visibleList = renderList.length <= cellCapacity ? renderList : renderList.slice(0, cellCapacity - 1);
         const hiddenCount = renderList.length - visibleList.length;
         // The one place a month-view event card is built — a real event and the dragged event's
         // own ghost are the exact same rendering, right down to the same segment/corner/title
@@ -2131,7 +2147,8 @@ function EventDialog({ form, ownAddresses, error, calendars, accounts, saving, r
  // React state, so it doesn't clear when a drag's own highlight correctly does — it just sits
  // there, highlighted, until something else collapses it, reading as "the highlight didn't
  // reset" even once the drag state genuinely has.
- const calendarSurface: CSSProperties = { overflow: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-secondary)', userSelect: 'none', WebkitUserSelect: 'none' }; const dayGrid: CSSProperties = { display: 'grid', flex: 1, minWidth: 0 }; const dayHeader: CSSProperties = { position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 0, padding: '7px 6px', background: 'var(--bg-secondary)' }; const dayHeaderWeekday: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }; const dayHeaderDay: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }; const todayDayChip: CSSProperties = { background: 'var(--accent)', color: 'var(--accent-text)', width: 26, height: 26, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }; const monthCell: CSSProperties = { minWidth: 0, padding: 6, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', gap: 2, minHeight: 108, boxSizing: 'border-box', cursor: 'pointer' }; const outCell: CSSProperties = { opacity: .5 }; const weekendCell: CSSProperties = { background: 'color-mix(in srgb, var(--bg-secondary) 55%, var(--bg-primary))' }; // `background` (the shorthand key), not `backgroundColor` — `monthCell` above always sets a
+ const calendarSurface: CSSProperties = { overflow: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-secondary)', userSelect: 'none', WebkitUserSelect: 'none' }; const dayGrid: CSSProperties = { display: 'grid', flex: 1, minWidth: 0 };
+const MONTH_ROW_MIN = 108; const dayHeader: CSSProperties = { position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 0, padding: '7px 6px', background: 'var(--bg-secondary)' }; const dayHeaderWeekday: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }; const dayHeaderDay: CSSProperties = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }; const todayDayChip: CSSProperties = { background: 'var(--accent)', color: 'var(--accent-text)', width: 26, height: 26, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }; const monthCell: CSSProperties = { minWidth: 0, padding: 6, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', gap: 2, minHeight: 108, boxSizing: 'border-box', cursor: 'pointer' }; const outCell: CSSProperties = { opacity: .5 }; const weekendCell: CSSProperties = { background: 'color-mix(in srgb, var(--bg-secondary) 55%, var(--bg-primary))' }; // `background` (the shorthand key), not `backgroundColor` — `monthCell` above always sets a
 // `background` on the same element, and mixing the shorthand with a separate `backgroundColor`
 // longhand across renders corrupts the DOM's inline style once the highlight is removed: setting
 // `style.backgroundColor` overwrites just that longhand's internal CSSOM slot, discarding the

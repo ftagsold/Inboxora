@@ -887,7 +887,8 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
           onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
           className="btn-press"
           style={{
-            width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px 10px 12px',
+            // 38px, the same box as the calendar's "New event" button beside it.
+            width: '100%', height: 38, boxSizing: 'border-box', padding: sidebarCollapsed ? '0 10px' : '0 14px 0 12px',
             background: 'var(--accent)', border: 'none', borderRadius: 8,
             color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
             cursor: 'pointer', display: 'flex', alignItems: 'center',
