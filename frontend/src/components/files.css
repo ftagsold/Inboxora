@@ -1,15 +1,17 @@
 /* Files: WebDAV server rail (same metrics as the calendar rail) and the explorer. */
 .files-page { display: flex; flex: 1; width: 100%; min-width: 0; height: 100%; min-height: 0; overflow: hidden; background: var(--bg-primary); }
-.files-rail { width: var(--files-rail-width, 280px); flex-shrink: 0; box-sizing: border-box; padding: 13px 8px 14px; border-right: 1px solid var(--border-subtle); background: var(--bg-primary); overflow: auto; display: flex; flex-direction: column; }
+.files-rail { width: var(--files-rail-width, 280px); flex-shrink: 0; box-sizing: border-box; padding: 13px 8px 14px; border-right: 1px solid var(--border-subtle); background: var(--bg-secondary); overflow: auto; display: flex; flex-direction: column; }
 .files-rail-heading { margin: 0 0 12px; padding: 0 8px; font-family: var(--font-display); font-size: 20px; font-weight: 600; line-height: 30px; }
 /* Same 38px box and 68px top edge as the mail sidebar's compose button and the calendar's "New event". */
-.files-rail-manage { width: 100%; height: 38px; box-sizing: border-box; margin-top: 13px; margin-bottom: 16px; }
+.files-rail-manage { width: 100%; height: 38px; box-sizing: border-box; margin-top: 13px; margin-bottom: 12px; }
 .files-servers { display: grid; gap: 8px; }
-.files-server-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; text-align: left; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); cursor: pointer; transition: border-color var(--motion-fast), background var(--motion-fast); }
+/* Same box as a mail sidebar account card: 7px × 10/12px padding around a 28px badge; the first
+   card's top meets the first account card's (118px), like the calendar's mini month. */
+.files-server-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px 7px 12px; text-align: left; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); cursor: pointer; transition: border-color var(--motion-fast), background var(--motion-fast); }
 .files-server-card:hover { background: var(--bg-hover); }
 .files-server-card[aria-pressed=true] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .files-server-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.files-server-badge { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; background: var(--accent-dim); color: var(--accent); }
+.files-server-badge { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 7px; background: var(--accent-dim); color: var(--accent); }
 .files-server-text { display: grid; gap: 1px; min-width: 0; }
 .files-server-text strong { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .files-server-text small { font-size: 11px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -19,19 +21,22 @@
 
 /* Explorer */
 .files-explorer { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.files-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 18px; min-height: 56px; box-sizing: border-box; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
-.files-nav { display: flex; align-items: center; gap: 6px; flex: 1 1 160px; min-width: 0; }
+/* Left 17px: the 24px up button centres its arrow at x = 29, over the row icons (10px surface +
+   10px row padding + half the 18px icon), and the root crumb's icon starts at x = 48 like the names. */
+.files-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 18px 12px 17px; min-height: 56px; box-sizing: border-box; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
+.files-nav { display: flex; align-items: center; gap: 0; flex: 1 1 160px; min-width: 0; }
 .files-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .files-actions .ui-button svg { color: currentColor; }
 .files-icon-button { padding: 6px 8px; }
+.ui-button.files-up { width: 24px; padding: 6px 0; }
 .files-breadcrumbs { display: flex; align-items: center; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .files-breadcrumbs::-webkit-scrollbar { display: none; }
 .files-crumb-wrap { display: flex; align-items: center; min-width: 0; }
-.files-crumb { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.files-crumb { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .files-crumb:hover { background: var(--bg-hover); color: var(--text-primary); }
 .files-crumb.is-current { color: var(--text-primary); font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 .files-crumb.is-drop { border-color: var(--accent); background: var(--accent-dim); }
-.files-crumb-sep { color: var(--text-tertiary); padding: 0 1px; }
+.files-crumb-sep { color: var(--text-tertiary); padding: 0 6px; }
 .files-search { position: relative; }
 .files-search > svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
 .files-search input { width: 190px; box-sizing: border-box; padding: 6px 28px 6px 28px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 12.5px; }
@@ -51,15 +56,16 @@
 .files-drop-hint { position: sticky; bottom: 12px; margin: 12px auto 0; width: max-content; max-width: 90%; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: var(--accent); color: var(--accent-text); font-size: 12.5px; font-weight: 600; box-shadow: var(--shadow-soft); pointer-events: none; }
 
 .files-header, .files-row { display: grid; grid-template-columns: var(--files-cols, minmax(160px, 1fr) 96px 170px); align-items: center; gap: 12px; }
-.files-header { position: sticky; top: -6px; z-index: 1; padding: 6px 10px; margin: 0 0 2px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-subtle); }
+.files-header { position: sticky; top: -6px; z-index: 1; padding: 0 10px; height: 30px; align-items: stretch; margin: 0 0 2px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-subtle); }
 .files-header .files-col { position: relative; display: flex; align-items: center; min-width: 0; }
 .files-sort { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; }
 .files-sort:hover { color: var(--text-primary); }
 /* Drag handle on each header's right edge, centred in the 12px column gap. */
-.files-col-resize { position: absolute; top: -6px; bottom: -6px; right: -12px; width: 12px; cursor: col-resize; z-index: 1; }
-.files-col-resize::after { content: ''; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px; border-radius: 1px; background: transparent; transition: background var(--motion-fast); }
-.files-header:hover .files-col-resize::after { background: var(--border); }
+.files-col-resize { position: absolute; top: 0; bottom: 0; right: -12px; width: 12px; cursor: col-resize; z-index: 1; }
+/* One unbroken 1px line through the full header height (the handle spans the 6px header padding). */
+.files-col-resize::after { content: ''; position: absolute; left: 5.5px; top: 0; bottom: 0; width: 1px; background: var(--border-subtle); transition: background var(--motion-fast); }
 .files-col-resize:hover::after { background: var(--accent) !important; }
+.files-header .files-col:last-child .files-col-resize::after { background: transparent; }
 body.files-resizing, body.files-resizing * { cursor: col-resize !important; user-select: none !important; }
 .files-row .files-col-type, .files-row .files-col-location { color: var(--text-tertiary); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .files-location-link { max-width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

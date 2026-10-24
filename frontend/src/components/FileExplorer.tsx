@@ -601,7 +601,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
   return <div className={`files-explorer${picking ? ' files-picking' : ''}`} data-testid="file-explorer">
     <div className="files-toolbar">
       <div className="files-nav">
-        <Button variant="ghost" className="files-icon-button" aria-label={t('files.up')} title={t('files.up')} disabled={path === '/'} onClick={() => navigate(parentPath(path))}><UpIcon /></Button>
+        <Button variant="ghost" className="files-icon-button files-up" aria-label={t('files.up')} title={t('files.up')} disabled={path === '/'} onClick={() => navigate(parentPath(path))}><UpIcon /></Button>
         <nav className="files-breadcrumbs" aria-label={t('files.breadcrumbs')}>
           <button type="button" className={`files-crumb${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} onClick={() => navigate('/')} {...folderDropProps('/')}>
             <ServerIcon />{server.displayName}
@@ -613,6 +613,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
         </nav>
       </div>
       <div className="files-actions">
+        <Button variant="ghost" className="files-icon-button" aria-label={t('files.refresh')} title={t('files.refresh')} onClick={() => refresh()} disabled={loading}><RefreshIcon /></Button>
         <div className="files-search">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.4-4.4" /></svg>
           <input type="search" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === 'Escape' && filter) { event.preventDefault(); event.stopPropagation(); setFilter(''); } }} placeholder={t('files.search')} aria-label={t('files.search')} data-testid="files-filter" />
@@ -624,13 +625,12 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
         <div role="group" className="files-segments" aria-label={t('files.view')}>
           <button type="button" aria-pressed={view === 'list'} aria-label={t('files.listView')} title={t('files.listView')} onClick={() => changeView('list')}><ListIcon /></button>
           <button type="button" aria-pressed={view === 'grid'} aria-label={t('files.gridView')} title={t('files.gridView')} onClick={() => changeView('grid')}><GridIcon /></button>
-        </div>
-        {view === 'list' && <Button variant="ghost" className="files-icon-button files-columns-button" aria-label={t('files.columns')} title={t('files.columns')} aria-haspopup="menu" aria-expanded={menu?.kind === 'columns'} data-testid="files-columns" onClick={event => {
+          {view === 'list' && <button type="button" className="files-columns-button" aria-label={t('files.columns')} title={t('files.columns')} aria-haspopup="menu" aria-expanded={menu?.kind === 'columns'} data-testid="files-columns" onClick={event => {
           if (menu?.kind === 'columns') { setMenu(null); return; }
           const rect = event.currentTarget.getBoundingClientRect();
           setMenu({ x: rect.left, y: rect.bottom + 4, target: null, kind: 'columns' });
-        }}><SlidersIcon /></Button>}
-        <Button variant="ghost" className="files-icon-button" aria-label={t('files.refresh')} title={t('files.refresh')} onClick={() => refresh()} disabled={loading}><RefreshIcon /></Button>
+          }}><SlidersIcon /></button>}
+        </div>
         {!picking && <>
           <Button onClick={() => openNameDialog({ kind: 'mkdir' })} disabled={busy} data-testid="files-new-folder" aria-label={t('files.newFolder')} title={t('files.newFolder')}><FolderPlusIcon /><span className="files-button-label">{t('files.newFolder')}</span></Button>
           <Button variant="primary" onClick={() => fileInputRef.current?.click()} disabled={busy} data-testid="files-upload" aria-label={t('files.upload')} title={t('files.upload')}><UploadIcon /><span className="files-button-label">{t('files.upload')}</span></Button>
