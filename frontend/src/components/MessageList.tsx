@@ -3061,6 +3061,11 @@ export default function MessageList() {
             ) : label}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
+            {messagesTotal > 0 && !searchQuery && (
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                {messagesTotal}
+              </span>
+            )}
             {/* Sync button */}
             <button
               onClick={handleSync}
@@ -3087,11 +3092,6 @@ export default function MessageList() {
                 <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
               </svg>
             </button>
-            {messagesTotal > 0 && !searchQuery && (
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                {messagesTotal}
-              </span>
-            )}
             {isNarrow && emptyTrashButton}
 
             {/* Layout picker — wide layouts only; narrow layouts render it in the controls row below */}
