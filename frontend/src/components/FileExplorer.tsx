@@ -604,7 +604,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange }: 
         <Button variant="ghost" className="files-icon-button files-up" aria-label={t('files.up')} title={t('files.up')} disabled={path === '/'} onClick={() => navigate(parentPath(path))}><UpIcon /></Button>
         <nav className="files-breadcrumbs" aria-label={t('files.breadcrumbs')}>
           <button type="button" className={`files-crumb${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} onClick={() => navigate('/')} {...folderDropProps('/')}>
-            <ServerIcon />{server.displayName}
+            <span className="files-crumb-icon"><ServerIcon /></span>{server.displayName}
           </button>
           {crumbs(path).map((crumb, index, list) => <span key={crumb.path} className="files-crumb-wrap">
             <span className="files-crumb-sep" aria-hidden="true">›</span>

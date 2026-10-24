@@ -29,7 +29,7 @@
 .files-main > .ui-empty { flex: 1; }
 
 /* Explorer */
-.files-explorer { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.files-explorer { --files-bg: var(--bg-secondary); position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 /* Left 17px: the 24px up button centres its arrow at x = 29, over the row icons (10px surface +
    10px row padding + half the 18px icon), and the root crumb's icon starts at x = 48 like the names. */
 .files-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 18px 12px 17px; min-height: 56px; box-sizing: border-box; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
@@ -45,6 +45,14 @@
 .files-crumb:hover { background: var(--bg-hover); color: var(--text-primary); }
 .files-crumb.is-current { color: var(--text-primary); font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 .files-crumb.is-drop { border-color: var(--accent); background: var(--accent-dim); }
+.files-crumb-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+/* Picking adds a 22px checkbox column, so the toolbar shifts with it: the up arrow centres over
+   the checkboxes (x = 31), the root icon sits in an 18px slot over the file icons (x = 54) and
+   its name starts over the file names (x = 82). */
+.files-picking .files-toolbar { padding-left: 19px; }
+.files-picking .files-nav { gap: 4px; }
+.files-picking .files-breadcrumbs > .files-crumb:first-child { gap: 10px; }
+.files-picking .files-crumb-icon { width: 18px; }
 .files-crumb-sep { color: var(--text-tertiary); padding: 0 6px; }
 .files-search { position: relative; }
 .files-search > svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
@@ -68,7 +76,7 @@
 .files-header, .files-row { display: grid; grid-template-columns: var(--files-cols, minmax(160px, 1fr) 96px 170px); align-items: center; gap: 12px; }
 /* Bleeds through the surface's 10px side padding so its border spans edge to edge; the 20px
    padding keeps the titles over the row content. */
-.files-header { position: sticky; top: 0; z-index: 1; margin-left: -10px; margin-right: -10px; padding: 0 20px; height: 30px; align-items: stretch; margin-bottom: 2px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-subtle); }
+.files-header { position: sticky; top: 0; z-index: 1; margin-left: -10px; margin-right: -10px; padding: 0 20px; height: 30px; align-items: stretch; margin-bottom: 2px; background: var(--files-bg); border-bottom: 1px solid var(--border-subtle); }
 .files-header .files-col { position: relative; display: flex; align-items: center; min-width: 0; }
 .files-sort { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; }
 .files-sort:hover { color: var(--text-primary); }
@@ -150,6 +158,7 @@ body.files-resizing, body.files-resizing * { cursor: col-resize !important; user
 .files-attach-choice small { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: 11.5px; }
 .ui-dialog.files-picker-dialog { width: min(920px, calc(100vw - 48px)); max-width: none; }
 .files-picker-dialog .ui-dialog-body { padding: 0; }
+.files-picker-body .files-explorer { --files-bg: var(--bg-elevated); }
 .files-picker-body { display: flex; flex-direction: column; height: min(560px, calc(100vh - 220px)); }
 .files-picker-servers { display: flex; gap: 6px; padding: 10px 14px 0; overflow-x: auto; }
 .files-picker-servers .files-server-card { width: auto; flex-shrink: 0; padding: 6px 10px; }
