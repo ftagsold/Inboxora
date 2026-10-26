@@ -145,7 +145,7 @@ pub fn connect_stagger_for(profile: &ProviderProfile, account_count: usize) -> u
 }
 
 pub const CONNECT_COOLDOWN_BASE_MS: u64 = 30_000;
-pub const CONNECT_COOLDOWN_MAX_MS: u64 = 15 * 60_000;
+pub const CONNECT_COOLDOWN_MAX_MS: u64 = 5 * 60_000;
 
 /// Exponential refusal backoff: 30 s, 60 s, 120 s, … capped at 15 min.
 pub fn connect_cooldown_ms(failures: u32) -> u64 {
@@ -337,8 +337,9 @@ mod tests {
         assert!(!is_connection_refusal("Authentication failed [AUTHENTICATIONFAILED]"));
         assert_eq!(connect_cooldown_ms(0), 30_000);
         assert_eq!(connect_cooldown_ms(2), 60_000);
-        assert_eq!(connect_cooldown_ms(6), 900_000);
-        assert_eq!(connect_cooldown_ms(60), 900_000);
+        assert_eq!(connect_cooldown_ms(4), 240_000);
+        assert_eq!(connect_cooldown_ms(6), 300_000);
+        assert_eq!(connect_cooldown_ms(60), 300_000);
     }
 
     #[test]

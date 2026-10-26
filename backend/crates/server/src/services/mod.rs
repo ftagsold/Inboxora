@@ -29,5 +29,6 @@ pub mod retention;
 pub mod scheduled_send;
 pub mod sender_favicon;
 pub mod smtp;
+pub mod tasks;
 pub mod totp;
 pub mod webdav;

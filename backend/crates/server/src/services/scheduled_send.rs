@@ -307,9 +307,12 @@ pub fn start_worker(s: AppState) {
             tracing::warn!("Scheduled send recovery failed: {e}");
         }
         loop {
-            if let Err(e) = send_due(&s).await {
-                tracing::warn!("Scheduled send tick failed: {e}");
-            }
+            super::tasks::tick("scheduled send", async {
+                if let Err(e) = send_due(&s).await {
+                    tracing::warn!("Scheduled send tick failed: {e}");
+                }
+            })
+            .await;
             // At least a short pause, so a failing query cannot spin.
             let wait = until_next(&s).await.max(Duration::from_millis(250));
             tokio::select! {

@@ -156,6 +156,18 @@ impl Engine {
         let key = format!("{}:{}", account.id(), if cold { "cold" } else { "warm" });
         let Some(_running) = self.claim(|s| &mut s.preload_running, &key) else { return };
         let started = Instant::now();
+        if cold {
+            // Block the user's UI right away: indexing and the row query can take a while
+            // before the first progress event.
+            self.set_preload(
+                account,
+                |s| {
+                    s.state = State::Running;
+                    s.error = None;
+                },
+                true,
+            );
+        }
         let indexed = cold && self.wait_for_initial_backfill(account).await;
         let prio = if cold { Prio::PreloadCold } else { Prio::Preload };
         let r = self.preload_inner(account, cold, prio, indexed).await;

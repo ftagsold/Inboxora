@@ -23,7 +23,7 @@ fn every(period: Duration, f: impl Fn() -> futures_util::future::BoxFuture<'stat
         iv.tick().await;
         loop {
             iv.tick().await;
-            f().await;
+            crate::services::tasks::tick("engine timer", f()).await;
         }
     });
 }
@@ -72,11 +72,14 @@ impl Engine {
             e.check_cache_sentinel().await;
             tokio::time::sleep(Duration::from_secs(600)).await;
             loop {
-                match e.orphan_sweep().await {
-                    Ok(n) if n > 0 => tracing::info!("[mail-cache] orphan sweep removed {n} entries"),
-                    Ok(_) => {}
-                    Err(err) => tracing::warn!("[mail-cache] orphan sweep error: {err}"),
-                }
+                crate::services::tasks::tick("orphan sweep", async {
+                    match e.orphan_sweep().await {
+                        Ok(n) if n > 0 => tracing::info!("[mail-cache] orphan sweep removed {n} entries"),
+                        Ok(_) => {}
+                        Err(err) => tracing::warn!("[mail-cache] orphan sweep error: {err}"),
+                    }
+                })
+                .await;
                 tokio::time::sleep(Duration::from_secs(24 * 3600)).await;
             }
         });
@@ -141,7 +144,7 @@ impl Engine {
                 (
                     st.connections.contains_key(&id),
                     st.connecting.contains(&id),
-                    st.poll_only.contains(&id) && st.sync_timers.contains_key(&id),
+                    st.poll_only.contains(&id) && st.sync_timers.get(&id).is_some_and(|t| !t.is_finished()),
                     st.connect_cooldown.get(&id).is_some_and(|(until, _)| now_ms() < *until),
                     st.last_sync_ok_at.get(&id).copied(),
                 )

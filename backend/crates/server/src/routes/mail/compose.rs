@@ -535,7 +535,7 @@ async fn fetch_forwarded(
         plan.push((msg.clone(), att));
     }
     if uploaded + declared > MAX_ATTACHMENT_BYTES {
-        return Err((400, "Total attachment size exceeds 25 MB".into()));
+        return Err((400, too_large_text(uploaded + declared)));
     }
     let mut accounts: Vec<Account> = Vec::new();
     for (msg, _) in &plan {
@@ -584,9 +584,14 @@ async fn fetch_forwarded(
     }
     let total: u64 = out.iter().map(|f| f.content.len() as u64).sum();
     if uploaded + total > MAX_ATTACHMENT_BYTES {
-        return Err((400, "Total attachment size exceeds 25 MB".into()));
+        return Err((400, too_large_text(uploaded + total)));
     }
     Ok(out)
+}
+
+/// The size refusal, with the measured total so the user sees how far over the limit it is.
+fn too_large_text(bytes: u64) -> String {
+    format!("Total attachment size exceeds 25 MB ({:.1} MB)", bytes as f64 / (1024.0 * 1024.0))
 }
 
 /// `Math.ceil(content.length * 0.75)` summed over string payloads.
@@ -630,8 +635,10 @@ pub async fn send_as(s: &AppState, user: String, idem_key: Option<String>, b: Bo
         if list.len() > 100 {
             return Ok(err(400, "Too many attachments (max 100)"));
         }
-        if uploaded_bytes(Some(att)) > MAX_ATTACHMENT_BYTES {
-            return Ok(err(400, "Total attachment size exceeds 25 MB"));
+        let uploaded = uploaded_bytes(Some(att));
+        if uploaded > MAX_ATTACHMENT_BYTES {
+            tracing::warn!("send rejected: {} attachment(s), {uploaded} bytes", list.len());
+            return Ok(err(400, &too_large_text(uploaded)));
         }
         for (i, x) in list.iter().enumerate() {
             if x.get("filename").and_then(Value::as_str).is_none_or(|f| f.trim().is_empty()) {

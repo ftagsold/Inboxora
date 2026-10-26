@@ -59,7 +59,7 @@ pub fn start(db: Db) {
         let mut i = tokio::time::interval(Duration::from_secs(3600));
         loop {
             i.tick().await;
-            prune_once(&db).await;
+            super::tasks::tick("retention", prune_once(&db)).await;
         }
     });
 }

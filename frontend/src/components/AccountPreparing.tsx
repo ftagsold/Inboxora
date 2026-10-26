@@ -46,14 +46,22 @@ export default function AccountPreparing() {
       const detail = (e as CustomEvent<PreloadEventDetail>).detail || {};
       // A new cold preload (Redis restarted, account added): block again.
       if (detail.state === 'running') {
-        setStatus(prev => prev && prev.accounts.some(a => a.id === detail.accountId) ? applyPreloadEvent({ ...prev, ready: false }, detail) : prev);
+        // An account the last status did not list yet (just added) blocks too, until the poll knows it.
+        setStatus(prev => !prev ? prev : prev.accounts.some(a => a.id === detail.accountId)
+          ? applyPreloadEvent({ ...prev, ready: false }, detail)
+          : { ...prev, ready: false });
         void refresh();
         return;
       }
       setStatus(prev => prev ? applyPreloadEvent(prev, detail) : prev);
     };
+    const onOpen = () => { void refresh(); };
     window.addEventListener('inboxora:meta_preload', onEvent);
-    return () => window.removeEventListener('inboxora:meta_preload', onEvent);
+    window.addEventListener('inboxora:ws_open', onOpen);
+    return () => {
+      window.removeEventListener('inboxora:meta_preload', onEvent);
+      window.removeEventListener('inboxora:ws_open', onOpen);
+    };
   }, [refresh]);
 
   const blocked = !!status && !status.ready;

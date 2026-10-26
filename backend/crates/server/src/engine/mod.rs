@@ -6,6 +6,7 @@
 pub mod backfill;
 pub mod background;
 pub mod cache;
+pub mod changes;
 pub mod connect;
 pub mod limits;
 pub mod mime;
@@ -16,7 +17,6 @@ pub mod pool;
 pub mod preload;
 pub mod search;
 pub mod sync;
-pub mod changes;
 
 #[cfg(test)]
 mod live_tests;
@@ -567,10 +567,22 @@ impl Engine {
     /// A pooled connection; new sockets queue for the account budget at `prio`.
     pub async fn lease_with(&self, account: &Account, prio: Prio) -> EResult<Lease> {
         let pool = self.pool_for(account).await;
-        match pool.try_acquire() {
+        let slot = pool.try_acquire();
+        if !matches!(slot, Slot::Ready(_)) && self.cooling_down(account.id()) {
+            // The server is refusing or unreachable: fail now instead of stacking connect timeouts.
+            return Err("Mail server unavailable, retrying later".into());
+        }
+        let refused = |e: EngineError| {
+            if is_connection_refusal(&e.0) && !e.0.contains("connection limit reached") {
+                self.note_connection_refusal(account);
+            }
+            e
+        };
+        match slot {
             Slot::Ready(l) => Ok(l),
             Slot::Connect(r) => {
-                let (_, client) = self.open_client(account, "IMAP pool connect", prio, Kind::Pool).await?;
+                let (_, client) =
+                    self.open_client(account, "IMAP pool connect", prio, Kind::Pool).await.map_err(refused)?;
                 match pool.admit(r, client) {
                     Ok(l) => Ok(l),
                     Err(mut c) => {
@@ -583,7 +595,8 @@ impl Engine {
                 Ok(Ok(client)) => Ok(pool.handed(client)),
                 Ok(Err(_)) => Err("IMAP pool evicted".into()),
                 Err(_) => {
-                    let (_, client) = self.open_client(account, "IMAP temp connect", prio, Kind::Temporary).await?;
+                    let (_, client) =
+                        self.open_client(account, "IMAP temp connect", prio, Kind::Temporary).await.map_err(refused)?;
                     Ok(Lease::temporary(client))
                 }
             },
@@ -932,7 +945,7 @@ impl Engine {
                 if !e.st.lock().poll_only.contains(a.id()) {
                     return;
                 }
-                e.poll_only_tick(&a).await;
+                crate::services::tasks::tick("poll-only sync", e.poll_only_tick(&a)).await;
             }
         });
         self.st.lock().sync_timers.insert(account.id().to_owned(), handle);
@@ -1247,6 +1260,15 @@ impl Engine {
             })
             .filter(|a| account_id.is_none_or(|id| a.id() == id))
             .collect();
+        {
+            // A manual refresh retries now: the mail server may be back before the backoff ends.
+            let mut st = self.st.lock();
+            for a in &accounts {
+                if !st.reauth_pending.contains(a.id()) {
+                    st.connect_cooldown.remove(a.id());
+                }
+            }
+        }
         futures_util::future::join_all(accounts.into_iter().map(|account| {
             let e = self.clone();
             async move {

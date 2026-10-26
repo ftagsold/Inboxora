@@ -169,7 +169,11 @@ impl Engine {
             let keys: Vec<String> = chunk.iter().map(meta_key).collect();
             let metas: Vec<Option<Meta>> = self.cache.get_many(&keys).await;
             hits.extend(
-                chunk.iter().zip(metas).filter(|(_, m)| m.as_ref().is_some_and(|m| meta_matches(m, conds))).map(|(id, _)| *id),
+                chunk
+                    .iter()
+                    .zip(metas)
+                    .filter(|(_, m)| m.as_ref().is_some_and(|m| meta_matches(m, conds)))
+                    .map(|(id, _)| *id),
             );
         }
         hits

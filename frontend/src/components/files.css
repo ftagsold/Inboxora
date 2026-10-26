@@ -37,6 +37,10 @@
 .files-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .files-actions .ui-button svg { color: currentColor; }
 .files-icon-button { padding: 6px 8px; }
+/* Every toolbar control shares one height: icon buttons, labelled buttons, search, view toggle. */
+.files-actions > .ui-button, .files-search input, .files-segments { height: 30px; box-sizing: border-box; }
+.files-actions > .ui-button { padding-top: 0; padding-bottom: 0; }
+.files-segments button { align-self: stretch; }
 .ui-button.files-up { width: 24px; padding: 6px 0; }
 .files-breadcrumbs { display: flex; align-items: center; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .files-breadcrumbs::-webkit-scrollbar { display: none; }

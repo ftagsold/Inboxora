@@ -458,6 +458,9 @@ export function useWebSocket() {
         ws.send(JSON.stringify({ type: 'ping' }));
       }, 30000);
       ws._pingInterval = pingInterval;
+      // Preload events sent while the socket was down are lost: re-read the cache status
+      // (a restarted server preloads again) so the preparing screen shows at once.
+      window.dispatchEvent(new CustomEvent('inboxora:ws_open'));
       // On reconnect, catch up on any messages that arrived during the outage
       if (wasReconnect) {
         recordDiagEvent({ category: 'ws', type: 'reconnect' });

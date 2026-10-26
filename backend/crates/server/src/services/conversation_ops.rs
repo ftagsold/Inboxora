@@ -1586,9 +1586,12 @@ pub fn start_ingest_retry(engine: EngineRef) {
         iv.tick().await;
         loop {
             iv.tick().await;
-            if let Err(e) = retry_ingest_failures(&engine, 25).await {
-                tracing::warn!("Conversation ingest retry failed: {e}");
-            }
+            super::tasks::tick("ingest retry", async {
+                if let Err(e) = retry_ingest_failures(&engine, 25).await {
+                    tracing::warn!("Conversation ingest retry failed: {e}");
+                }
+            })
+            .await;
         }
     });
 }

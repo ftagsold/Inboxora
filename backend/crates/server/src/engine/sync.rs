@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-
 use inboxora_core::params;
 use inboxora_core::pg::{Db, Q};
 use inboxora_imap::{Client, FetchQuery, Message};

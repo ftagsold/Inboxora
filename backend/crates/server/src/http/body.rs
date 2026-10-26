@@ -13,7 +13,12 @@ const DEFAULT_LIMIT: usize = 1024 * 1024;
 
 fn limit_for(path: &str) -> usize {
     let under = |base: &str| path == base || path.starts_with(&format!("{base}/"));
-    if under("/api/mail/send") || under("/api/mail/draft") { LARGE_LIMIT } else { DEFAULT_LIMIT }
+    // Scheduled sends carry the whole send payload, attachments included.
+    if under("/api/mail/send") || under("/api/mail/draft") || under("/api/mail/scheduled") {
+        LARGE_LIMIT
+    } else {
+        DEFAULT_LIMIT
+    }
 }
 
 fn is_json(req: &Request) -> bool {
@@ -99,6 +104,7 @@ mod tests {
     fn send_and_draft_get_the_large_limit() {
         assert_eq!(limit_for("/api/mail/send"), LARGE_LIMIT);
         assert_eq!(limit_for("/api/mail/draft/abc"), LARGE_LIMIT);
+        assert_eq!(limit_for("/api/mail/scheduled/abc"), LARGE_LIMIT);
         assert_eq!(limit_for("/api/mail/sender"), DEFAULT_LIMIT);
         assert_eq!(limit_for("/api/mail/messages"), DEFAULT_LIMIT);
     }

@@ -1,7 +1,7 @@
 //! Accounts, connection setup (token refresh, pinned DNS, TLS policy, per-host admission
 //! control, IPv4 fallback) and the keyed semaphore.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +11,7 @@ use inboxora_core::{crypto, params};
 use inboxora_imap::{Auth, Client, Config};
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
-use tokio::sync::oneshot;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::policy::{self, ProviderProfile};
 use crate::services::dav_client::connection_policy;
@@ -167,10 +167,11 @@ pub fn client_config(account: &Account, target: &Target) -> Result<Config, Strin
     })
 }
 
-/// A per-key counting semaphore with FIFO hand-off (`createKeyedSemaphore`).
+/// A per-key counting semaphore with FIFO hand-off (`createKeyedSemaphore`). Each key is a
+/// tokio semaphore, so a waiter abandoned by a timeout never strands its slot.
 pub struct KeyedSemaphore {
     limit: usize,
-    slots: Mutex<HashMap<String, (usize, VecDeque<oneshot::Sender<()>>)>>,
+    slots: Mutex<HashMap<String, Arc<Semaphore>>>,
 }
 
 impl KeyedSemaphore {
@@ -178,58 +179,27 @@ impl KeyedSemaphore {
         Self { limit, slots: Mutex::new(HashMap::new()) }
     }
 
-    pub async fn acquire(&self, key: &str) {
-        let rx = {
-            let mut slots = self.slots.lock();
-            let s = slots.entry(key.to_owned()).or_insert((0, VecDeque::new()));
-            if s.0 < self.limit {
-                s.0 += 1;
-                return;
-            }
-            let (tx, rx) = oneshot::channel();
-            s.1.push_back(tx);
-            rx
-        };
-        // A dropped sender means the slot was handed over and released concurrently; either
-        // way we now hold it.
-        let _ = rx.await;
+    fn sem(&self, key: &str) -> Arc<Semaphore> {
+        self.slots.lock().entry(key.to_owned()).or_insert_with(|| Arc::new(Semaphore::new(self.limit))).clone()
     }
 
-    pub fn release(&self, key: &str) {
-        let mut slots = self.slots.lock();
-        let Some(s) = slots.get_mut(key) else { return };
-        while let Some(next) = s.1.pop_front() {
-            if next.send(()).is_ok() {
-                return; // handed over, count unchanged
-            }
-        }
-        s.0 = s.0.saturating_sub(1);
-        if s.0 == 0 {
-            slots.remove(key);
-        }
+    pub async fn acquire(&self, key: &str) -> OwnedSemaphorePermit {
+        self.sem(key).acquire_owned().await.expect("keyed semaphore is never closed")
     }
 
     pub fn active(&self, key: &str) -> usize {
-        self.slots.lock().get(key).map_or(0, |s| s.0)
+        self.slots.lock().get(key).map_or(0, |s| self.limit - s.available_permits())
     }
 }
 
 /// Holds a keyed-semaphore slot until dropped.
-pub struct SlotGuard<'a> {
-    sem: &'a KeyedSemaphore,
-    key: String,
+pub struct SlotGuard {
+    _permit: OwnedSemaphorePermit,
 }
 
-impl<'a> SlotGuard<'a> {
-    pub async fn acquire(sem: &'a KeyedSemaphore, key: &str) -> SlotGuard<'a> {
-        sem.acquire(key).await;
-        SlotGuard { sem, key: key.to_owned() }
-    }
-}
-
-impl Drop for SlotGuard<'_> {
-    fn drop(&mut self) {
-        self.sem.release(&self.key);
+impl SlotGuard {
+    pub async fn acquire(sem: &KeyedSemaphore, key: &str) -> SlotGuard {
+        SlotGuard { _permit: sem.acquire(key).await }
     }
 }
 
@@ -285,21 +255,30 @@ mod tests {
     #[tokio::test]
     async fn keyed_semaphore_hands_off_fifo() {
         let sem = Arc::new(KeyedSemaphore::new(1));
-        sem.acquire("h").await;
+        let held = sem.acquire("h").await;
         assert_eq!(sem.active("h"), 1);
         let s2 = sem.clone();
         let waiter = tokio::spawn(async move {
-            s2.acquire("h").await;
-            s2.release("h");
+            let _p = s2.acquire("h").await;
         });
         tokio::task::yield_now().await;
-        sem.release("h");
+        drop(held);
         waiter.await.unwrap();
         assert_eq!(sem.active("h"), 0);
         // Other keys are independent.
-        sem.acquire("a").await;
-        sem.acquire("b").await;
+        let (_a, _b) = (sem.acquire("a").await, sem.acquire("b").await);
         assert_eq!((sem.active("a"), sem.active("b")), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn keyed_semaphore_survives_abandoned_waiter() {
+        let sem = KeyedSemaphore::new(1);
+        let held = sem.acquire("h").await;
+        // A waiter that times out must not keep (or strand) the slot.
+        assert!(tokio::time::timeout(Duration::from_millis(10), sem.acquire("h")).await.is_err());
+        drop(held);
+        assert_eq!(sem.active("h"), 0);
+        let _p = tokio::time::timeout(Duration::from_millis(100), sem.acquire("h")).await.expect("slot free");
     }
 
     #[test]

@@ -28,10 +28,10 @@ pub mod rules;
 pub mod search;
 pub mod sender_favicons;
 pub mod system;
-pub mod webdav;
 pub mod todoist;
 pub mod totp;
 pub mod util;
+pub mod webdav;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;

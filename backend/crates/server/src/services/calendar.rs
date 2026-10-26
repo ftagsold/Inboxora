@@ -329,14 +329,17 @@ pub fn start_occurrence_scheduler(db: Db) {
         let mut interval = tokio::time::interval(tick);
         loop {
             interval.tick().await;
-            match materialize_pending(&db, 25).await {
-                Ok(out) if !out.is_empty() => {
-                    let notable: Vec<_> = out.iter().filter(|(_, r)| *r != "built").collect();
-                    tracing::info!("Calendar occurrences materialised: {notable:?}");
+            super::tasks::tick("occurrence scheduler", async {
+                match materialize_pending(&db, 25).await {
+                    Ok(out) if !out.is_empty() => {
+                        let notable: Vec<_> = out.iter().filter(|(_, r)| *r != "built").collect();
+                        tracing::info!("Calendar occurrences materialised: {notable:?}");
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("Calendar occurrence scheduler failed: {e}"),
                 }
-                Ok(_) => {}
-                Err(e) => tracing::warn!("Calendar occurrence scheduler failed: {e}"),
-            }
+            })
+            .await;
         }
     });
 }

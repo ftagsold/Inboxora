@@ -196,7 +196,11 @@ impl Engine {
         if orphans.is_empty() {
             return Ok(0);
         }
-        tracing::info!("Reconcile: removing {} server-deleted message(s) from {}/{folder}", orphans.len(), account.log());
+        tracing::info!(
+            "Reconcile: removing {} server-deleted message(s) from {}/{folder}",
+            orphans.len(),
+            account.log()
+        );
         self.db
             .exec(
                 "DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[]) AND (synced_at IS NULL OR synced_at < $4)",

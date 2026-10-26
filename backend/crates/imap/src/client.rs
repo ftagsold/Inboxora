@@ -100,12 +100,29 @@ pub struct Config {
 /// Unsolicited mailbox changes, as imapflow's `exists`/`expunge`/`flags`/`close` events.
 #[derive(Debug, Clone)]
 pub enum Event {
-    Exists { path: String, count: u32, prev_count: u32 },
-    Expunge { path: String, seq: u32 },
-    Vanished { path: String, uids: Vec<u32> },
-    Flags { path: String, seq: u32, uid: Option<u32>, flags: Vec<String> },
+    Exists {
+        path: String,
+        count: u32,
+        prev_count: u32,
+    },
+    Expunge {
+        path: String,
+        seq: u32,
+    },
+    Vanished {
+        path: String,
+        uids: Vec<u32>,
+    },
+    Flags {
+        path: String,
+        seq: u32,
+        uid: Option<u32>,
+        flags: Vec<String>,
+    },
     /// An unsolicited STATUS for another mailbox (RFC 5465 NOTIFY): its contents changed.
-    MailboxChanged { path: String },
+    MailboxChanged {
+        path: String,
+    },
     Closed,
 }
 
@@ -205,6 +222,9 @@ pub struct Client {
     port: u16,
     closed: bool,
     idling: bool,
+    /// A command is on the wire. Still set after a caller abandoned the command mid-response
+    /// (a timeout dropped its future), so the stream is out of step and must not be reused.
+    in_flight: bool,
     /// Held for the life of the socket (a connection-budget permit); released on close.
     guard: Option<Box<dyn std::any::Any + Send + Sync>>,
     born: std::time::Instant,
@@ -347,6 +367,7 @@ impl Client {
             port: cfg.port,
             closed: false,
             idling: false,
+            in_flight: false,
             guard: None,
             born: std::time::Instant::now(),
         };
@@ -435,7 +456,7 @@ impl Client {
     }
 
     pub fn is_usable(&self) -> bool {
-        !self.closed && self.io.is_some()
+        !self.closed && !self.in_flight && self.io.is_some()
     }
 
     /// Keep `guard` alive until the connection closes (or the client is dropped).
@@ -658,7 +679,9 @@ impl Client {
         }
         self.tag += 1;
         let tag = format!("A{}", self.tag);
+        self.in_flight = true;
         let r = self.exec_inner(&tag, cmd, &mut on).await;
+        self.in_flight = false;
         if let Err(e) = &r
             && e.is_fatal()
         {
@@ -1392,6 +1415,7 @@ impl Client {
         }
         self.tag += 1;
         let tag = format!("A{}", self.tag);
+        self.in_flight = true;
         let run = async {
             self.write(format!("{tag} {head}\r\n").as_bytes()).await?;
             if !plus {
@@ -1402,7 +1426,9 @@ impl Client {
             self.write(&body).await?;
             self.collect(&tag, &mut |c, r| c.track(&r, false)).await
         };
-        match run.await {
+        let r = run.await;
+        self.in_flight = false;
+        match r {
             Ok((Some(ResponseCode::AppendUid(validity, uids)), _, _)) => {
                 Ok(expand_uid_set(&uids).first().map(|u| (validity, *u)))
             }
@@ -1433,7 +1459,9 @@ impl Client {
         }
         self.tag += 1;
         let tag = format!("A{}", self.tag);
+        self.in_flight = true;
         let r = self.idle_inner(&tag, max, stop).await;
+        self.in_flight = false;
         self.idling = false;
         if let Err(e) = &r
             && e.is_fatal()
@@ -1600,6 +1628,7 @@ mod tests {
             port: 993,
             closed: false,
             idling: false,
+            in_flight: false,
             guard: None,
             born: std::time::Instant::now(),
         }

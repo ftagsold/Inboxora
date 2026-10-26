@@ -209,7 +209,10 @@ fn cn_param(name: &str) -> String {
 pub fn invitation_ical(i: &Invite, organizer_email: &str, organizer_name: &str) -> String {
     use chrono::Datelike;
     use inboxora_pim::ical::vtimezone;
-    let zone = i.timezone.as_deref().and_then(|n| Some((n, vtimezone::zone(n)?, vtimezone::vtimezone(n, i.starts_at.year())?)));
+    let zone = i
+        .timezone
+        .as_deref()
+        .and_then(|n| Some((n, vtimezone::zone(n)?, vtimezone::vtimezone(n, i.starts_at.year())?)));
     let when = |t: &DateTime<Utc>| match (&zone, i.all_day) {
         (_, true) => format!(";VALUE=DATE:{}", format_date(t, true)),
         (Some((name, tz, _)), false) => format!(";TZID={name}:{}", vtimezone::local_stamp(t, *tz)),
@@ -247,7 +250,9 @@ pub fn invitation_ical(i: &Invite, organizer_email: &str, organizer_name: &str) 
     }
     let guests = if i.guests.is_empty() { &i.attendees } else { &i.guests };
     for a in guests {
-        lines.push(format!("ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{a}"));
+        lines.push(format!(
+            "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{a}"
+        ));
     }
     lines.extend(["END:VEVENT".into(), "END:VCALENDAR".into(), String::new()]);
     finish(lines)
@@ -299,7 +304,10 @@ async fn send_one(db: &Db, account: Map<String, Value>, i: &Invite) -> std::resu
         let (subject, text) = if i.method == "CANCEL" {
             (format!("Canceled: {what}"), format!("{name} canceled {}.", opt(&i.summary).unwrap_or("a meeting")))
         } else {
-            (format!("Invitation: {what}"), format!("{name} invited you to {}.", opt(&i.summary).unwrap_or("a meeting")))
+            (
+                format!("Invitation: {what}"),
+                format!("{name} invited you to {}.", opt(&i.summary).unwrap_or("a meeting")),
+            )
         };
         Compose {
             from: mailbox(&name, &from_email),
@@ -623,9 +631,12 @@ pub fn start_outbox_worker(db: Db) {
         iv.tick().await;
         loop {
             iv.tick().await;
-            if let Err(e) = drain(&db, 5).await {
-                tracing::warn!("Calendar invitation retry failed: {e}");
-            }
+            super::tasks::tick("invitation outbox", async {
+                if let Err(e) = drain(&db, 5).await {
+                    tracing::warn!("Calendar invitation retry failed: {e}");
+                }
+            })
+            .await;
         }
     });
 }

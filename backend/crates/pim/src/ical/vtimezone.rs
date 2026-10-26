@@ -168,7 +168,9 @@ mod tests {
     #[test]
     fn zones_without_dst_and_unknown_zones() {
         let v = vtimezone("Asia/Kolkata", 2026).unwrap().join("\n");
-        assert!(v.contains("BEGIN:STANDARD\nDTSTART:19700101T000000\nTZOFFSETFROM:+0530\nTZOFFSETTO:+0530\nEND:STANDARD"));
+        assert!(
+            v.contains("BEGIN:STANDARD\nDTSTART:19700101T000000\nTZOFFSETFROM:+0530\nTZOFFSETTO:+0530\nEND:STANDARD")
+        );
         assert!(!v.contains("DAYLIGHT"));
         assert!(vtimezone("Mars/Olympus", 2026).is_none());
     }
