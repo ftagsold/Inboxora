@@ -345,7 +345,10 @@
       "threadingDesc": "Grupuje wiadomość i odpowiedzi w jedną rozmowę na liście wiadomości.",
       "undoSend": "Cofanie wysyłki",
       "undoSendDesc": "Po kliknięciu Wyślij wiadomość czeka tyle czasu, aby można było ją jeszcze cofnąć.",
-      "undoSendOff": "Wyłączone (wyślij od razu)"
+      "undoSendOff": "Wyłączone (wyślij od razu)",
+      "retiredAddresses": "Wycofane adresy",
+      "retiredAddressesDesc": "Stare adresy, które nadal przekierowują tutaj, po jednym w wierszu. Poczta wysłana na nie dostaje małą etykietę, aby można było zmienić adres u każdego nadawcy.",
+      "retiredAddressesPh": "stary@przyklad.pl"
     },
     "notifications": {
       "title": "Powiadomienia",
@@ -938,8 +941,8 @@
       "enable": "Używaj lokalnego modelu AI",
       "enableDesc": "Domyślnie wyłączone. Model pobiera się na to urządzenie dopiero po włączeniu i obsługuje wtedy wszystkie przyciski AI.",
       "model": "Model językowy",
-      "modelOption": "{{name}} · wymaga ~{{size}} GB pamięci GPU",
-      "modelDesc": "Gemma 4 daje najlepsze wyniki; mniejsze modele są szybsze i pasują do słabszych urządzeń.",
+      "modelOption": "{{name}} · ok. {{size}} GB do pobrania",
+      "modelDesc": "Gemma 4 E2B to dobry wybór domyślny; E4B pisze lepiej, ale wymaga więcej pamięci; Gemma 3 1B pasuje do słabszych urządzeń.",
       "loading": "Pobieranie lokalnego modelu AI… {{percent}}%",
       "ready": "Załadowany i gotowy.",
       "error": "Nie udało się załadować modelu: {{error}}",
@@ -950,9 +953,7 @@
       "delete": "Usuń pobrane pliki",
       "deleteConfirm": "Usunąć pobrany model z tego urządzenia? Zostanie pobrany ponownie przy następnym użyciu.",
       "checking": "Sprawdzanie, czy to urządzenie może uruchomić model lokalny…",
-      "noGpu": "Nie znaleziono używalnego GPU, więc modele lokalne nie działają na tym urządzeniu.",
-      "unsupportedGpu": "To GPU lub ta przeglądarka nie spełnia wymagań modelu lokalnego (za mało zasobów WebGPU). Spróbuj aktualnego Chrome lub Edge.",
-      "modelUnusable": "Wybrany model wymaga 16-bitowej obsługi GPU, której brak na tym urządzeniu. Wybierz inny model."
+      "noGpu": "Nie znaleziono używalnego GPU, więc modele lokalne nie działają na tym urządzeniu."
     }
   },
   "blockList": {
@@ -1526,7 +1527,8 @@
       "button": "Klasyfikuj za pomocą AI",
       "done": "Sklasyfikowano jako {{category}}",
       "error": "Klasyfikowanie za pomocą AI nie powiodło się."
-    }
+    },
+    "retiredAddressHint": "Wysłano na wycofany adres {{address}} — zmień adres u tego nadawcy"
   },
   "messageList": {
     "search": "Szukaj…",

@@ -459,7 +459,10 @@
       "threadingDesc": "Sdruží zprávu a její odpovědi do jedné konverzace v seznamu zpráv.",
       "undoSend": "Vrácení odeslání",
       "undoSendDesc": "Po kliknutí na Odeslat zpráva počká tuto dobu, abyste ji ještě mohli vrátit.",
-      "undoSendOff": "Vypnuto (odeslat ihned)"
+      "undoSendOff": "Vypnuto (odeslat ihned)",
+      "retiredAddresses": "Vyřazené adresy",
+      "retiredAddressesDesc": "Staré adresy, které sem stále přeposílají, jedna na řádek. Pošta poslaná na ně dostane malý štítek, abyste si u každého odesílatele změnili adresu.",
+      "retiredAddressesPh": "stara@priklad.cz"
     },
     "gtd": {
       "description": "Proměňte Inboxora v systém GTD. Zapněte jej pro jednotlivé účty a potom přiřaďte každý stav ke složce IMAP, která obsahuje jeho štítek.",
@@ -938,8 +941,8 @@
       "enable": "Používat místní model AI",
       "enableDesc": "Ve výchozím stavu vypnuto. Model se stáhne do zařízení až po zapnutí a pak pohání všechna tlačítka AI.",
       "model": "Jazykový model",
-      "modelOption": "{{name}} · potřebuje ~{{size}} GB paměti GPU",
-      "modelDesc": "Gemma 4 dává nejlepší výsledky; menší modely jsou rychlejší a hodí se pro slabší zařízení.",
+      "modelOption": "{{name}} · ke stažení ~{{size}} GB",
+      "modelDesc": "Gemma 4 E2B je dobrá výchozí volba; E4B píše lépe, ale potřebuje víc paměti; Gemma 3 1B se hodí pro slabší zařízení.",
       "loading": "Stahování místního modelu AI… {{percent}} %",
       "ready": "Načteno a připraveno.",
       "error": "Model se nepodařilo načíst: {{error}}",
@@ -950,9 +953,7 @@
       "delete": "Smazat stažená data",
       "deleteConfirm": "Smazat stažený model z tohoto zařízení? Při příštím použití se stáhne znovu.",
       "checking": "Kontroluji, zda toto zařízení zvládne místní model…",
-      "noGpu": "Nebyla nalezena použitelná GPU, místní modely na tomto zařízení nepoběží.",
-      "unsupportedGpu": "Tato GPU nebo prohlížeč nesplňuje požadavky místního modelu (málo prostředků WebGPU). Zkuste aktuální Chrome nebo Edge.",
-      "modelUnusable": "Vybraný model potřebuje 16bitovou podporu GPU, kterou toto zařízení nemá. Vyberte jiný model."
+      "noGpu": "Nebyla nalezena použitelná GPU, místní modely na tomto zařízení nepoběží."
     }
   },
   "blockList": {
@@ -1526,7 +1527,8 @@
       "button": "Zařadit pomocí AI",
       "done": "Zařazeno do kategorie {{category}}",
       "error": "Zařazení pomocí AI se nezdařilo."
-    }
+    },
+    "retiredAddressHint": "Odesláno na vyřazenou adresu {{address}} — změňte si adresu u tohoto odesílatele"
   },
   "messageList": {
     "search": "Hledat…",

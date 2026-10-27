@@ -1,56 +1,39 @@
-// Opt-in in-browser AI: a small model (WebLLM on WebGPU) that runs on the user's own machine.
-// Nothing is downloaded until the user enables it in settings; the weights then live in the
-// browser's cache. While active, api.ai.chat routes here instead of the server's /ai/chat proxy,
-// so summarize, AI actions and the compose assistant all work without a configured provider.
-import type { WebWorkerMLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
+// Opt-in in-browser AI: a small model (Transformers.js on ONNX Runtime WebGPU) that runs on the
+// user's own machine. Nothing is downloaded until the user enables it in settings; the weights
+// then live in the browser's cache. While active, api.ai.chat routes here instead of the
+// server's /ai/chat proxy, so summarize, AI actions and the compose assistant all work without
+// a configured provider. ONNX Runtime needs only WebGPU's default limits, so it runs in every
+// browser that ships WebGPU (Chrome, Edge, Safari, Firefox).
 
 export interface LocalAiModel {
   id: string;
   label: string;
-  /** GPU memory the model needs, from WebLLM's prebuilt config. */
-  vramMB: number;
-  /** WebLLM also ships an f32 build, for GPUs without shader-f16. */
-  f32: boolean;
+  /** Approximate download (q4f16 weights). */
+  sizeGB: number;
 }
 
 export const LOCAL_AI_MODELS: readonly LocalAiModel[] = [
-  { id: 'gemma-4-E2B-it-q4f16_1-MLC', label: 'Gemma 4 E2B', vramMB: 3387, f32: true },
-  { id: 'gemma3-1b-it-q4f16_1-MLC', label: 'Gemma 3 1B', vramMB: 711, f32: false },
-  { id: 'Qwen3.5-2B-q4f16_1-MLC', label: 'Qwen 3.5 2B', vramMB: 2245, f32: true },
-  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B', vramMB: 2264, f32: true },
-  { id: 'Phi-4-mini-instruct-q4f16_1-MLC', label: 'Phi-4 mini', vramMB: 3438, f32: true },
+  { id: 'onnx-community/gemma-4-E2B-it-ONNX', label: 'Gemma 4 E2B', sizeGB: 3.1 },
+  { id: 'onnx-community/gemma-4-E4B-it-ONNX', label: 'Gemma 4 E4B', sizeGB: 4.9 },
+  { id: 'onnx-community/gemma-3-1b-it-ONNX', label: 'Gemma 3 1B', sizeGB: 0.8 },
 ];
 
 export const DEFAULT_LOCAL_AI_MODEL = LOCAL_AI_MODELS[0].id;
 
-// Models ship a 4096-token context; keep the prompt well inside it so the answer has room.
-const MAX_INPUT_CHARS = 6000;
+// Keeps prompt and KV cache within what a browser GPU budget handles comfortably.
+const MAX_INPUT_CHARS = 16000;
+const MAX_NEW_TOKENS = 1024;
 
 export function isKnownLocalAiModel(id: unknown): id is string {
   return typeof id === 'string' && LOCAL_AI_MODELS.some(m => m.id === id);
 }
 
-export type LocalAiSupport = 'checking' | 'supported' | 'no-webgpu' | 'no-gpu' | 'gpu-limits';
+// ---- Device support ----------------------------------------------------------------------
 
-interface GpuAdapterLike {
-  features: Set<string>;
-  limits: Record<string, number>;
-}
+export type LocalAiSupport = 'checking' | 'supported' | 'no-webgpu' | 'no-gpu';
+
+interface GpuAdapterLike { features: Set<string> }
 type GpuNavigator = Navigator & { gpu?: { requestAdapter: (o?: { powerPreference?: string }) => Promise<GpuAdapterLike | null> } };
-
-// The minimums WebLLM's runtime requests from the GPU (detectGPUDevice); below any of
-// them it refuses to start, whatever the model.
-const REQUIRED_LIMITS: Readonly<Record<string, number>> = {
-  maxBufferSize: 1 << 28,
-  maxStorageBufferBindingSize: 1 << 27,
-  maxComputeWorkgroupStorageSize: 32 << 10,
-  maxStorageBuffersPerShaderStage: 10,
-};
-
-/** Whether this adapter meets the runtime minimums; pure, so it is testable. */
-export function adapterMeetsLimits(limits: Record<string, number>): boolean {
-  return Object.entries(REQUIRED_LIMITS).every(([name, min]) => (limits[name] ?? 0) >= min);
-}
 
 let support: LocalAiSupport = 'checking';
 let supportCheck: Promise<LocalAiSupport> | null = null;
@@ -58,9 +41,8 @@ let hasF16 = false;
 const supportListeners = new Set<() => void>();
 
 /**
- * Probe once, in the background, whether this device can run the local model at all: WebGPU
- * (secure contexts of supporting browsers only), a GPU adapter and the runtime's limits.
- * Nothing is downloaded.
+ * Probe once, in the background, whether this device can run the local model: WebGPU (secure
+ * contexts of supporting browsers only) and a GPU adapter. Nothing is downloaded.
  */
 export function checkLocalAiSupport(): Promise<LocalAiSupport> {
   supportCheck ??= (async (): Promise<LocalAiSupport> => {
@@ -70,7 +52,7 @@ export function checkLocalAiSupport(): Promise<LocalAiSupport> {
       const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
       if (!adapter) return 'no-gpu';
       hasF16 = adapter.features.has('shader-f16');
-      return adapterMeetsLimits(adapter.limits as unknown as Record<string, number>) ? 'supported' : 'gpu-limits';
+      return 'supported';
     } catch {
       return 'no-gpu';
     }
@@ -91,20 +73,21 @@ export function subscribeLocalAiSupport(fn: () => void): () => void {
   return () => { supportListeners.delete(fn); };
 }
 
-/** Whether this device can run `model`: an f16-only build needs shader-f16. */
-export function localAiModelUsable(model: string): boolean {
-  const entry = LOCAL_AI_MODELS.find(m => m.id === model);
-  return !!entry && localAiSupported() && (hasF16 || entry.f32);
-}
-
 /** True only once the background probe found this device able to run the model. */
 export function localAiSupported(): boolean {
   return support === 'supported';
 }
 
+/** 16-bit weights where the GPU supports shader-f16, else the 32-bit-activation q4 build. */
+function dtypeFor(): Dtype {
+  return hasF16 ? 'q4f16' : 'q4';
+}
+
+// ---- Load state ---------------------------------------------------------------------------
+
 export type LocalAiState =
   | { status: 'idle' }
-  | { status: 'loading'; model: string; progress: number; text: string }
+  | { status: 'loading'; model: string; progress: number }
   | { status: 'ready'; model: string }
   | { status: 'error'; model: string; error: string };
 
@@ -134,103 +117,139 @@ export function setLocalAiModel(model: string | null) {
 }
 
 export function localAiActive(): boolean {
-  return activeModel !== null && localAiModelUsable(activeModel);
+  return activeModel !== null && localAiSupported();
 }
 
-let engine: { model: string; promise: Promise<WebWorkerMLCEngine>; token: object } | null = null;
+// ---- Worker protocol ----------------------------------------------------------------------
 
-/** The f32 build of a model when the GPU lacks shader-f16, if WebLLM ships one. */
-async function resolveVariant(model: string): Promise<string> {
-  await checkLocalAiSupport();
-  if (!model.includes('q4f16_1') || hasF16) return model;
-  const { prebuiltAppConfig } = await import('@mlc-ai/web-llm');
-  const f32 = model.replace('q4f16_1', 'q4f32_1');
-  return prebuiltAppConfig.model_list.some(m => m.model_id === f32) ? f32 : model;
+type Dtype = 'q4f16' | 'q4';
+export interface LocalChatMessage { role: 'user' | 'assistant'; content: string }
+export type LocalAiRequest =
+  | { type: 'load'; id: number; model: string; dtype: Dtype }
+  | { type: 'generate'; id: number; model: string; dtype: Dtype; messages: LocalChatMessage[]; maxNewTokens: number }
+  | { type: 'interrupt' }
+  | { type: 'unload'; id: number }
+  | { type: 'cached'; id: number; model: string; dtype: Dtype }
+  | { type: 'delete'; id: number; model: string; dtype: Dtype };
+export type LocalAiResponse =
+  | { type: 'progress'; progress: number }
+  | { type: 'ready'; id: number }
+  | { type: 'error'; id: number; error: string }
+  | { type: 'delta'; id: number; text: string }
+  | { type: 'done'; id: number; text: string; interrupted: boolean }
+  | { type: 'cached'; id: number; cached: boolean };
+type IdRequest = Extract<LocalAiRequest, { id: number }>;
+type RequestBody = IdRequest extends infer R ? R extends IdRequest ? Omit<R, 'id'> : never : never;
+
+interface Pending {
+  resolve: (msg: LocalAiResponse) => void;
+  reject: (error: Error) => void;
+  onDelta?: (text: string) => void;
+  aborted?: boolean;
 }
 
-/** Download (first time) and load `model`; later calls reuse the loaded engine. */
-export function loadLocalAi(model: string): Promise<WebWorkerMLCEngine> {
-  if (engine?.model === model) return engine.promise;
-  const previous = engine;
-  // Identifies this load, so a superseded one neither reports progress nor stays loaded.
-  const token = {};
-  const current = () => engine?.token === token;
-  const promise = (async () => {
-    if (previous) await previous.promise.then(e => e.unload()).catch(() => {});
-    setState({ status: 'loading', model, progress: 0, text: '' });
-    const webllm = await import('@mlc-ai/web-llm');
-    const variant = await resolveVariant(model);
-    const worker = new Worker(new URL('./localAi.worker.ts', import.meta.url), { type: 'module' });
-    const created = await webllm.CreateWebWorkerMLCEngine(worker, variant, {
-      initProgressCallback: (report: InitProgressReport) => {
-        if (current()) setState({ status: 'loading', model, progress: report.progress, text: report.text });
-      },
-    }).catch((error: unknown) => { worker.terminate(); throw error; });
-    if (!current()) {
-      // Superseded by another model or unloaded while downloading.
-      await created.unload().catch(() => {});
-      worker.terminate();
-      throw new DOMException('Aborted', 'AbortError');
+let worker: Worker | null = null;
+let seq = 0;
+const pending = new Map<number, Pending>();
+
+function getWorker(): Worker {
+  if (worker) return worker;
+  worker = new Worker(new URL('./localAi.worker.ts', import.meta.url), { type: 'module' });
+  worker.onmessage = (event: MessageEvent<LocalAiResponse>) => {
+    const msg = event.data;
+    if (msg.type === 'progress') {
+      if (state.status === 'loading') setState({ ...state, progress: msg.progress });
+      return;
     }
-    setState({ status: 'ready', model });
-    return created;
-  })();
-  engine = { model, promise, token };
-  promise.catch((error: unknown) => {
-    if (!current()) return;
-    engine = null;
-    setState({ status: 'error', model, error: error instanceof Error ? error.message : String(error) });
+    const entry = pending.get(msg.id);
+    if (!entry) return;
+    if (msg.type === 'delta') {
+      // A request aborted before its generation began: stop it as soon as it runs.
+      if (entry.aborted) worker?.postMessage({ type: 'interrupt' } satisfies LocalAiRequest);
+      else entry.onDelta?.(msg.text);
+      return;
+    }
+    pending.delete(msg.id);
+    if (msg.type === 'error') entry.reject(new Error(msg.error));
+    else entry.resolve(msg);
+  };
+  worker.onerror = (event) => {
+    const error = new Error(event.message || 'Local AI worker failed');
+    for (const entry of pending.values()) entry.reject(error);
+    pending.clear();
+    worker?.terminate();
+    worker = null;
+    loading = null;
+  };
+  return worker;
+}
+
+function request(msg: RequestBody, extra: Partial<Pending> = {}): { id: number; done: Promise<LocalAiResponse> } {
+  const id = ++seq;
+  const done = new Promise<LocalAiResponse>((resolve, reject) => {
+    pending.set(id, { resolve, reject, ...extra });
   });
+  getWorker().postMessage({ ...msg, id } as LocalAiRequest);
+  return { id, done };
+}
+
+// ---- Public operations --------------------------------------------------------------------
+
+let loading: { model: string; promise: Promise<void> } | null = null;
+
+/** Download (first time) and load `model` into the GPU; later calls reuse it. */
+export async function loadLocalAi(model: string): Promise<void> {
+  if (await checkLocalAiSupport() !== 'supported') throw new Error('This device cannot run local AI models');
+  if (loading?.model === model) return loading.promise;
+  setState({ status: 'loading', model, progress: 0 });
+  const promise: Promise<void> = request({ type: 'load', model, dtype: dtypeFor() }).done.then(() => {
+    if (loading?.promise === promise) setState({ status: 'ready', model });
+  }, (error: Error) => {
+    if (loading?.promise === promise) {
+      loading = null;
+      setState({ status: 'error', model, error: error.message });
+    }
+    throw error;
+  });
+  loading = { model, promise };
   return promise;
 }
 
 /** Release the GPU memory; the downloaded weights stay cached. */
 export async function unloadLocalAi() {
-  const current = engine;
-  engine = null;
+  loading = null;
   setState({ status: 'idle' });
-  await current?.promise.then(e => e.unload()).catch(() => {});
+  if (worker) await request({ type: 'unload' }).done.catch(() => {});
 }
 
-/** Whether WebLLM ever stored anything here; checked first so the library loads only when needed. */
-async function hasWebLlmCache(): Promise<boolean> {
+/** Whether Transformers.js ever stored anything here; checked first so the worker starts only when needed. */
+async function hasModelCache(): Promise<boolean> {
   try {
-    return (await caches.keys()).some(name => name.startsWith('webllm/'));
+    return await caches.has('transformers-cache');
   } catch {
     return false;
   }
 }
 
 export async function isLocalAiModelCached(model: string): Promise<boolean> {
-  if (!await hasWebLlmCache()) return false;
-  const webllm = await import('@mlc-ai/web-llm');
-  const checks = await Promise.all([model, model.replace('q4f16_1', 'q4f32_1')]
-    .map(id => webllm.prebuiltAppConfig.model_list.some(m => m.model_id === id)
-      ? webllm.hasModelInCache(id).catch(() => false)
-      : false));
-  return checks.some(Boolean);
+  if (!await hasModelCache() || await checkLocalAiSupport() !== 'supported') return false;
+  const reply = await request({ type: 'cached', model, dtype: dtypeFor() }).done.catch(() => null);
+  return reply?.type === 'cached' && reply.cached;
 }
 
-/** Remove the downloaded weights of `model` (both precisions) from the browser cache. */
+/** Remove the downloaded weights of `model` from the browser cache. */
 export async function deleteLocalAiModel(model: string) {
-  if (engine?.model === model) await unloadLocalAi();
-  const webllm = await import('@mlc-ai/web-llm');
-  for (const id of new Set([model, model.replace('q4f16_1', 'q4f32_1')])) {
-    if (webllm.prebuiltAppConfig.model_list.some(m => m.model_id === id)) {
-      await webllm.deleteModelAllInfoInCache(id).catch(() => {});
-    }
-  }
+  if ('model' in state && state.model === model) await unloadLocalAi();
+  await request({ type: 'delete', model, dtype: dtypeFor() }).done.catch(() => {});
 }
-
-interface ChatMessage { role: string; content: string }
 
 /**
- * Fold system prompts into the first user turn (some chat templates, Gemma's among them,
- * reject a system role) and cap the input to fit the model's context.
+ * Fold system prompts into the first user turn (some chat templates reject a system role) and
+ * cap the input to fit the model's budget.
  */
-export function toLocalMessages(messages: unknown[]): { role: 'user' | 'assistant'; content: string }[] {
-  const list = messages.filter((m): m is ChatMessage =>
-    typeof m === 'object' && m !== null && typeof (m as ChatMessage).content === 'string');
+export function toLocalMessages(messages: unknown[]): LocalChatMessage[] {
+  const list = messages.filter((m): m is { role: string; content: string } =>
+    typeof m === 'object' && m !== null && typeof (m as { content?: unknown }).content === 'string');
   const system = list.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
   const turns = list.filter(m => m.role !== 'system')
     .map(m => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, content: m.content }));
@@ -242,7 +261,7 @@ export function toLocalMessages(messages: unknown[]): { role: 'user' | 'assistan
   return turns;
 }
 
-/** Drop reasoning blocks some small models (Qwen) emit before the answer. */
+/** Drop reasoning blocks some small models emit before the answer. */
 export function stripThinking(text: string): string {
   return text.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '').replace(/^\s+/, '');
 }
@@ -253,28 +272,30 @@ export async function streamLocalAiChat(messages: unknown[], { signal, onDelta }
   if (!model) throw new Error('Local AI is not enabled');
   const abortError = () => new DOMException('Aborted', 'AbortError');
   if (signal?.aborted) throw abortError();
-  const llm = await loadLocalAi(model);
+  await loadLocalAi(model);
   if (signal?.aborted) throw abortError();
-  const stop = () => { void llm.interruptGenerate(); };
+  let shown = '';
+  const job = request({
+    type: 'generate', model, dtype: dtypeFor(), messages: toLocalMessages(messages), maxNewTokens: MAX_NEW_TOKENS,
+  }, {
+    onDelta: (raw: string) => {
+      const next = stripThinking(raw);
+      if (next === shown) return;
+      const added = next.startsWith(shown) ? next.slice(shown.length) : next;
+      shown = next;
+      onDelta?.(shown, added);
+    },
+  });
+  const stop = () => {
+    const entry = pending.get(job.id);
+    if (entry) entry.aborted = true;
+    worker?.postMessage({ type: 'interrupt' } satisfies LocalAiRequest);
+  };
   signal?.addEventListener('abort', stop, { once: true });
   try {
-    const chunks = await llm.chat.completions.create({ messages: toLocalMessages(messages), stream: true, temperature: 0.4 });
-    let raw = '';
-    let shown = '';
-    for await (const chunk of chunks) {
-      if (signal?.aborted) throw abortError();
-      const delta = chunk.choices[0]?.delta?.content;
-      if (!delta) continue;
-      raw += delta;
-      const next = stripThinking(raw);
-      if (next !== shown) {
-        const added = next.startsWith(shown) ? next.slice(shown.length) : next;
-        shown = next;
-        onDelta?.(shown, added);
-      }
-    }
+    const reply = await job.done;
     if (signal?.aborted) throw abortError();
-    return shown;
+    return reply.type === 'done' ? stripThinking(reply.text) : shown;
   } finally {
     signal?.removeEventListener('abort', stop);
   }

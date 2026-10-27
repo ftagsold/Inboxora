@@ -460,7 +460,10 @@
       "threadingDesc": "Group a message and its replies into one conversation in the message list.",
       "undoSend": "Undo send",
       "undoSendDesc": "After you press Send, the mail waits this long so you can still undo it.",
-      "undoSendOff": "Off (send at once)"
+      "undoSendOff": "Off (send at once)",
+      "retiredAddresses": "Retired addresses",
+      "retiredAddressesDesc": "Old addresses that still forward here, one per line. Mail sent to them gets a small tag, so you can update your address with each sender.",
+      "retiredAddressesPh": "old@example.com"
     },
     "notifications": {
       "title": "Notifications",
@@ -938,8 +941,8 @@
       "enable": "Use a local AI model",
       "enableDesc": "Off by default. The model downloads to this device only after you turn this on, and then powers every AI button.",
       "model": "Model",
-      "modelOption": "{{name}} · needs ~{{size}} GB GPU memory",
-      "modelDesc": "Gemma 4 gives the best results; smaller models are faster and suit weaker devices.",
+      "modelOption": "{{name}} · ~{{size}} GB download",
+      "modelDesc": "Gemma 4 E2B is a good default; E4B writes better but needs more memory; Gemma 3 1B suits weaker devices.",
       "loading": "Downloading local AI model… {{percent}}%",
       "ready": "Loaded and ready.",
       "error": "The model could not be loaded: {{error}}",
@@ -950,9 +953,7 @@
       "delete": "Delete download",
       "deleteConfirm": "Delete the downloaded model from this device? It downloads again the next time it is used.",
       "checking": "Checking whether this device can run a local model…",
-      "noGpu": "No usable GPU was found, so local models cannot run on this device.",
-      "unsupportedGpu": "This GPU or browser does not meet the local model’s requirements (too few WebGPU resources). Try a recent Chrome or Edge.",
-      "modelUnusable": "The selected model needs 16-bit GPU support that this device lacks. Pick another model."
+      "noGpu": "No usable GPU was found, so local models cannot run on this device."
     }
   },
   "blockList": {
@@ -1526,7 +1527,8 @@
       "error": "AI classification failed."
     },
     "attachment_few": "{{count}} attachments",
-    "attachment_many": "{{count}} attachments"
+    "attachment_many": "{{count}} attachments",
+    "retiredAddressHint": "Sent to your retired address {{address}} — update your address with this sender"
   },
   "messageList": {
     "search": "Search…",

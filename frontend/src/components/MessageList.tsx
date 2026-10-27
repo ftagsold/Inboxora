@@ -1,4 +1,5 @@
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
+import RetiredAddressTag from './RetiredAddressTag.tsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import { Button, Dialog } from './ui.tsx';
 import MobileFloatingAction from './MobileFloatingAction.tsx';
@@ -4791,6 +4792,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               }}>
                 {showParentDirection && <span style={{ marginRight: 4 }}><MessageDirection direction={parentDirection} label={isOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
               </span>
+              {!isOutgoing && <RetiredAddressTag compact to={message.to_addresses} cc={message.cc_addresses} delivery={message.delivery_addresses} />}
               {isExpandableThread && (
                 <button
                   type="button"
@@ -5200,6 +5202,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             }}>
               {message.from_name || message.from_email || t('common.unknown')}
             </span>
+            <RetiredAddressTag compact to={message.to_addresses} cc={message.cc_addresses} delivery={message.delivery_addresses} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
             {message.has_attachments ? (

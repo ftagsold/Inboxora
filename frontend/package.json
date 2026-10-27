@@ -141,7 +141,7 @@
     "@capacitor/core": "^8.3.4",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
-    "@mlc-ai/web-llm": "0.2.86",
+    "@huggingface/transformers": "4.3.1",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-image": "^3.31.3",
     "@tiptap/extension-placeholder": "^3.31.3",

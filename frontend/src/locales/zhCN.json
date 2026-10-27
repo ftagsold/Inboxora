@@ -460,7 +460,10 @@
       "threadingDesc": "在邮件列表中将邮件及其回复合并为一个会话。",
       "undoSend": "撤销发送",
       "undoSendDesc": "点击发送后，邮件会等待这段时间，方便你撤销。",
-      "undoSendOff": "关闭（立即发送）"
+      "undoSendOff": "关闭（立即发送）",
+      "retiredAddresses": "停用的地址",
+      "retiredAddressesDesc": "仍转发到这里的旧地址，每行一个。发往这些地址的邮件会带一个小标记，方便你在每个发件方处更新地址。",
+      "retiredAddressesPh": "old@example.cn"
     },
     "notifications": {
       "title": "通知",
@@ -938,8 +941,8 @@
       "enable": "使用本地 AI 模型",
       "enableDesc": "默认关闭。只有开启后模型才会下载到此设备，之后所有 AI 按钮都由它驱动。",
       "model": "模型",
-      "modelOption": "{{name}} · 需要约 {{size}} GB 显存",
-      "modelDesc": "Gemma 4 效果最好；较小的模型速度更快，适合性能较弱的设备。",
+      "modelOption": "{{name}} · 下载约 {{size}} GB",
+      "modelDesc": "Gemma 4 E2B 是不错的默认选择；E4B 写得更好但需要更多内存；Gemma 3 1B 适合性能较弱的设备。",
       "loading": "正在下载本地 AI 模型… {{percent}}%",
       "ready": "已加载，可以使用。",
       "error": "无法加载模型：{{error}}",
@@ -950,9 +953,7 @@
       "delete": "删除下载",
       "deleteConfirm": "要从此设备删除已下载的模型吗？下次使用时会重新下载。",
       "checking": "正在检查此设备能否运行本地模型…",
-      "noGpu": "未找到可用的 GPU，因此此设备无法运行本地模型。",
-      "unsupportedGpu": "此 GPU 或浏览器不满足本地模型的要求（WebGPU 资源不足）。请尝试较新的 Chrome 或 Edge。",
-      "modelUnusable": "所选模型需要此设备不具备的 16 位 GPU 支持，请选择其他模型。"
+      "noGpu": "未找到可用的 GPU，因此此设备无法运行本地模型。"
     }
   },
   "blockList": {
@@ -1526,7 +1527,8 @@
       "error": "AI 分类失败。"
     },
     "attachment_few": "{{count}} attachments",
-    "attachment_many": "{{count}} attachments"
+    "attachment_many": "{{count}} attachments",
+    "retiredAddressHint": "发送到你停用的地址 {{address}}——请在此发件方处更新地址"
   },
   "messageList": {
     "search": "搜索…",

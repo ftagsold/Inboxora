@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import {
-  DEFAULT_LOCAL_AI_MODEL, LOCAL_AI_MODELS, adapterMeetsLimits, checkLocalAiSupport, isKnownLocalAiModel,
+  DEFAULT_LOCAL_AI_MODEL, LOCAL_AI_MODELS, checkLocalAiSupport, isKnownLocalAiModel,
   localAiActive, localAiSupported, setLocalAiModel,
   stripThinking, toLocalMessages,
 } from './localAi.ts';
 
 test('the default local model is Gemma 4 and every curated id is known', () => {
-  assert.equal(DEFAULT_LOCAL_AI_MODEL, 'gemma-4-E2B-it-q4f16_1-MLC');
+  assert.equal(DEFAULT_LOCAL_AI_MODEL, 'onnx-community/gemma-4-E2B-it-ONNX');
   for (const m of LOCAL_AI_MODELS) assert.ok(isKnownLocalAiModel(m.id));
   assert.equal(isKnownLocalAiModel('evil-model'), false);
   assert.equal(isKnownLocalAiModel(42), false);
@@ -24,7 +24,7 @@ test('system prompts fold into the first user turn', () => {
 
 test('the last turn is capped to fit the model context', () => {
   const out = toLocalMessages([{ role: 'user', content: 'x'.repeat(20000) }]);
-  assert.equal(out[0].content.length, 6000);
+  assert.equal(out[0].content.length, 16000);
 });
 
 test('reasoning blocks are stripped, also while still open', () => {
@@ -43,13 +43,6 @@ test('local AI stays inactive without WebGPU', () => {
 test('api.ai.chat routes to the local model while it is active', () => {
   const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8');
   assert.match(api, /localAiActive\(\) \? streamLocalAiChat\(messages, opts\) : streamAiChat\(messages, opts\)/);
-});
-
-test('the probe rejects GPUs below the WebLLM runtime minimums', () => {
-  const ok = { maxBufferSize: 1 << 30, maxStorageBufferBindingSize: 1 << 30, maxComputeWorkgroupStorageSize: 32768, maxStorageBuffersPerShaderStage: 10 };
-  assert.equal(adapterMeetsLimits(ok), true);
-  assert.equal(adapterMeetsLimits({ ...ok, maxStorageBuffersPerShaderStage: 9 }), false);
-  assert.equal(adapterMeetsLimits({ ...ok, maxComputeWorkgroupStorageSize: 16384 }), false);
 });
 
 test('without WebGPU the probe reports no-webgpu and local AI stays off', async () => {

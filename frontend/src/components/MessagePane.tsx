@@ -1,4 +1,5 @@
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
+import RetiredAddressTag from './RetiredAddressTag.tsx';
  
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -2124,6 +2125,7 @@ ${bodyContent}
                           ))
                         : (asText(message.account_email) || asText(message.account_name) || '')}
                     </span>
+                    {' '}<RetiredAddressTag to={message.to_addresses} cc={message.cc_addresses} delivery={message.delivery_addresses} />
                   </div>
                   {ccList.length > 0 && (
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2166,6 +2168,7 @@ ${bodyContent}
                           ))
                         : (asText(message.account_email) || asText(message.account_name) || '')}
                     </span>
+                    {' '}<RetiredAddressTag to={message.to_addresses} cc={message.cc_addresses} delivery={message.delivery_addresses} />
                   </div>
                   {ccList.length > 0 && (
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>

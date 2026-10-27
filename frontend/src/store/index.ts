@@ -15,6 +15,7 @@ import type { GtdSections , GtdRemovalSnapshot } from '../utils/gtd.ts';
 import { applyLayout, normalizeLayout } from '../layouts.ts';
 import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.ts';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.ts';
+import { normalizeRetiredAddresses } from '../utils/retiredAddresses.ts';
 import { DEFAULT_LOCAL_AI_MODEL, checkLocalAiSupport, isKnownLocalAiModel, localAiActive, setLocalAiModel, unloadLocalAi } from '../utils/localAi.ts';
 import {
   removeGtdThreadFromSections,
@@ -200,6 +201,9 @@ export interface StoreState {
   undoPendingSend: () => void;
   /** The send left the undo window and finished (or failed): show the composer again. */
   finishPendingSend: () => void;
+  /** Old addresses still forwarding here; mails sent to them get a small tag. */
+  retiredAddresses: string[];
+  setRetiredAddresses: (addresses: string[]) => void;
   /** The opt-in in-browser model; nothing downloads until this is on. */
   localAiEnabled: boolean;
   localAiModel: string;
@@ -582,6 +586,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         localStorage.removeItem('mailflow_selected_account');
         localStorage.removeItem('mailflow_selected_folder');
         localStorage.removeItem(NAVIGATION_OWNER_KEY);
+        localStorage.removeItem('mailflow_retired_addresses');
         settlePendingSend(false);
         setLocalAiModel(null);
         void unloadLocalAi();
@@ -607,7 +612,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         notifications: [], expandedThreadId: null, threadMessages: {}, loadingThread: null,
         backfillProgress: {}, categoryCounts: {}, activeGtdTab: null, gtdSections: null,
         rulesPreFill: null, showAdmin: false, aiStatus: null,
-        localAiEnabled: false, localAiModel: DEFAULT_LOCAL_AI_MODEL, pendingSend: null,
+        localAiEnabled: false, localAiModel: DEFAULT_LOCAL_AI_MODEL, pendingSend: null, retiredAddresses: [],
       } : {}),
     }));
   },
@@ -991,6 +996,19 @@ export const useStore = create<StoreState>()((set, get) => ({
     if (get().pendingSend) set({ pendingSend: null });
     // A compose requested during a send that then failed: the failed one stays open instead.
     queuedCompose = null;
+  },
+  retiredAddresses: (() => {
+    try {
+      return normalizeRetiredAddresses(JSON.parse(localStorage.getItem('mailflow_retired_addresses') || '[]'));
+    } catch {
+      return [];
+    }
+  })(),
+  setRetiredAddresses: (addresses: string[]) => {
+    const list = normalizeRetiredAddresses(addresses);
+    localStorage.setItem('mailflow_retired_addresses', JSON.stringify(list));
+    set({ retiredAddresses: list });
+    schedulePrefSave({ retiredAddresses: list });
   },
   localAiEnabled: false,
   localAiModel: DEFAULT_LOCAL_AI_MODEL,
@@ -1951,6 +1969,11 @@ export const useStore = create<StoreState>()((set, get) => ({
       if (Number.isInteger(prefs.undoSendSeconds) && prefs.undoSendSeconds >= 0 && prefs.undoSendSeconds <= 30) {
         localStorage.setItem('mailflow_undo_send_seconds', String(prefs.undoSendSeconds));
         set({ undoSendSeconds: prefs.undoSendSeconds });
+      }
+      if (Array.isArray(prefs.retiredAddresses)) {
+        const list = normalizeRetiredAddresses(prefs.retiredAddresses);
+        localStorage.setItem('mailflow_retired_addresses', JSON.stringify(list));
+        set({ retiredAddresses: list });
       }
       if (isKnownLocalAiModel(prefs.localAiModel)) set({ localAiModel: prefs.localAiModel });
       {

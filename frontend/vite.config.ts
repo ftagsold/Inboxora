@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
   };
   return {
     plugins: [react(), appNameHtml(env.VITE_APP_NAME || 'Inboxora')],
+    // The local-AI worker is a module worker (ONNX Runtime loads its core via dynamic import).
+    worker: { format: 'es' as const },
     server: {
       port: 5173,
       proxy,

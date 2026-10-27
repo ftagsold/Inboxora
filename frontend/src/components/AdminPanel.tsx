@@ -47,7 +47,8 @@ import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
 import type { TFunction } from 'i18next';
 import ImapLimitsSettings from './ImapLimitsSettings.tsx';
-import { LOCAL_AI_MODELS, deleteLocalAiModel, isLocalAiModelCached, loadLocalAi, localAiModelUsable } from '../utils/localAi.ts';
+import { normalizeRetiredAddresses } from '../utils/retiredAddresses.ts';
+import { LOCAL_AI_MODELS, deleteLocalAiModel, isLocalAiModelCached, loadLocalAi } from '../utils/localAi.ts';
 import { useLocalAiState, useLocalAiSupport } from '../hooks/useLocalAiState.ts';
 import { LocalAiProgressBar } from './LocalAiProgress.tsx';
 
@@ -2427,6 +2428,9 @@ function LayoutsTab() {
         </select>
       </div>
 
+      {/* Retired addresses — old inboxes that still forward here */}
+      <RetiredAddressesSetting />
+
       {/* Mark as read behaviour */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -4286,13 +4290,54 @@ function AISection() {
 }
 
 // ─── AI Actions (user-defined custom actions, #202) ───────────────────────────
+// Old addresses that still forward here; mails sent to them get a small tag in the list and
+// reader, so the user can update their address at each sender.
+function RetiredAddressesSetting() {
+  const { t } = useTranslation();
+  const retiredAddresses = useStore(state => state.retiredAddresses);
+  const setRetiredAddresses = useStore(state => state.setRetiredAddresses);
+  const [draft, setDraft] = useState(() => retiredAddresses.join('\n'));
+  useEffect(() => { setDraft(retiredAddresses.join('\n')); }, [retiredAddresses]);
+  const save = () => {
+    const list = normalizeRetiredAddresses(draft.split(/[\s,;]+/));
+    setRetiredAddresses(list);
+    setDraft(list.join('\n'));
+  };
+  return (
+    <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+      <label htmlFor="retired-addresses" style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        {t('admin.messageList.retiredAddresses')}
+      </label>
+      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+        {t('admin.messageList.retiredAddressesDesc')}
+      </div>
+      <textarea
+        id="retired-addresses"
+        data-testid="retired-addresses"
+        value={draft}
+        rows={Math.min(8, Math.max(3, retiredAddresses.length + 1))}
+        placeholder={t('admin.messageList.retiredAddressesPh')}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={save}
+        spellCheck={false}
+        style={{
+          width: '100%', maxWidth: 420, boxSizing: 'border-box', resize: 'vertical',
+          background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6,
+          padding: '6px 8px', color: 'var(--text-primary)', fontSize: 12, outline: 'none',
+          fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+        }}
+      />
+    </div>
+  );
+}
+
 // Opt-in in-browser AI: off by default, and nothing downloads until the user turns it on here.
 function LocalAiTab() {
   const { t } = useTranslation();
   const { localAiEnabled, setLocalAiEnabled, localAiModel, setLocalAiModel } = useStore();
   const support = useLocalAiSupport();
   const supported = support === 'supported';
-  const modelUsable = supported && localAiModelUsable(localAiModel);
+  const modelUsable = supported;
   const state = useLocalAiState();
   const [cached, setCached] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -4313,7 +4358,7 @@ function LocalAiTab() {
   };
   const changeModel = (model: string) => {
     setLocalAiModel(model);
-    if (localAiEnabled && localAiModelUsable(model)) loadLocalAi(model).catch(() => {});
+    if (localAiEnabled && supported) loadLocalAi(model).catch(() => {});
   };
   const remove = async () => {
     if (!window.confirm(t('admin.localAi.deleteConfirm'))) return;
@@ -4352,12 +4397,7 @@ function LocalAiTab() {
       )}
       {support !== 'checking' && !supported && (
         <div role="alert" data-testid="local-ai-support" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 16 }}>
-          {support === 'gpu-limits' ? t('admin.localAi.unsupportedGpu') : support === 'no-gpu' ? t('admin.localAi.noGpu') : t('admin.localAi.unsupported')}
-        </div>
-      )}
-      {supported && !modelUsable && (
-        <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 16 }}>
-          {t('admin.localAi.modelUnusable')}
+          {support === 'no-gpu' ? t('admin.localAi.noGpu') : t('admin.localAi.unsupported')}
         </div>
       )}
       <SettingsSwitchRow
@@ -4385,7 +4425,7 @@ function LocalAiTab() {
           }}
         >
           {LOCAL_AI_MODELS.map(m => (
-            <option key={m.id} value={m.id} disabled={supported && !localAiModelUsable(m.id)}>{t('admin.localAi.modelOption', { name: m.label, size: (m.vramMB / 1024).toFixed(1) })}</option>
+            <option key={m.id} value={m.id}>{t('admin.localAi.modelOption', { name: m.label, size: m.sizeGB.toFixed(1) })}</option>
           ))}
         </select>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6 }}>{t('admin.localAi.modelDesc')}</div>
@@ -8806,6 +8846,7 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     { label: t('conversation.rebuildConversations'), keywords: ['rebuild', 'conversation', 'threading', 'group', 'regroup', 'reindex', 'mailflow', 'migrate', 'migration', 'import', 'history', 'backlog'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.retiredAddresses'), keywords: ['retired', 'old address', 'old inbox', 'forwarding', 'forwarded', 'migrate', 'change email', 'alte adresse'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.undoSend'), keywords: ['undo', 'undo send', 'unsend', 'recall', 'cancel send', 'delay send'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.localAi.title'), keywords: ['ai', 'local ai', 'browser', 'on device', 'offline', 'gemma', 'llm', 'webgpu', 'summarize', 'spell check', 'privacy'], tab: 'local-ai', breadcrumb: tabLabel('local-ai') },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },

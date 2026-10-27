@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import RetiredAddressTag from './RetiredAddressTag.tsx';
 import { useTranslation } from 'react-i18next';
 import type { ConversationLogicalMessage, ConversationReplyPayload, MessageBody, MessageBodyStatus } from './ConversationReader.tsx';
 import type { StoreState } from '../store/index.ts';
@@ -463,6 +464,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
             <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
               <span>{t('message.to')} </span>
               <span title={recipient || accountLabel} style={{ color: 'var(--text-secondary)', userSelect: 'text' }}>{recipient || accountLabel}</span>
+              {!outgoing && <>{' '}<RetiredAddressTag to={copy.to} cc={copy.cc} delivery={copy.deliveryAddresses ?? copy.delivery_addresses} /></>}
             </span>
             {address(copy.cc) && <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
               <span>{t('message.cc', { defaultValue: 'Cc' })} </span>

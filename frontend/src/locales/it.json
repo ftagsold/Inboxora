@@ -460,7 +460,10 @@
       "threadingDesc": "Raggruppa un messaggio e le sue risposte in un'unica conversazione.",
       "undoSend": "Annulla invio messaggio",
       "undoSendDesc": "Dopo aver premuto Invia, il messaggio attende questo tempo così puoi ancora annullarlo.",
-      "undoSendOff": "Disattivato (invio immediato)"
+      "undoSendOff": "Disattivato (invio immediato)",
+      "retiredAddresses": "Indirizzi dismessi",
+      "retiredAddressesDesc": "Indirizzi vecchi che inoltrano ancora qui, uno per riga. La posta inviata a questi indirizzi riceve una piccola etichetta, così puoi aggiornare il tuo indirizzo presso ogni mittente.",
+      "retiredAddressesPh": "vecchio@esempio.it"
     },
     "notifications": {
       "title": "Notifiche",
@@ -938,8 +941,8 @@
       "enable": "Usa un modello IA locale",
       "enableDesc": "Disattivato per impostazione predefinita. Il modello viene scaricato su questo dispositivo solo dopo l’attivazione e poi alimenta tutti i pulsanti IA.",
       "model": "Modello",
-      "modelOption": "{{name}} · richiede ~{{size}} GB di memoria GPU",
-      "modelDesc": "Gemma 4 offre i risultati migliori; i modelli più piccoli sono più veloci e adatti a dispositivi meno potenti.",
+      "modelOption": "{{name}} · download di ~{{size}} GB",
+      "modelDesc": "Gemma 4 E2B è una buona scelta predefinita; E4B scrive meglio ma richiede più memoria; Gemma 3 1B è adatto a dispositivi meno potenti.",
       "loading": "Download del modello IA locale… {{percent}}%",
       "ready": "Caricato e pronto.",
       "error": "Impossibile caricare il modello: {{error}}",
@@ -950,9 +953,7 @@
       "delete": "Elimina download",
       "deleteConfirm": "Eliminare il modello scaricato da questo dispositivo? Verrà scaricato di nuovo al prossimo utilizzo.",
       "checking": "Verifica se questo dispositivo può eseguire un modello locale…",
-      "noGpu": "Nessuna GPU utilizzabile trovata: i modelli locali non possono funzionare su questo dispositivo.",
-      "unsupportedGpu": "Questa GPU o questo browser non soddisfa i requisiti del modello locale (risorse WebGPU insufficienti). Prova un Chrome o Edge recente.",
-      "modelUnusable": "Il modello scelto richiede il supporto GPU a 16 bit che manca a questo dispositivo. Scegli un altro modello."
+      "noGpu": "Nessuna GPU utilizzabile trovata: i modelli locali non possono funzionare su questo dispositivo."
     }
   },
   "blockList": {
@@ -1526,7 +1527,8 @@
       "error": "Classificazione IA fallita."
     },
     "attachment_few": "{{count}} attachments",
-    "attachment_many": "{{count}} attachments"
+    "attachment_many": "{{count}} attachments",
+    "retiredAddressHint": "Inviato al tuo indirizzo dismesso {{address}}: aggiorna il tuo indirizzo presso questo mittente"
   },
   "messageList": {
     "search": "Cerca…",

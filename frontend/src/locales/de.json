@@ -460,7 +460,10 @@
       "threadingDesc": "Fasst eine Nachricht und ihre Antworten in der Nachrichtenliste zu einer Konversation zusammen.",
       "undoSend": "Senden rückgängig machen",
       "undoSendDesc": "Nach dem Klick auf Senden wartet die Mail so lange, damit du sie noch zurückholen kannst.",
-      "undoSendOff": "Aus (sofort senden)"
+      "undoSendOff": "Aus (sofort senden)",
+      "retiredAddresses": "Alte Adressen",
+      "retiredAddressesDesc": "Alte Adressen, die noch hierher weiterleiten, eine pro Zeile. Mails an diese Adressen bekommen eine kleine Markierung, damit du deine Adresse bei jedem Absender ändern kannst.",
+      "retiredAddressesPh": "alt@beispiel.de"
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -938,8 +941,8 @@
       "enable": "Lokales KI-Modell verwenden",
       "enableDesc": "Standardmäßig aus. Das Modell wird erst nach dem Einschalten auf dieses Gerät geladen und übernimmt dann alle KI-Funktionen.",
       "model": "Modell",
-      "modelOption": "{{name}} · benötigt ~{{size}} GB Grafikspeicher",
-      "modelDesc": "Gemma 4 liefert die besten Ergebnisse; kleinere Modelle sind schneller und passen zu schwächeren Geräten.",
+      "modelOption": "{{name}} · ca. {{size}} GB Download",
+      "modelDesc": "Gemma 4 E2B ist ein guter Standard; E4B schreibt besser, braucht aber mehr Speicher; Gemma 3 1B passt zu schwächeren Geräten.",
       "loading": "Lokales KI-Modell wird geladen… {{percent}} %",
       "ready": "Geladen und bereit.",
       "error": "Das Modell konnte nicht geladen werden: {{error}}",
@@ -950,9 +953,7 @@
       "delete": "Download löschen",
       "deleteConfirm": "Heruntergeladenes Modell von diesem Gerät löschen? Es wird bei der nächsten Nutzung erneut geladen.",
       "checking": "Prüfe, ob dieses Gerät ein lokales Modell ausführen kann…",
-      "noGpu": "Keine nutzbare Grafikkarte gefunden – lokale Modelle laufen auf diesem Gerät nicht.",
-      "unsupportedGpu": "Diese Grafikkarte oder dieser Browser erfüllt die Anforderungen des lokalen Modells nicht (zu wenige WebGPU-Ressourcen). Probiere ein aktuelles Chrome oder Edge.",
-      "modelUnusable": "Das gewählte Modell braucht 16-Bit-GPU-Unterstützung, die diesem Gerät fehlt. Wähle ein anderes Modell."
+      "noGpu": "Keine nutzbare Grafikkarte gefunden – lokale Modelle laufen auf diesem Gerät nicht."
     }
   },
   "blockList": {
@@ -1526,7 +1527,8 @@
       "error": "KI-Klassifizierung fehlgeschlagen."
     },
     "attachment_few": "{{count}} attachments",
-    "attachment_many": "{{count}} attachments"
+    "attachment_many": "{{count}} attachments",
+    "retiredAddressHint": "An deine alte Adresse {{address}} gesendet – ändere deine Adresse bei diesem Absender"
   },
   "messageList": {
     "search": "Suchen…",

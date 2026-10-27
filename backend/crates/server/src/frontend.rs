@@ -42,13 +42,13 @@ const BACKEND_PREFIXES: &[&str] = &[
 ];
 
 /// Content-hashed build output and other static media: cached for a year.
-const IMMUTABLE_EXTENSIONS: &[&str] = &["js", "css", "png", "jpg", "jpeg", "gif", "ico", "svg", "woff", "woff2"];
+const IMMUTABLE_EXTENSIONS: &[&str] = &["js", "css", "png", "jpg", "jpeg", "gif", "ico", "svg", "woff", "woff2", "mjs", "wasm"];
 
 // 'unsafe-inline' styles are required by the React app (inline style props); email images load
 // from arbitrary https origins. The opt-in in-browser AI compiles WebAssembly and downloads its
-// weights from Hugging Face and its model libraries from GitHub.
-const CSP_HTTPS: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com wss:; frame-src 'self'; object-src 'none'; base-uri 'self';";
-const CSP_HTTP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com wss: ws:; frame-src 'self'; object-src 'none'; base-uri 'self';";
+// weights from Hugging Face.
+const CSP_HTTPS: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co wss:; frame-src 'self'; object-src 'none'; base-uri 'self';";
+const CSP_HTTP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co wss: ws:; frame-src 'self'; object-src 'none'; base-uri 'self';";
 
 #[derive(Clone, Default)]
 pub struct Frontend {

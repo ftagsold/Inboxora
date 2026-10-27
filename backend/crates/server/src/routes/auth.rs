@@ -1025,12 +1025,33 @@ fn sanitize_theme_name(v: Option<&Value>) -> Option<String> {
     RE.is_match(s).then(|| s.to_owned())
 }
 
-/// A WebLLM model id such as `gemma-4-E2B-it-q4f16_1-MLC`; the browser picks the weights.
+/// A Hugging Face model id such as `onnx-community/gemma-4-E2B-it-ONNX`; the browser picks the weights.
 fn sanitize_local_ai_model(v: Option<&Value>) -> Option<String> {
     static RE: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$").unwrap());
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$").unwrap());
     let s = js_trim(v?.as_str()?);
     RE.is_match(s).then(|| s.to_owned())
+}
+
+/// Old addresses that still forward here: lowercase, de-duplicated; `None` on a bad shape.
+fn sanitize_retired_addresses(v: &Value) -> Option<Vec<String>> {
+    static EMAIL: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$").unwrap());
+    let list = v.as_array()?;
+    if list.len() > 50 {
+        return None;
+    }
+    let mut out: Vec<String> = Vec::new();
+    for item in list {
+        let email = js_trim(item.as_str()?).to_lowercase();
+        if js_len(&email) > 254 || !EMAIL.is_match(&email) {
+            return None;
+        }
+        if !out.contains(&email) {
+            out.push(email);
+        }
+    }
+    Some(out)
 }
 
 async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body: Body) -> Result<Response> {
@@ -1171,6 +1192,13 @@ async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body:
     if b("localAiEnabled").is_some_and(|v| !v.is_boolean()) {
         return Ok(err(400, "localAiEnabled must be a boolean"));
     }
+    let retired = match b("retiredAddresses") {
+        None | Some(Value::Null) => None,
+        Some(v) => match sanitize_retired_addresses(v) {
+            Some(list) => Some(list),
+            None => return Ok(err(400, "retiredAddresses must be an array of up to 50 email addresses")),
+        },
+    };
     let local_ai_model = sanitize_local_ai_model(b("localAiModel"));
     if b("localAiModel").is_some() && local_ai_model.is_none() {
         return Ok(err(400, "localAiModel must be a model identifier"));
@@ -1256,6 +1284,7 @@ async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body:
         Val::from(undo_send),
         raw("localAiEnabled"),
         opt_text(local_ai_model),
+        opt_text(retired.map(|l| inboxora_core::json::stringify(&Value::Array(l.into_iter().map(Value::String).collect())))),
     ];
     s.db.exec(PREFERENCES_SQL, &p).await?;
     if let Some(v) = defined(b("categorizationEnabled")) {
@@ -1330,6 +1359,7 @@ const PREFERENCES_SQL: &str = "UPDATE users SET preferences = preferences
   || CASE WHEN $54::int IS NOT NULL THEN jsonb_build_object('undoSendSeconds', $54::int) ELSE '{}'::jsonb END
   || CASE WHEN $55::boolean IS NOT NULL THEN jsonb_build_object('localAiEnabled', $55::boolean) ELSE '{}'::jsonb END
   || CASE WHEN $56::text IS NOT NULL THEN jsonb_build_object('localAiModel', $56::text) ELSE '{}'::jsonb END
+  || CASE WHEN $57::jsonb IS NOT NULL THEN jsonb_build_object('retiredAddresses', $57::jsonb) ELSE '{}'::jsonb END
 WHERE id = $1";
 
 async fn whitelist_add(State(s): State<AppState>, Sess(session): Sess, body: Body) -> Result<Response> {
