@@ -1,9 +1,9 @@
 flowchart LR
-    mem["<b>Browser memory</b><br/>12 recent list views"]
-    idb[("<b>Browser IndexedDB</b><br/>display fields<br/>2000 bodies<br/>200 rows per view")]
-    redis[("<b>Server Redis</b><br/>memory-only<br/>display fields until deleted<br/>bodies 7 days")]
-    imap[("<b>IMAP server</b><br/>source of truth")]
-    pg[("<b>Server PostgreSQL</b><br/>header index only")]
+    mem["Browser memory<br/>12 recent list views"]
+    idb[("Browser IndexedDB<br/>display fields<br/>2000 bodies<br/>200 rows per view")]
+    redis[("Server Redis<br/>memory-only<br/>display fields until deleted<br/>bodies 7 days")]
+    imap[("IMAP server<br/>source of truth")]
+    pg[("Server PostgreSQL<br/>header index only")]
     mem -->|miss| idb
     idb -->|miss| redis
     redis -->|"miss: one UID FETCH<br/>per folder"| imap
