@@ -5,7 +5,8 @@ import { api } from '../utils/api.ts';
 import type { WebDavServer } from '../utils/api.ts';
 import { toAppError } from '../utils/errors.ts';
 import { Button, Dialog, inputStyle } from './ui.tsx';
-import { WEBDAV_SERVERS_CHANGED, serverHost, useWebDavServers } from './FilesPage.tsx';
+import { WEBDAV_SERVERS_CHANGED, defaultServer, serverHost, useWebDavServers } from './FilesPage.tsx';
+import { useStore } from '../store/index.ts';
 
 interface ServerForm { displayName: string; url: string; username: string; password: string }
 const EMPTY: ServerForm = { displayName: '', url: '', username: '', password: '' };
@@ -16,6 +17,9 @@ const announce = () => window.dispatchEvent(new CustomEvent(WEBDAV_SERVERS_CHANG
 export default function WebDavFilesSettings() {
   const { t } = useTranslation();
   const { servers, error: loadError } = useWebDavServers();
+  const defaultFileServerId = useStore(state => state.defaultFileServerId);
+  const setDefaultFileServerId = useStore(state => state.setDefaultFileServerId);
+  const defaultId = servers ? defaultServer(servers, defaultFileServerId)?.id : undefined;
   const [form, setForm] = useState<ServerForm>(EMPTY);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +101,9 @@ export default function WebDavFilesSettings() {
           <small style={{ color: 'var(--text-tertiary)' }}>{server.url}</small>
         </span>
         <span style={serverActions}>
+          {servers.length > 1 && (server.id === defaultId
+            ? <span data-testid="webdav-server-default" style={defaultBadge}>{t('admin.webdavFiles.isDefault')}</span>
+            : <Button onClick={() => setDefaultFileServerId(server.id)}>{t('admin.webdavFiles.makeDefault')}</Button>)}
           <Button onClick={() => openEdit(server)}>{t('admin.webdavFiles.edit')}</Button>
           <Button variant="danger" onClick={() => setRemoving(server)}>{t('admin.webdavFiles.remove')}</Button>
         </span>
@@ -128,4 +135,5 @@ const fieldStyle: CSSProperties = { display: 'grid', gap: 6, fontSize: 12, color
 const serverBlock: CSSProperties = { display: 'grid', gap: 8, marginTop: 18 };
 const serverRow: CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 10px', border: '1px solid var(--border-subtle)', borderRadius: 8 };
 const serverText: CSSProperties = { display: 'grid', gap: 2, minWidth: 0, overflowWrap: 'anywhere' };
-const serverActions: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 6 };
+const serverActions: CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 };
+const defaultBadge: CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '2px 6px' };

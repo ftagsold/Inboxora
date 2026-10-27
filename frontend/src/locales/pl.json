@@ -932,7 +932,9 @@
       "editTitle": "Edytuj {{name}}",
       "save": "Zapisz",
       "removeTitle": "Usunąć {{name}}?",
-      "removeWarning": "Usuwane jest tylko połączenie — pliki na serwerze pozostają nietknięte."
+      "removeWarning": "Usuwane jest tylko połączenie — pliki na serwerze pozostają nietknięte.",
+      "isDefault": "Domyślny",
+      "makeDefault": "Ustaw jako domyślny"
     },
     "localAi": {
       "title": "Lokalny model AI",

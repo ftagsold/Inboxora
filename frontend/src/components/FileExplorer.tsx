@@ -25,12 +25,16 @@ interface FileExplorerProps {
   /** Pick mode: bytes still allowed in total. Files that would push the chosen set past it are
    * shown disabled; a file of unknown size is allowed. */
   pickBudget?: number;
+  /** Browse mode: every server, so the root crumb becomes the server switcher. */
+  servers?: WebDavServer[];
+  onSelectServer?: (id: string) => void;
+  onManageServers?: () => void;
 }
 
 type SortKey = 'name' | 'type' | 'size' | 'modified' | 'location';
 interface Clipboard { op: 'copy' | 'cut'; serverId: string; entries: WebDavEntry[] }
 interface Upload { id: number; name: string; progress: number; error?: string; done?: boolean }
-interface MenuState { x: number; y: number; target: WebDavEntry | null; kind?: 'columns' }
+interface MenuState { x: number; y: number; target: WebDavEntry | null; kind?: 'columns' | 'servers' }
 type NameDialog = { kind: 'mkdir' } | { kind: 'rename'; entry: WebDavEntry };
 
 const VIEW_KEY = 'inboxora_files_view';
@@ -129,7 +133,7 @@ function freeName(name: string, taken: Set<string>): string {
   for (let n = 2; ; n += 1) { const candidate = `${stem} (${n})${ext}`; if (!taken.has(candidate)) return candidate; }
 }
 
-export default function FileExplorer({ server, mode = 'browse', onPickChange, pickBudget = Infinity }: FileExplorerProps) {
+export default function FileExplorer({ server, mode = 'browse', onPickChange, pickBudget = Infinity, servers, onSelectServer, onManageServers }: FileExplorerProps) {
   const { t, i18n } = useTranslation();
   const picking = mode === 'pick';
   // Browse mode's checkbox column: toggled from the toolbar, it shows the same 22px column the
@@ -461,7 +465,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
   useEffect(() => {
     if (!menu) return;
     const close = (event: Event) => {
-      if (event instanceof MouseEvent && event.target instanceof Element && event.target.closest('.files-menu, .files-columns-button')) return;
+      if (event instanceof MouseEvent && event.target instanceof Element && event.target.closest('.files-menu, .files-columns-button, .files-server-switch')) return;
       setMenu(null);
     };
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setMenu(null); } };
@@ -557,7 +561,12 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
   const selectedFileBytes = selectedFiles.reduce((sum, entry) => sum + (entry.size ?? 0), 0);
   const attachTooLarge = selectedFileBytes > ATTACH_LIMIT;
   const columnLabels: Record<WebDavColumn, string> = { location: t('files.location'), type: t('files.type'), size: t('files.size'), modified: t('files.modified') };
-  const menuItems = menu ? (menu.kind === 'columns' ? [
+  const menuItems = menu ? (menu.kind === 'servers' ? [
+    // The current server's entry leads back to its root; another one switches to it.
+    ...(servers ?? []).map(item => ({ key: `server-${item.id}`, label: item.displayName, checked: item.id === server.id, onClick: () => { if (item.id === server.id) navigate('/'); else onSelectServer?.(item.id); }, show: true })),
+    { key: 'sep-servers', separator: true, show: Boolean(onManageServers) },
+    { key: 'manage', label: t('files.manageServers'), icon: <ServerIcon />, onClick: () => onManageServers?.(), show: Boolean(onManageServers) },
+  ] : menu.kind === 'columns' ? [
     ...COLUMN_ORDER.map(column => ({ key: `col-${column}`, label: columnLabels[column], checked: layout.columns.includes(column), keepOpen: true, onClick: () => toggleColumn(column), show: true })),
     { key: 'sep-cols', separator: true, show: true },
     { key: 'reset', label: t('files.resetWidths'), icon: <RefreshIcon />, onClick: () => updateView({ ...layout, widths: {} }), show: Object.keys(layout.widths).length > 0 },
@@ -654,9 +663,15 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
       <div className="files-nav">
         <Button variant="ghost" className="files-icon-button files-up" aria-label={t('files.up')} title={t('files.up')} disabled={path === '/'} onClick={() => navigate(parentPath(path))}><UpIcon /></Button>
         <nav className="files-breadcrumbs" aria-label={t('files.breadcrumbs')}>
-          <button type="button" className={`files-crumb${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} onClick={() => navigate('/')} {...folderDropProps('/')}>
+          {servers ? <button type="button" className={`files-crumb files-server-switch${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} data-testid="files-server-switch" aria-haspopup="menu" aria-expanded={menu?.kind === 'servers'} title={t('files.servers')} onClick={event => {
+            if (menu?.kind === 'servers') { setMenu(null); return; }
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenu({ x: rect.left, y: rect.bottom + 4, target: null, kind: 'servers' });
+          }} {...folderDropProps('/')}>
+            <span className="files-crumb-icon"><ServerIcon /></span><span className="files-server-switch-name">{server.displayName}</span><ChevronDownIcon />
+          </button> : <button type="button" className={`files-crumb${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} onClick={() => navigate('/')} {...folderDropProps('/')}>
             <span className="files-crumb-icon"><ServerIcon /></span>{server.displayName}
-          </button>
+          </button>}
           {crumbs(path).map((crumb, index, list) => <span key={crumb.path} className="files-crumb-wrap">
             <span className="files-crumb-sep" aria-hidden="true">›</span>
             <button type="button" aria-current={index === list.length - 1 ? 'page' : undefined} className={`files-crumb${index === list.length - 1 ? ' is-current' : ''}${dropTarget === crumb.path && index !== list.length - 1 ? ' is-drop' : ''}`} onClick={() => navigate(crumb.path)} {...folderDropProps(crumb.path)}>{crumb.name}</button>
@@ -752,11 +767,11 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
       </div>)}
     </div>}
 
-    {menu && menuItems.length > 0 && <FloatingMenu focusFirst={menu.kind !== 'columns'} x={menu.x} y={menu.y} title={menu.kind === 'columns' ? t('files.columns') : menu.target ? (selectedEntries.length > 1 ? t('files.selectedCount', { count: selectedEntries.length }) : menu.target.name) : (path === '/' ? server.displayName : crumbs(path).at(-1)?.name ?? '')}>
+    {menu && menuItems.length > 0 && <FloatingMenu focusFirst={menu.kind !== 'columns'} x={menu.x} y={menu.y} title={menu.kind === 'servers' ? t('files.servers') : menu.kind === 'columns' ? t('files.columns') : menu.target ? (selectedEntries.length > 1 ? t('files.selectedCount', { count: selectedEntries.length }) : menu.target.name) : (path === '/' ? server.displayName : crumbs(path).at(-1)?.name ?? '')}>
       {menuItems.map(item => 'separator' in item && item.separator
         ? <div key={item.key} className="files-menu-sep" role="separator" />
         : 'checked' in item
-          ? <button key={item.key} type="button" role="menuitemcheckbox" aria-checked={item.checked} className="app-menu-item" onClick={() => item.onClick()}>
+          ? <button key={item.key} type="button" role="menuitemcheckbox" aria-checked={item.checked} className="app-menu-item" onClick={() => { if (!('keepOpen' in item && item.keepOpen)) setMenu(null); item.onClick(); }}>
             <span className="files-menu-check" aria-hidden="true">{item.checked ? <CheckIcon /> : null}</span><span className="files-menu-label">{item.label}</span>
           </button>
           : <button key={item.key} type="button" role="menuitem" className={`app-menu-item${'danger' in item && item.danger ? ' danger' : ''}`} onClick={() => { setMenu(null); void (item as { onClick: () => unknown }).onClick(); }}>
@@ -881,6 +896,7 @@ const FolderPlusIcon = () => <svg {...icon}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a
 const SelectIcon = () => <svg {...icon}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="m8 12 3 3 5-6" /></svg>;
 const RefreshIcon = () => <svg {...icon}><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.6 7a8 8 0 0 1 13.2-1L20 8M4 16l1.2 2A8 8 0 0 0 18.4 17" /></svg>;
 const UpIcon = () => <svg {...icon}><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>;
+const ChevronDownIcon = () => <svg {...icon} width={12} height={12} aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>;
 const ListIcon = () => <svg {...icon}><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>;
 const GridIcon = () => <svg {...icon}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>;
 const SlidersIcon = () => <svg {...icon}><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>;

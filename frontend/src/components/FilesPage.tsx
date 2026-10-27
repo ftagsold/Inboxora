@@ -10,7 +10,6 @@ import { MobileModuleHeader } from './MobileModuleHeader.tsx';
 import FileExplorer, { ServerIcon } from './FileExplorer.tsx';
 import './files.css';
 
-const SELECTED_KEY = 'inboxora_files_server';
 /** Fired by Settings → Files whenever a WebDAV server is added, edited or removed. */
 export const WEBDAV_SERVERS_CHANGED = 'inboxora:webdav-servers-changed';
 
@@ -41,36 +40,30 @@ export function ServerCard({ server, active, onSelect }: { server: WebDavServer;
   </button>;
 }
 
+/** The server Files opens with: the user's default when it still exists, else the first one. */
+export function defaultServer(servers: WebDavServer[], defaultId: string): WebDavServer | null {
+  return servers.find(server => server.id === defaultId) ?? servers[0] ?? null;
+}
+
 export default function FilesPage() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { setAdminTab, setShowAdmin } = useStore();
+  const { setAdminTab, setShowAdmin, defaultFileServerId } = useStore();
   const { servers, error } = useWebDavServers();
-  const [selectedId, setSelectedId] = useState<string | null>(() => { try { return localStorage.getItem(SELECTED_KEY); } catch { return null; } });
-  const selected = servers?.find(server => server.id === selectedId) ?? servers?.[0] ?? null;
-  const select = (id: string) => { setSelectedId(id); try { localStorage.setItem(SELECTED_KEY, id); } catch { /* storage unavailable */ } };
+  // A server picked from the root crumb's menu holds for this visit; Files reopens on the default.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = servers ? (servers.find(server => server.id === selectedId) ?? defaultServer(servers, defaultFileServerId)) : null;
   const manage = () => { setAdminTab('webdav-files'); setShowAdmin(true); };
-
-  const cards = servers?.map(server => <ServerCard key={server.id} server={server} active={server.id === selected?.id} onSelect={() => select(server.id)} />);
 
   return <div className="files-page" data-testid="files-page">
     {isMobile && <MobileModuleHeader title={t('files.title')} subtitle={selected?.displayName} />}
-    {!isMobile && <aside className="files-rail" aria-label={t('files.servers')}>
-      <h1 className="files-rail-heading">{t('files.title')}</h1>
-      <Button variant="primary" className="files-rail-manage" onClick={manage}>{servers?.length ? t('files.manageServers') : `+ ${t('files.addServer')}`}</Button>
-      <div className="files-servers">
-        {cards}
-        {servers && !servers.length && <div className="files-rail-empty">{t('files.noServersHint')}</div>}
-      </div>
-    </aside>}
     <main className="files-main">
-      {isMobile && servers && servers.length > 1 && <div className="files-mobile-servers">{cards}</div>}
       {error && <div role="alert" className="ui-alert files-alert">{error}</div>}
       {servers === null && <div className="files-loading" role="status"><span className="files-spinner" />{t('files.loading')}</div>}
       {servers && !selected && <EmptyState title={t('files.noServers')}>
         <span style={{ display: 'grid', gap: 12, justifyItems: 'center' }}>{t('files.noServersHint')}<Button variant="primary" onClick={manage}>+ {t('files.addServer')}</Button></span>
       </EmptyState>}
-      {selected && <FileExplorer key={selected.id} server={selected} />}
+      {selected && servers && <FileExplorer key={selected.id} server={selected} servers={servers} onSelectServer={setSelectedId} onManageServers={manage} />}
     </main>
   </div>;
 }

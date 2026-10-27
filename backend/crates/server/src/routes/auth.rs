@@ -1199,6 +1199,11 @@ async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body:
             None => return Ok(err(400, "retiredAddresses must be an array of up to 50 email addresses")),
         },
     };
+    let default_file_server = match b("defaultFileServerId") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(id)) if id.is_empty() || uuid::Uuid::parse_str(id).is_ok() => Some(id.clone()),
+        Some(_) => return Ok(err(400, "defaultFileServerId must be a server id or empty")),
+    };
     let local_ai_model = sanitize_local_ai_model(b("localAiModel"));
     if b("localAiModel").is_some() && local_ai_model.is_none() {
         return Ok(err(400, "localAiModel must be a model identifier"));
@@ -1284,6 +1289,7 @@ async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body:
         Val::from(undo_send),
         raw("localAiEnabled"),
         opt_text(local_ai_model),
+        opt_text(default_file_server),
         opt_text(retired.map(|l| inboxora_core::json::stringify(&Value::Array(l.into_iter().map(Value::String).collect())))),
     ];
     s.db.exec(PREFERENCES_SQL, &p).await?;
@@ -1359,7 +1365,8 @@ const PREFERENCES_SQL: &str = "UPDATE users SET preferences = preferences
   || CASE WHEN $54::int IS NOT NULL THEN jsonb_build_object('undoSendSeconds', $54::int) ELSE '{}'::jsonb END
   || CASE WHEN $55::boolean IS NOT NULL THEN jsonb_build_object('localAiEnabled', $55::boolean) ELSE '{}'::jsonb END
   || CASE WHEN $56::text IS NOT NULL THEN jsonb_build_object('localAiModel', $56::text) ELSE '{}'::jsonb END
-  || CASE WHEN $57::jsonb IS NOT NULL THEN jsonb_build_object('retiredAddresses', $57::jsonb) ELSE '{}'::jsonb END
+  || CASE WHEN $57::text IS NOT NULL THEN jsonb_build_object('defaultFileServerId', $57::text) ELSE '{}'::jsonb END
+  || CASE WHEN $58::jsonb IS NOT NULL THEN jsonb_build_object('retiredAddresses', $58::jsonb) ELSE '{}'::jsonb END
 WHERE id = $1";
 
 async fn whitelist_add(State(s): State<AppState>, Sess(session): Sess, body: Body) -> Result<Response> {

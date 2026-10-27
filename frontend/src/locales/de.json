@@ -932,7 +932,9 @@
       "editTitle": "{{name}} bearbeiten",
       "save": "Speichern",
       "removeTitle": "{{name}} entfernen?",
-      "removeWarning": "Nur die Verbindung wird entfernt – die Dateien auf dem Server bleiben unberührt."
+      "removeWarning": "Nur die Verbindung wird entfernt – die Dateien auf dem Server bleiben unberührt.",
+      "isDefault": "Standard",
+      "makeDefault": "Als Standard"
     },
     "localAi": {
       "title": "Lokales KI-Modell",

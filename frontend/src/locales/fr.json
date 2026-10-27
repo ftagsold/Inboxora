@@ -932,7 +932,9 @@
       "editTitle": "Modifier {{name}}",
       "save": "Enregistrer",
       "removeTitle": "Retirer {{name}} ?",
-      "removeWarning": "Seule la connexion est retirée ; les fichiers du serveur restent intacts."
+      "removeWarning": "Seule la connexion est retirée ; les fichiers du serveur restent intacts.",
+      "isDefault": "Par défaut",
+      "makeDefault": "Définir par défaut"
     },
     "localAi": {
       "title": "Modèle d’IA local",

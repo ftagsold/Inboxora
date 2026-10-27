@@ -932,7 +932,9 @@
       "editTitle": "Upravit {{name}}",
       "save": "Uložit",
       "removeTitle": "Odebrat {{name}}?",
-      "removeWarning": "Odebere se jen připojení — soubory na serveru zůstanou nedotčené."
+      "removeWarning": "Odebere se jen připojení — soubory na serveru zůstanou nedotčené.",
+      "isDefault": "Výchozí",
+      "makeDefault": "Nastavit jako výchozí"
     },
     "localAi": {
       "title": "Místní model AI",

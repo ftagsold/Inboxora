@@ -932,7 +932,9 @@
       "editTitle": "Modifica {{name}}",
       "save": "Salva",
       "removeTitle": "Rimuovere {{name}}?",
-      "removeWarning": "Viene rimossa solo la connessione: i file sul server restano invariati."
+      "removeWarning": "Viene rimossa solo la connessione: i file sul server restano invariati.",
+      "isDefault": "Predefinito",
+      "makeDefault": "Imposta predefinito"
     },
     "localAi": {
       "title": "Modello IA locale",

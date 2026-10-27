@@ -201,6 +201,9 @@ export interface StoreState {
   undoPendingSend: () => void;
   /** The send left the undo window and finished (or failed): show the composer again. */
   finishPendingSend: () => void;
+  /** The WebDAV server Files opens with ('' = the first one). */
+  defaultFileServerId: string;
+  setDefaultFileServerId: (id: string) => void;
   /** Old addresses still forwarding here; mails sent to them get a small tag. */
   retiredAddresses: string[];
   setRetiredAddresses: (addresses: string[]) => void;
@@ -612,7 +615,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         notifications: [], expandedThreadId: null, threadMessages: {}, loadingThread: null,
         backfillProgress: {}, categoryCounts: {}, activeGtdTab: null, gtdSections: null,
         rulesPreFill: null, showAdmin: false, aiStatus: null,
-        localAiEnabled: false, localAiModel: DEFAULT_LOCAL_AI_MODEL, pendingSend: null, retiredAddresses: [],
+        localAiEnabled: false, localAiModel: DEFAULT_LOCAL_AI_MODEL, pendingSend: null, retiredAddresses: [], defaultFileServerId: '',
       } : {}),
     }));
   },
@@ -996,6 +999,11 @@ export const useStore = create<StoreState>()((set, get) => ({
     if (get().pendingSend) set({ pendingSend: null });
     // A compose requested during a send that then failed: the failed one stays open instead.
     queuedCompose = null;
+  },
+  defaultFileServerId: '',
+  setDefaultFileServerId: (id: string) => {
+    set({ defaultFileServerId: id });
+    schedulePrefSave({ defaultFileServerId: id });
   },
   retiredAddresses: (() => {
     try {
@@ -1970,6 +1978,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         localStorage.setItem('mailflow_undo_send_seconds', String(prefs.undoSendSeconds));
         set({ undoSendSeconds: prefs.undoSendSeconds });
       }
+      if (typeof prefs.defaultFileServerId === 'string') set({ defaultFileServerId: prefs.defaultFileServerId });
       if (Array.isArray(prefs.retiredAddresses)) {
         const list = normalizeRetiredAddresses(prefs.retiredAddresses);
         localStorage.setItem('mailflow_retired_addresses', JSON.stringify(list));

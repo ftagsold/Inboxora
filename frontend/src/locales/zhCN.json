@@ -932,7 +932,9 @@
       "editTitle": "编辑 {{name}}",
       "save": "保存",
       "removeTitle": "移除 {{name}}？",
-      "removeWarning": "仅移除连接，服务器上的文件保持不变。"
+      "removeWarning": "仅移除连接，服务器上的文件保持不变。",
+      "isDefault": "默认",
+      "makeDefault": "设为默认"
     },
     "localAi": {
       "title": "本地 AI 模型",

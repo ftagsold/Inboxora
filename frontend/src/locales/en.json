@@ -932,7 +932,9 @@
       "editTitle": "Edit {{name}}",
       "save": "Save",
       "removeTitle": "Remove {{name}}?",
-      "removeWarning": "Only the connection is removed — files on the server stay untouched."
+      "removeWarning": "Only the connection is removed — files on the server stay untouched.",
+      "isDefault": "Default",
+      "makeDefault": "Make default"
     },
     "localAi": {
       "title": "Local AI model",

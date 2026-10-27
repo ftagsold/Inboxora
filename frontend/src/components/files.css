@@ -1,12 +1,6 @@
-/* Files: WebDAV server rail (same metrics as the calendar rail) and the explorer. */
+/* Files: the explorer, and the server cards of the attach picker. */
 .files-page { display: flex; flex: 1; width: 100%; min-width: 0; height: 100%; min-height: 0; overflow: hidden; background: var(--bg-primary); }
-.files-rail { width: var(--files-rail-width, 280px); flex-shrink: 0; box-sizing: border-box; padding: 13px 8px 14px; border-right: 1px solid var(--border-subtle); background: var(--bg-secondary); overflow: auto; display: flex; flex-direction: column; }
-.files-rail-heading { margin: 0 0 12px; padding: 0 8px; font-family: var(--font-display); font-size: 20px; font-weight: 600; line-height: 30px; }
-/* Same 38px box and 68px top edge as the mail sidebar's compose button and the calendar's "New event". */
-.files-rail-manage { width: 100%; height: 38px; box-sizing: border-box; margin-top: 13px; margin-bottom: 12px; }
-.files-servers { display: grid; gap: 8px; }
-/* Same box as a mail sidebar account card: 7px × 10/12px padding around a 28px badge; the first
-   card's top meets the first account card's (118px), like the calendar's mini month. */
+/* Same box as a mail sidebar account card: 7px × 10/12px padding around a 28px badge. */
 .files-server-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px 7px 12px; text-align: left; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); cursor: pointer; transition: border-color var(--motion-fast), background var(--motion-fast); }
 .files-server-card:hover { background: var(--bg-hover); }
 .files-server-card[aria-pressed=true] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -15,16 +9,6 @@
 .files-server-text { display: grid; gap: 1px; min-width: 0; }
 .files-server-text strong { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .files-server-text small { font-size: 11px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* In the rail a server is a row exactly like a mail sidebar account: no border, 7px × 10/12px
-   padding, a 16px icon slot, 13/11px text, and the same --bg-hover selection box. */
-.files-rail .files-servers { gap: 0; }
-.files-rail .files-server-card { border: 0; border-radius: 7px; background: transparent; box-shadow: none; }
-.files-rail .files-server-card:hover { background: var(--bg-tertiary); }
-.files-rail .files-server-card[aria-pressed=true] { background: var(--bg-hover); box-shadow: none; }
-.files-rail .files-server-badge { width: 16px; height: auto; border-radius: 0; background: transparent; }
-.files-rail .files-server-text { gap: 0; }
-.files-rail .files-server-text strong { font-weight: 400; color: var(--text-max-contrast); }
-.files-rail-empty { padding: 14px 12px; border: 1px dashed var(--border); border-radius: 8px; color: var(--text-tertiary); font-size: 12px; line-height: 1.5; }
 .files-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-secondary); }
 .files-main > .ui-empty { flex: 1; }
 
@@ -50,6 +34,13 @@
 .files-crumb.is-current { color: var(--text-primary); font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 .files-crumb.is-drop { border-color: var(--accent); background: var(--accent-dim); }
 .files-crumb-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+/* The root crumb as the server switcher: a bordered 30px button like the toolbar's others. */
+.files-crumb.files-server-switch { height: 30px; box-sizing: border-box; gap: 7px; padding: 0 8px 0 10px; border-color: var(--border); background: var(--bg-elevated); color: var(--text-primary); font-family: inherit; font-size: 13px; font-weight: 600; }
+.files-crumb.files-server-switch:hover { background: var(--bg-hover); }
+.files-crumb.files-server-switch[aria-expanded=true] { background: var(--bg-hover); }
+.files-crumb.files-server-switch.is-drop { border-color: var(--accent); background: var(--accent-dim); }
+.files-server-switch-name { overflow: hidden; text-overflow: ellipsis; }
+.files-server-switch > svg:last-child { flex-shrink: 0; color: var(--text-tertiary); }
 /* A checkbox column (attach picker, or browse select mode) adds 22px, so the toolbar shifts with it: the up arrow centres over
    the checkboxes (x = 31), the root icon sits in an 18px slot over the file icons (x = 54) and
    its name starts over the file names (x = 82). */
@@ -188,7 +179,4 @@ body.files-resizing, body.files-resizing * { cursor: col-resize !important; user
   .files-col-modified, .files-col-type, .files-col-location, .files-col-resize, .files-columns-button { display: none !important; }
   .files-row { padding: 11px 8px; }
   .files-actions .ui-button { padding: 8px 10px; }
-  .files-mobile-servers { display: flex; gap: 6px; padding: 8px 10px 0; overflow-x: auto; flex-shrink: 0; }
-  .files-mobile-servers .files-server-card { width: auto; flex-shrink: 0; padding: 6px 10px; }
-  .files-mobile-servers .files-server-badge { width: 24px; height: 24px; border-radius: 6px; }
 }
