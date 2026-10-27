@@ -47,6 +47,9 @@ import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
 import type { TFunction } from 'i18next';
 import ImapLimitsSettings from './ImapLimitsSettings.tsx';
+import { LOCAL_AI_MODELS, deleteLocalAiModel, isLocalAiModelCached, loadLocalAi, localAiSupported } from '../utils/localAi.ts';
+import { useLocalAiState } from '../hooks/useLocalAiState.ts';
+import { LocalAiProgressBar } from './LocalAiProgress.tsx';
 
 interface AdminAlias {
   id: string;
@@ -1827,7 +1830,7 @@ function SettingsSwitchRow({ label, description, checked, onChange, testId = und
 function LayoutsTab() {
   const { t, i18n } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, conversationNewestFirst, setConversationNewestFirst, fontSize, setFontSize } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, conversationNewestFirst, setConversationNewestFirst, fontSize, setFontSize, undoSendSeconds, setUndoSendSeconds } = useStore();
   const { mobileNavigationPosition, setMobileNavigationPosition } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
@@ -2398,6 +2401,30 @@ function LayoutsTab() {
             );
           })}
         </div>
+      </div>
+
+      {/* Undo send — how long a sent mail waits before it really goes out */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.messageList.undoSend')}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+          {t('admin.messageList.undoSendDesc')}
+        </div>
+        <select
+          data-testid="undo-send-seconds"
+          value={undoSendSeconds}
+          onChange={e => setUndoSendSeconds(parseInt(e.target.value, 10))}
+          style={{
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+            borderRadius: 6, padding: '4px 8px', color: 'var(--text-primary)',
+            fontSize: 12, outline: 'none', cursor: 'pointer',
+          }}
+        >
+          {[...new Set([0, 5, 10, 15, 20, 30, undoSendSeconds])].sort((a, b) => a - b).map(s => (
+            <option key={s} value={s}>{s === 0 ? t('admin.messageList.undoSendOff') : t('admin.messageList.markReadDelaySeconds', { count: s })}</option>
+          ))}
+        </select>
       </div>
 
       {/* Mark as read behaviour */}
@@ -4259,6 +4286,112 @@ function AISection() {
 }
 
 // ─── AI Actions (user-defined custom actions, #202) ───────────────────────────
+// Opt-in in-browser AI: off by default, and nothing downloads until the user turns it on here.
+function LocalAiTab() {
+  const { t } = useTranslation();
+  const { localAiEnabled, setLocalAiEnabled, localAiModel, setLocalAiModel } = useStore();
+  const supported = localAiSupported();
+  const state = useLocalAiState();
+  const [cached, setCached] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!supported) return;
+    let live = true;
+    setCached(null);
+    isLocalAiModelCached(localAiModel).then(v => { if (live) setCached(v); }).catch(() => { if (live) setCached(false); });
+    return () => { live = false; };
+  }, [supported, localAiModel, state.status]);
+
+  const download = () => { loadLocalAi(localAiModel).catch(() => {}); };
+  const toggle = (on: boolean) => {
+    setLocalAiEnabled(on);
+    // Enabling is the user's go-ahead: fetch the model now rather than on the first request.
+    if (on) download();
+  };
+  const changeModel = (model: string) => {
+    setLocalAiModel(model);
+    if (localAiEnabled) loadLocalAi(model).catch(() => {});
+  };
+  const remove = async () => {
+    if (!window.confirm(t('admin.localAi.deleteConfirm'))) return;
+    setBusy(true);
+    try {
+      await deleteLocalAiModel(localAiModel);
+      setCached(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const forModel = 'model' in state && state.model === localAiModel;
+  const loading = state.status === 'loading' && forModel;
+  const statusText = !supported ? null
+    : loading ? t('admin.localAi.loading', { percent: Math.round(state.progress * 100) })
+    : state.status === 'ready' && forModel ? t('admin.localAi.ready')
+    : state.status === 'error' && forModel ? t('admin.localAi.error', { error: state.error })
+    : cached ? t('admin.localAi.downloaded')
+    : cached === false ? t('admin.localAi.notDownloaded')
+    : null;
+  const buttonStyle: CSSProperties = {
+    background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6,
+    color: 'var(--text-primary)', fontSize: 12, padding: '6px 12px', cursor: 'pointer',
+  };
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
+        {t('admin.localAi.description')}
+      </p>
+      {!supported && (
+        <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 16 }}>
+          {t('admin.localAi.unsupported')}
+        </div>
+      )}
+      <SettingsSwitchRow
+        label={t('admin.localAi.enable')}
+        description={t('admin.localAi.enableDesc')}
+        testId="local-ai-toggle"
+        checked={localAiEnabled}
+        disabled={!supported}
+        onChange={toggle}
+      />
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }} htmlFor="local-ai-model">
+          {t('admin.localAi.model')}
+        </label>
+        <select
+          id="local-ai-model"
+          data-testid="local-ai-model"
+          value={localAiModel}
+          disabled={!supported}
+          onChange={e => changeModel(e.target.value)}
+          style={{
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+            borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)',
+            fontSize: 13, outline: 'none', cursor: 'pointer', minWidth: 260,
+          }}
+        >
+          {LOCAL_AI_MODELS.map(m => (
+            <option key={m.id} value={m.id}>{t('admin.localAi.modelOption', { name: m.label, size: (m.vramMB / 1024).toFixed(1) })}</option>
+          ))}
+        </select>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6 }}>{t('admin.localAi.modelDesc')}</div>
+        {statusText && <div data-testid="local-ai-status" style={{ fontSize: 12, color: state.status === 'error' && forModel ? 'var(--red)' : 'var(--text-secondary)', marginTop: 12 }}>{statusText}</div>}
+        {loading && <div style={{ marginTop: 8 }}><LocalAiProgressBar progress={state.progress} /></div>}
+        {supported && <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          {localAiEnabled && !loading && !(state.status === 'ready' && forModel) && (
+            <button type="button" style={buttonStyle} onClick={download}>{cached ? t('admin.localAi.load') : t('admin.localAi.download')}</button>
+          )}
+          {cached && !loading && (
+            <button type="button" style={{ ...buttonStyle, color: 'var(--red)' }} disabled={busy} onClick={() => { void remove(); }}>{t('admin.localAi.delete')}</button>
+          )}
+        </div>}
+      </div>
+    </div>
+  );
+}
+
 function AiActionsTab() {
   const { t } = useTranslation();
   const { aiActions, setAiActions } = useStore();
@@ -7090,7 +7223,7 @@ const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
   { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
-  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'dav-servers', 'webdav-files', 'integrations', 'ai', 'ai-actions', 'plugins'] },
+  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'dav-servers', 'webdav-files', 'integrations', 'ai', 'ai-actions', 'local-ai', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
 ];
 
@@ -7156,6 +7289,10 @@ const TABS = [
   {
     id: 'ai-actions', labelKey: 'admin.tabs.aiActions',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M15 9h.01M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>,
+  },
+  {
+    id: 'local-ai', labelKey: 'admin.tabs.localAi',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>,
   },
   {
     id: 'plugins', labelKey: 'admin.tabs.plugins', beta: true,
@@ -8657,6 +8794,8 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     { label: t('conversation.rebuildConversations'), keywords: ['rebuild', 'conversation', 'threading', 'group', 'regroup', 'reindex', 'mailflow', 'migrate', 'migration', 'import', 'history', 'backlog'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.undoSend'), keywords: ['undo', 'undo send', 'unsend', 'recall', 'cancel send', 'delay send'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.localAi.title'), keywords: ['ai', 'local ai', 'browser', 'on device', 'offline', 'gemma', 'llm', 'webgpu', 'summarize', 'spell check', 'privacy'], tab: 'local-ai', breadcrumb: tabLabel('local-ai') },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     // Appearance > Fonts & Language
     { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'czech', 'čeština', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
@@ -8836,6 +8975,7 @@ export default function AdminPanel() {
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
       {adminTab === 'ai' && <AISection />}
       {adminTab === 'ai-actions' && aiActionsAvailable && <AiActionsTab />}
+      {adminTab === 'local-ai' && <LocalAiTab />}
       {adminTab === 'plugins' && <PluginsSection onNavigate={navigateTo} />}
       {adminTab === 'about' && <AboutTab />}
     </>

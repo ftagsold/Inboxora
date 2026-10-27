@@ -457,7 +457,10 @@
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} Sekunde",
       "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Fasst eine Nachricht und ihre Antworten in der Nachrichtenliste zu einer Konversation zusammen."
+      "threadingDesc": "Fasst eine Nachricht und ihre Antworten in der Nachrichtenliste zu einer Konversation zusammen.",
+      "undoSend": "Senden rückgängig machen",
+      "undoSendDesc": "Nach dem Klick auf Senden wartet die Mail so lange, damit du sie noch zurückholen kannst.",
+      "undoSendOff": "Aus (sofort senden)"
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -804,7 +807,8 @@
       "plugins": "Plugins",
       "davCredentials": "DAV-Zugang",
       "davServers": "DAV-Server",
-      "webdavFiles": "WebDAV-Dateien"
+      "webdavFiles": "WebDAV-Dateien",
+      "localAi": "Lokale KI"
     },
     "title": "Einstellungen",
     "users": {
@@ -926,6 +930,25 @@
       "save": "Speichern",
       "removeTitle": "{{name}} entfernen?",
       "removeWarning": "Nur die Verbindung wird entfernt – die Dateien auf dem Server bleiben unberührt."
+    },
+    "localAi": {
+      "title": "Lokales KI-Modell",
+      "description": "Ein kleines Sprachmodell läuft direkt in deinem Browser – für Zusammenfassungen, Umformulierungen und Rechtschreibprüfung. Der Mailtext verlässt dieses Gerät nicht.",
+      "unsupported": "Dieser Browser kann keine lokalen Modelle ausführen: WebGPU ist nicht verfügbar (benötigt aktuelles Chrome, Edge oder Safari und eine HTTPS-Verbindung).",
+      "enable": "Lokales KI-Modell verwenden",
+      "enableDesc": "Standardmäßig aus. Das Modell wird erst nach dem Einschalten auf dieses Gerät geladen und übernimmt dann alle KI-Funktionen.",
+      "model": "Modell",
+      "modelOption": "{{name}} · benötigt ~{{size}} GB Grafikspeicher",
+      "modelDesc": "Gemma 4 liefert die besten Ergebnisse; kleinere Modelle sind schneller und passen zu schwächeren Geräten.",
+      "loading": "Lokales KI-Modell wird geladen… {{percent}} %",
+      "ready": "Geladen und bereit.",
+      "error": "Das Modell konnte nicht geladen werden: {{error}}",
+      "downloaded": "Auf diesem Gerät heruntergeladen.",
+      "notDownloaded": "Auf diesem Gerät noch nicht heruntergeladen.",
+      "download": "Jetzt herunterladen",
+      "load": "Modell laden",
+      "delete": "Download löschen",
+      "deleteConfirm": "Heruntergeladenes Modell von diesem Gerät löschen? Es wird bei der nächsten Nutzung erneut geladen."
     }
   },
   "blockList": {
@@ -1076,6 +1099,10 @@
         "tomorrowAfternoon": "Morgen Nachmittag",
         "monday": "Montag früh"
       }
+    },
+    "undoSend": {
+      "pending": "Wird gleich gesendet…",
+      "undo": "Rückgängig"
     }
   },
   "contacts": {

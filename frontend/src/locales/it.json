@@ -457,7 +457,10 @@
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} secondo",
       "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Raggruppa un messaggio e le sue risposte in un'unica conversazione."
+      "threadingDesc": "Raggruppa un messaggio e le sue risposte in un'unica conversazione.",
+      "undoSend": "Annulla invio messaggio",
+      "undoSendDesc": "Dopo aver premuto Invia, il messaggio attende questo tempo così puoi ancora annullarlo.",
+      "undoSendOff": "Disattivato (invio immediato)"
     },
     "notifications": {
       "title": "Notifiche",
@@ -804,7 +807,8 @@
       "plugins": "Plugin",
       "davCredentials": "Accesso DAV",
       "davServers": "Server DAV",
-      "webdavFiles": "File WebDAV"
+      "webdavFiles": "File WebDAV",
+      "localAi": "IA locale (browser)"
     },
     "title": "Impostazioni",
     "users": {
@@ -926,6 +930,25 @@
       "save": "Salva",
       "removeTitle": "Rimuovere {{name}}?",
       "removeWarning": "Viene rimossa solo la connessione: i file sul server restano invariati."
+    },
+    "localAi": {
+      "title": "Modello IA locale",
+      "description": "Esegui un piccolo modello linguistico direttamente nel browser per riassunti, riscritture e controllo ortografico. Il testo delle email non lascia mai questo dispositivo.",
+      "unsupported": "Questo browser non può eseguire modelli locali: WebGPU non è disponibile (servono Chrome, Edge o Safari recenti e una connessione HTTPS).",
+      "enable": "Usa un modello IA locale",
+      "enableDesc": "Disattivato per impostazione predefinita. Il modello viene scaricato su questo dispositivo solo dopo l’attivazione e poi alimenta tutti i pulsanti IA.",
+      "model": "Modello",
+      "modelOption": "{{name}} · richiede ~{{size}} GB di memoria GPU",
+      "modelDesc": "Gemma 4 offre i risultati migliori; i modelli più piccoli sono più veloci e adatti a dispositivi meno potenti.",
+      "loading": "Download del modello IA locale… {{percent}}%",
+      "ready": "Caricato e pronto.",
+      "error": "Impossibile caricare il modello: {{error}}",
+      "downloaded": "Scaricato su questo dispositivo.",
+      "notDownloaded": "Non ancora scaricato su questo dispositivo.",
+      "download": "Scarica ora",
+      "load": "Carica modello",
+      "delete": "Elimina download",
+      "deleteConfirm": "Eliminare il modello scaricato da questo dispositivo? Verrà scaricato di nuovo al prossimo utilizzo."
     }
   },
   "blockList": {
@@ -1076,6 +1099,10 @@
         "tomorrowAfternoon": "Domani pomeriggio",
         "monday": "Lunedì mattina"
       }
+    },
+    "undoSend": {
+      "pending": "Invio a breve…",
+      "undo": "Annulla invio"
     }
   },
   "contacts": {

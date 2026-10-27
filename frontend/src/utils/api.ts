@@ -3,6 +3,7 @@ import type { GtdFolderMap } from './gtd.ts';
 import { getAuthEpoch, isCurrentAuthEpoch } from './authEpoch.ts';
 import { getBody, putBody } from './mailCache.ts';
 import { isGatewayFailure, reportBackendFailure, reportBackendOk } from './backendStatus.ts';
+import { localAiActive, streamLocalAiChat } from './localAi.ts';
 
 const BASE = '/api';
 
@@ -675,7 +676,9 @@ export const api = {
     deleteConfig: () => request('DELETE', '/admin/ai'),
     test: () => request('POST', '/admin/ai/test'),
     status: () => request('GET', '/ai/status'),
-    chat: streamAiChat,
+    // The opt-in in-browser model takes over every AI call while it is enabled.
+    chat: (messages: unknown[], opts?: Parameters<typeof streamAiChat>[1]) =>
+      localAiActive() ? streamLocalAiChat(messages, opts) : streamAiChat(messages, opts),
     codex: {
       start: () => request('POST', '/admin/ai/codex/device'),
       poll: (flowId: string) => request('POST', '/admin/ai/codex/device/poll', { flowId }),

@@ -457,7 +457,10 @@
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} 秒",
       "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "在邮件列表中将邮件及其回复合并为一个会话。"
+      "threadingDesc": "在邮件列表中将邮件及其回复合并为一个会话。",
+      "undoSend": "撤销发送",
+      "undoSendDesc": "点击发送后，邮件会等待这段时间，方便你撤销。",
+      "undoSendOff": "关闭（立即发送）"
     },
     "notifications": {
       "title": "通知",
@@ -804,7 +807,8 @@
       "plugins": "插件",
       "davCredentials": "DAV 访问",
       "davServers": "DAV 服务器",
-      "webdavFiles": "WebDAV 文件"
+      "webdavFiles": "WebDAV 文件",
+      "localAi": "本地 AI"
     },
     "title": "设置",
     "users": {
@@ -926,6 +930,25 @@
       "save": "保存",
       "removeTitle": "移除 {{name}}？",
       "removeWarning": "仅移除连接，服务器上的文件保持不变。"
+    },
+    "localAi": {
+      "title": "本地 AI 模型",
+      "description": "直接在浏览器中运行小型语言模型，用于摘要、改写和拼写检查。邮件内容不会离开此设备。",
+      "unsupported": "此浏览器无法运行本地模型：WebGPU 不可用（需要较新的 Chrome、Edge 或 Safari 以及 HTTPS 连接）。",
+      "enable": "使用本地 AI 模型",
+      "enableDesc": "默认关闭。只有开启后模型才会下载到此设备，之后所有 AI 按钮都由它驱动。",
+      "model": "模型",
+      "modelOption": "{{name}} · 需要约 {{size}} GB 显存",
+      "modelDesc": "Gemma 4 效果最好；较小的模型速度更快，适合性能较弱的设备。",
+      "loading": "正在下载本地 AI 模型… {{percent}}%",
+      "ready": "已加载，可以使用。",
+      "error": "无法加载模型：{{error}}",
+      "downloaded": "已下载到此设备。",
+      "notDownloaded": "尚未下载到此设备。",
+      "download": "立即下载",
+      "load": "加载模型",
+      "delete": "删除下载",
+      "deleteConfirm": "要从此设备删除已下载的模型吗？下次使用时会重新下载。"
     }
   },
   "blockList": {
@@ -1076,6 +1099,10 @@
         "tomorrowAfternoon": "明天下午",
         "monday": "周一上午"
       }
+    },
+    "undoSend": {
+      "pending": "即将发送…",
+      "undo": "撤销"
     }
   },
   "contacts": {

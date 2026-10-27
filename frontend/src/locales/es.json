@@ -457,7 +457,10 @@
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} segundo",
       "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Agrupa un mensaje y sus respuestas en una sola conversación."
+      "threadingDesc": "Agrupa un mensaje y sus respuestas en una sola conversación.",
+      "undoSend": "Deshacer envío",
+      "undoSendDesc": "Tras pulsar Enviar, el correo espera este tiempo para que aún puedas deshacerlo.",
+      "undoSendOff": "Desactivado (enviar al instante)"
     },
     "notifications": {
       "title": "Notificaciones",
@@ -804,7 +807,8 @@
       "plugins": "Complementos",
       "davCredentials": "Acceso DAV",
       "davServers": "Servidores DAV",
-      "webdavFiles": "Archivos WebDAV"
+      "webdavFiles": "Archivos WebDAV",
+      "localAi": "IA local"
     },
     "title": "Ajustes",
     "users": {
@@ -926,6 +930,25 @@
       "save": "Guardar",
       "removeTitle": "¿Quitar {{name}}?",
       "removeWarning": "Solo se quita la conexión; los archivos del servidor no se tocan."
+    },
+    "localAi": {
+      "title": "Modelo de IA local",
+      "description": "Ejecuta un modelo de lenguaje pequeño directamente en tu navegador para resúmenes, reescrituras y correcciones ortográficas. El texto de tus correos nunca sale de este dispositivo.",
+      "unsupported": "Este navegador no puede ejecutar modelos locales: WebGPU no está disponible (requiere Chrome, Edge o Safari recientes y una conexión HTTPS).",
+      "enable": "Usar un modelo de IA local",
+      "enableDesc": "Desactivado por defecto. El modelo se descarga en este dispositivo solo cuando lo activas y luego impulsa todos los botones de IA.",
+      "model": "Modelo",
+      "modelOption": "{{name}} · necesita ~{{size}} GB de memoria GPU",
+      "modelDesc": "Gemma 4 da los mejores resultados; los modelos más pequeños son más rápidos y van mejor en equipos modestos.",
+      "loading": "Descargando el modelo de IA local… {{percent}} %",
+      "ready": "Cargado y listo.",
+      "error": "No se pudo cargar el modelo: {{error}}",
+      "downloaded": "Descargado en este dispositivo.",
+      "notDownloaded": "Aún no se ha descargado en este dispositivo.",
+      "download": "Descargar ahora",
+      "load": "Cargar modelo",
+      "delete": "Eliminar descarga",
+      "deleteConfirm": "¿Eliminar el modelo descargado de este dispositivo? Se volverá a descargar la próxima vez que se use."
     }
   },
   "blockList": {
@@ -1076,6 +1099,10 @@
         "tomorrowAfternoon": "Mañana por la tarde",
         "monday": "El lunes por la mañana"
       }
+    },
+    "undoSend": {
+      "pending": "Enviando en breve…",
+      "undo": "Deshacer"
     }
   },
   "contacts": {

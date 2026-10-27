@@ -15,6 +15,7 @@ import type { GtdSections , GtdRemovalSnapshot } from '../utils/gtd.ts';
 import { applyLayout, normalizeLayout } from '../layouts.ts';
 import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.ts';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.ts';
+import { DEFAULT_LOCAL_AI_MODEL, isKnownLocalAiModel, localAiSupported, setLocalAiModel, unloadLocalAi } from '../utils/localAi.ts';
 import {
   removeGtdThreadFromSections,
   restoreGtdThreadRemoval,
@@ -186,6 +187,24 @@ export interface StoreState {
   composeData: ComposeDraft | null;
   openCompose: (data?: ComposeDraft | null) => void;
   closeCompose: () => void;
+  /** Seconds a sent mail waits, cancellable, before it really goes out; 0 sends at once. */
+  undoSendSeconds: number;
+  setUndoSendSeconds: (seconds: number) => void;
+  /**
+   * The mail waiting out its undo window, then being sent; the composer stays mounted but
+   * hidden meanwhile, so an undo or a failed send brings it back unchanged.
+   */
+  pendingSend: { id: number; seconds: number; subject: string; sending: boolean } | null;
+  /** Start the undo window; resolves true to send, false when the user undid it. */
+  beginUndoSend: (seconds: number, subject: string) => Promise<boolean>;
+  undoPendingSend: () => void;
+  /** The send left the undo window and finished (or failed): show the composer again. */
+  finishPendingSend: () => void;
+  /** The opt-in in-browser model; nothing downloads until this is on. */
+  localAiEnabled: boolean;
+  localAiModel: string;
+  setLocalAiEnabled: (enabled: boolean) => void;
+  setLocalAiModel: (model: string) => void;
   messageWindows: Array<{ winId?: string; messageId?: string; z?: number; id?: string; [key: string]: unknown }>;
   _winSeq: number;
   openMessageWindow: (messageId: string) => void;
@@ -461,6 +480,15 @@ let _prefFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingPrefs: Record<string, unknown> = {};
 let _calendarWorkHoursFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _calendarWorkHoursSaveChain: Promise<unknown> = Promise.resolve();
+// Undo-send window: the settle callback of the waiting send, and a compose opened meanwhile.
+let pendingSendSeq = 0;
+let pendingSendSettle: ((send: boolean) => void) | null = null;
+let queuedCompose: { data: ComposeDraft | null } | null = null;
+
+function settlePendingSend(send: boolean) {
+  pendingSendSettle?.(send);
+}
+
 function schedulePrefSave(prefs: Record<string, unknown>): void {
   Object.assign(_pendingPrefs, prefs);
   if (_prefFlushTimer) clearTimeout(_prefFlushTimer);
@@ -554,6 +582,9 @@ export const useStore = create<StoreState>()((set, get) => ({
         localStorage.removeItem('mailflow_selected_account');
         localStorage.removeItem('mailflow_selected_folder');
         localStorage.removeItem(NAVIGATION_OWNER_KEY);
+        settlePendingSend(false);
+        setLocalAiModel(null);
+        void unloadLocalAi();
       }
       _gtdSectionsSeq += 1;
       if (_gtdFetchTimer) clearTimeout(_gtdFetchTimer);
@@ -576,6 +607,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         notifications: [], expandedThreadId: null, threadMessages: {}, loadingThread: null,
         backfillProgress: {}, categoryCounts: {}, activeGtdTab: null, gtdSections: null,
         rulesPreFill: null, showAdmin: false, aiStatus: null,
+        localAiEnabled: false, localAiModel: DEFAULT_LOCAL_AI_MODEL, pendingSend: null,
       } : {}),
     }));
   },
@@ -910,8 +942,71 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
   composing: false,
   composeData: null,
-  openCompose: (data = null) => set({ composing: true, composeData: data }),
-  closeCompose: () => set({ composing: false, composeData: null }),
+  openCompose: (data = null) => {
+    // The hidden composer of a mail in its undo window must not be reused: send that
+    // mail now and open the new one once it is gone.
+    if (get().pendingSend) {
+      queuedCompose = { data };
+      settlePendingSend(true);
+      return;
+    }
+    set({ composing: true, composeData: data });
+  },
+  closeCompose: () => {
+    set({ composing: false, composeData: null, pendingSend: null });
+    const queued = queuedCompose;
+    queuedCompose = null;
+    // A fresh mount, so the new composer starts from its own data.
+    if (queued) setTimeout(() => set({ composing: true, composeData: queued.data }), 0);
+  },
+  undoSendSeconds: (() => {
+    const n = parseInt(localStorage.getItem('mailflow_undo_send_seconds') ?? '', 10);
+    return Number.isInteger(n) && n >= 0 && n <= 30 ? n : 10;
+  })(),
+  setUndoSendSeconds: (seconds: number) => {
+    const n = Math.max(0, Math.min(30, Math.round(Number(seconds) || 0)));
+    localStorage.setItem('mailflow_undo_send_seconds', String(n));
+    set({ undoSendSeconds: n });
+    schedulePrefSave({ undoSendSeconds: n });
+  },
+  pendingSend: null,
+  beginUndoSend: (seconds: number, subject: string) => {
+    settlePendingSend(true);
+    const id = ++pendingSendSeq;
+    return new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => settlePendingSend(true), seconds * 1000);
+      pendingSendSettle = (send: boolean) => {
+        clearTimeout(timer);
+        pendingSendSettle = null;
+        const pending = get().pendingSend;
+        if (pending?.id === id) set({ pendingSend: send ? { ...pending, sending: true } : null });
+        if (!send) queuedCompose = null;
+        resolve(send);
+      };
+      set({ pendingSend: { id, seconds, subject, sending: false } });
+    });
+  },
+  undoPendingSend: () => settlePendingSend(false),
+  finishPendingSend: () => {
+    if (get().pendingSend) set({ pendingSend: null });
+    // A compose requested during a send that then failed: the failed one stays open instead.
+    queuedCompose = null;
+  },
+  localAiEnabled: false,
+  localAiModel: DEFAULT_LOCAL_AI_MODEL,
+  setLocalAiEnabled: (enabled: boolean) => {
+    set({ localAiEnabled: enabled });
+    setLocalAiModel(enabled ? get().localAiModel : null);
+    if (!enabled) void unloadLocalAi();
+    schedulePrefSave({ localAiEnabled: enabled });
+    void get().refreshAiStatus();
+  },
+  setLocalAiModel: (model: string) => {
+    if (!isKnownLocalAiModel(model)) return;
+    set({ localAiModel: model });
+    if (get().localAiEnabled) setLocalAiModel(model);
+    schedulePrefSave({ localAiModel: model });
+  },
 
   // Detached message windows (#219): floating, draggable/resizable in-app windows
   // that each show one message via a MessagePane instance. Desktop-only; mounted by
@@ -1504,12 +1599,17 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshAiStatus: async () => {
     const owner = get().user?.id;
     let status: AiStatus;
+    // The in-browser model, when on and the device can run it, provides every AI feature.
+    if (get().localAiEnabled && localAiSupported()) {
+      set({ aiStatus: { enabled: true, provider: 'local', features: { summarize: true, compose: true } } });
+      return;
+    }
     try {
       status = await api.ai.status();
     } catch {
       status = { enabled: false };
     }
-    if (get().user?.id === owner) set({ aiStatus: status });
+    if (get().user?.id === owner && !(get().localAiEnabled && localAiSupported())) set({ aiStatus: status });
   },
 
   // Hidden folders — { [accountId]: [path, ...] }
@@ -1846,6 +1946,17 @@ export const useStore = create<StoreState>()((set, get) => ({
       if (typeof prefs.conversationNewestFirst === 'boolean') {
         localStorage.setItem('mailflow_conversation_newest_first', String(prefs.conversationNewestFirst));
         set({ conversationNewestFirst: prefs.conversationNewestFirst });
+      }
+      if (Number.isInteger(prefs.undoSendSeconds) && prefs.undoSendSeconds >= 0 && prefs.undoSendSeconds <= 30) {
+        localStorage.setItem('mailflow_undo_send_seconds', String(prefs.undoSendSeconds));
+        set({ undoSendSeconds: prefs.undoSendSeconds });
+      }
+      if (isKnownLocalAiModel(prefs.localAiModel)) set({ localAiModel: prefs.localAiModel });
+      {
+        const localAiEnabled = prefs.localAiEnabled === true;
+        set({ localAiEnabled });
+        setLocalAiModel(localAiEnabled ? get().localAiModel : null);
+        if (localAiEnabled || get().aiStatus?.provider === 'local') void get().refreshAiStatus();
       }
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);

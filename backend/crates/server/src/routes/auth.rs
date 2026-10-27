@@ -1025,6 +1025,14 @@ fn sanitize_theme_name(v: Option<&Value>) -> Option<String> {
     RE.is_match(s).then(|| s.to_owned())
 }
 
+/// A WebLLM model id such as `gemma-4-E2B-it-q4f16_1-MLC`; the browser picks the weights.
+fn sanitize_local_ai_model(v: Option<&Value>) -> Option<String> {
+    static RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$").unwrap());
+    let s = js_trim(v?.as_str()?);
+    RE.is_match(s).then(|| s.to_owned())
+}
+
 async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body: Body) -> Result<Response> {
     let uid = match session_user(&session) {
         Ok(u) => u,
@@ -1156,6 +1164,17 @@ async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body:
     if b("conversationNewestFirst").is_some_and(|v| !v.is_boolean()) {
         return Ok(err(400, "conversationNewestFirst must be a boolean"));
     }
+    let undo_send = js_parse_int(b("undoSendSeconds")).filter(|n| (0..=30).contains(n));
+    if defined(b("undoSendSeconds")).is_some() && undo_send.is_none() {
+        return Ok(err(400, "undoSendSeconds must be a whole number from 0 to 30"));
+    }
+    if b("localAiEnabled").is_some_and(|v| !v.is_boolean()) {
+        return Ok(err(400, "localAiEnabled must be a boolean"));
+    }
+    let local_ai_model = sanitize_local_ai_model(b("localAiModel"));
+    if b("localAiModel").is_some() && local_ai_model.is_none() {
+        return Ok(err(400, "localAiModel must be a model identifier"));
+    }
     if let Some(v) = b("calendarInviteAccountId") {
         let Some(id) = v.as_str().filter(|id| js_len(id) <= 128) else {
             return Ok(err(400, "calendarInviteAccountId must be an account identifier"));
@@ -1234,6 +1253,9 @@ async fn patch_preferences(State(s): State<AppState>, Sess(session): Sess, body:
         opt_text(theme_dark),
         raw("calendarInviteAccountId"),
         raw("conversationNewestFirst"),
+        Val::from(undo_send),
+        raw("localAiEnabled"),
+        opt_text(local_ai_model),
     ];
     s.db.exec(PREFERENCES_SQL, &p).await?;
     if let Some(v) = defined(b("categorizationEnabled")) {
@@ -1305,6 +1327,9 @@ const PREFERENCES_SQL: &str = "UPDATE users SET preferences = preferences
   || CASE WHEN $51::text IS NOT NULL THEN jsonb_build_object('themeDark', $51::text) ELSE '{}'::jsonb END
   || CASE WHEN $52::text IS NOT NULL THEN jsonb_build_object('calendarInviteAccountId', $52::text) ELSE '{}'::jsonb END
   || CASE WHEN $53::boolean IS NOT NULL THEN jsonb_build_object('conversationNewestFirst', $53::boolean) ELSE '{}'::jsonb END
+  || CASE WHEN $54::int IS NOT NULL THEN jsonb_build_object('undoSendSeconds', $54::int) ELSE '{}'::jsonb END
+  || CASE WHEN $55::boolean IS NOT NULL THEN jsonb_build_object('localAiEnabled', $55::boolean) ELSE '{}'::jsonb END
+  || CASE WHEN $56::text IS NOT NULL THEN jsonb_build_object('localAiModel', $56::text) ELSE '{}'::jsonb END
 WHERE id = $1";
 
 async fn whitelist_add(State(s): State<AppState>, Sess(session): Sess, body: Body) -> Result<Response> {

@@ -47,7 +47,8 @@
       "plugins": "Wtyczki",
       "davCredentials": "Dostęp DAV",
       "davServers": "Serwery DAV",
-      "webdavFiles": "Pliki WebDAV"
+      "webdavFiles": "Pliki WebDAV",
+      "localAi": "Lokalna AI"
     },
     "rules": {
       "title": "Reguły skrzynki odbiorczej",
@@ -341,7 +342,10 @@
       "gravatarOffDesc": "Prywatne — brak kontaktu z podmiotami trzecimi.",
       "gravatarOn": "Włączone",
       "gravatarOnDesc": "Pobieraj zdjęcia nadawców z usługi Gravatar — do zewnętrznej usługi wysyłane są skrócone adresy nadawców.",
-      "threadingDesc": "Grupuje wiadomość i odpowiedzi w jedną rozmowę na liście wiadomości."
+      "threadingDesc": "Grupuje wiadomość i odpowiedzi w jedną rozmowę na liście wiadomości.",
+      "undoSend": "Cofanie wysyłki",
+      "undoSendDesc": "Po kliknięciu Wyślij wiadomość czeka tyle czasu, aby można było ją jeszcze cofnąć.",
+      "undoSendOff": "Wyłączone (wyślij od razu)"
     },
     "notifications": {
       "title": "Powiadomienia",
@@ -926,6 +930,25 @@
       "save": "Zapisz",
       "removeTitle": "Usunąć {{name}}?",
       "removeWarning": "Usuwane jest tylko połączenie — pliki na serwerze pozostają nietknięte."
+    },
+    "localAi": {
+      "title": "Lokalny model AI",
+      "description": "Uruchom mały model językowy bezpośrednio w przeglądarce do streszczeń, przeredagowania i sprawdzania pisowni. Treść wiadomości nigdy nie opuszcza tego urządzenia.",
+      "unsupported": "Ta przeglądarka nie może uruchamiać modeli lokalnych: WebGPU jest niedostępne (wymaga aktualnego Chrome, Edge lub Safari i połączenia HTTPS).",
+      "enable": "Używaj lokalnego modelu AI",
+      "enableDesc": "Domyślnie wyłączone. Model pobiera się na to urządzenie dopiero po włączeniu i obsługuje wtedy wszystkie przyciski AI.",
+      "model": "Model językowy",
+      "modelOption": "{{name}} · wymaga ~{{size}} GB pamięci GPU",
+      "modelDesc": "Gemma 4 daje najlepsze wyniki; mniejsze modele są szybsze i pasują do słabszych urządzeń.",
+      "loading": "Pobieranie lokalnego modelu AI… {{percent}}%",
+      "ready": "Załadowany i gotowy.",
+      "error": "Nie udało się załadować modelu: {{error}}",
+      "downloaded": "Pobrany na to urządzenie.",
+      "notDownloaded": "Jeszcze nie pobrany na to urządzenie.",
+      "download": "Pobierz teraz",
+      "load": "Załaduj model",
+      "delete": "Usuń pobrane pliki",
+      "deleteConfirm": "Usunąć pobrany model z tego urządzenia? Zostanie pobrany ponownie przy następnym użyciu."
     }
   },
   "blockList": {
@@ -1076,6 +1099,10 @@
         "tomorrowAfternoon": "Jutro po południu",
         "monday": "W poniedziałek rano"
       }
+    },
+    "undoSend": {
+      "pending": "Za chwilę wysyłka…",
+      "undo": "Cofnij"
     }
   },
   "contacts": {

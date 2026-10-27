@@ -457,7 +457,10 @@
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} second",
       "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Group a message and its replies into one conversation in the message list."
+      "threadingDesc": "Group a message and its replies into one conversation in the message list.",
+      "undoSend": "Undo send",
+      "undoSendDesc": "After you press Send, the mail waits this long so you can still undo it.",
+      "undoSendOff": "Off (send at once)"
     },
     "notifications": {
       "title": "Notifications",
@@ -804,7 +807,8 @@
       "plugins": "Plugins",
       "davCredentials": "DAV access",
       "davServers": "DAV servers",
-      "webdavFiles": "WebDAV files"
+      "webdavFiles": "WebDAV files",
+      "localAi": "Local AI"
     },
     "title": "Settings",
     "users": {
@@ -926,6 +930,25 @@
       "save": "Save",
       "removeTitle": "Remove {{name}}?",
       "removeWarning": "Only the connection is removed — files on the server stay untouched."
+    },
+    "localAi": {
+      "title": "Local AI model",
+      "description": "Run a small language model directly in your browser for summaries, rewriting and spell checks. Your mail text never leaves this device.",
+      "unsupported": "This browser cannot run local models: WebGPU is unavailable (it needs a recent Chrome, Edge or Safari and an HTTPS connection).",
+      "enable": "Use a local AI model",
+      "enableDesc": "Off by default. The model downloads to this device only after you turn this on, and then powers every AI button.",
+      "model": "Model",
+      "modelOption": "{{name}} · needs ~{{size}} GB GPU memory",
+      "modelDesc": "Gemma 4 gives the best results; smaller models are faster and suit weaker devices.",
+      "loading": "Downloading local AI model… {{percent}}%",
+      "ready": "Loaded and ready.",
+      "error": "The model could not be loaded: {{error}}",
+      "downloaded": "Downloaded on this device.",
+      "notDownloaded": "Not downloaded on this device yet.",
+      "download": "Download now",
+      "load": "Load model",
+      "delete": "Delete download",
+      "deleteConfirm": "Delete the downloaded model from this device? It downloads again the next time it is used."
     }
   },
   "blockList": {
@@ -1076,6 +1099,10 @@
         "tomorrowAfternoon": "Tomorrow afternoon",
         "monday": "Monday morning"
       }
+    },
+    "undoSend": {
+      "pending": "Sending…",
+      "undo": "Undo"
     }
   },
   "contacts": {

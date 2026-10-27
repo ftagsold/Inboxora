@@ -47,7 +47,8 @@
       "plugins": "Pluginy",
       "davCredentials": "Přístup DAV",
       "davServers": "DAV servery",
-      "webdavFiles": "Soubory WebDAV"
+      "webdavFiles": "Soubory WebDAV",
+      "localAi": "Místní AI"
     },
     "categories": {
       "title": "Kategorie e-mailů",
@@ -455,7 +456,10 @@
       "gravatarOffDesc": "Soukromé — nikdy nekontaktuje třetí stranu.",
       "gravatarOn": "Zapnuto",
       "gravatarOnDesc": "Načítat fotografie odesílatelů z Gravataru — sdílí hashované adresy odesílatelů s třetí stranou.",
-      "threadingDesc": "Sdruží zprávu a její odpovědi do jedné konverzace v seznamu zpráv."
+      "threadingDesc": "Sdruží zprávu a její odpovědi do jedné konverzace v seznamu zpráv.",
+      "undoSend": "Vrácení odeslání",
+      "undoSendDesc": "Po kliknutí na Odeslat zpráva počká tuto dobu, abyste ji ještě mohli vrátit.",
+      "undoSendOff": "Vypnuto (odeslat ihned)"
     },
     "gtd": {
       "description": "Proměňte Inboxora v systém GTD. Zapněte jej pro jednotlivé účty a potom přiřaďte každý stav ke složce IMAP, která obsahuje jeho štítek.",
@@ -926,6 +930,25 @@
       "save": "Uložit",
       "removeTitle": "Odebrat {{name}}?",
       "removeWarning": "Odebere se jen připojení — soubory na serveru zůstanou nedotčené."
+    },
+    "localAi": {
+      "title": "Místní model AI",
+      "description": "Spusťte malý jazykový model přímo v prohlížeči pro shrnutí, přepisy a kontrolu pravopisu. Text zpráv nikdy neopustí toto zařízení.",
+      "unsupported": "Tento prohlížeč nemůže spouštět místní modely: WebGPU není k dispozici (vyžaduje aktuální Chrome, Edge nebo Safari a připojení HTTPS).",
+      "enable": "Používat místní model AI",
+      "enableDesc": "Ve výchozím stavu vypnuto. Model se stáhne do zařízení až po zapnutí a pak pohání všechna tlačítka AI.",
+      "model": "Jazykový model",
+      "modelOption": "{{name}} · potřebuje ~{{size}} GB paměti GPU",
+      "modelDesc": "Gemma 4 dává nejlepší výsledky; menší modely jsou rychlejší a hodí se pro slabší zařízení.",
+      "loading": "Stahování místního modelu AI… {{percent}} %",
+      "ready": "Načteno a připraveno.",
+      "error": "Model se nepodařilo načíst: {{error}}",
+      "downloaded": "Staženo do tohoto zařízení.",
+      "notDownloaded": "Do tohoto zařízení zatím nestaženo.",
+      "download": "Stáhnout nyní",
+      "load": "Načíst model",
+      "delete": "Smazat stažená data",
+      "deleteConfirm": "Smazat stažený model z tohoto zařízení? Při příštím použití se stáhne znovu."
     }
   },
   "blockList": {
@@ -1076,6 +1099,10 @@
         "tomorrowAfternoon": "Zítra odpoledne",
         "monday": "V pondělí ráno"
       }
+    },
+    "undoSend": {
+      "pending": "Brzy se odešle…",
+      "undo": "Vrátit zpět"
     }
   },
   "contacts": {

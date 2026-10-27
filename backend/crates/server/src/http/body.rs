@@ -78,7 +78,10 @@ impl<S: Send + Sync> FromRequest<S> for Body {
         if !is_json(&req) {
             return Ok(Body(Value::Object(Map::new())));
         }
-        let limit = limit_for(req.uri().path());
+        // `nest` strips the mount prefix from `req.uri()`; the limit keys on the full path.
+        let limit = limit_for(
+            req.extensions().get::<axum::extract::OriginalUri>().map_or_else(|| req.uri().path(), |o| o.0.path()),
+        );
         let declared = req.headers().get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()?.parse::<usize>().ok());
         if declared.is_some_and(|len| len > limit) {
             return Err(too_large());
@@ -107,5 +110,22 @@ mod tests {
         assert_eq!(limit_for("/api/mail/scheduled/abc"), LARGE_LIMIT);
         assert_eq!(limit_for("/api/mail/sender"), DEFAULT_LIMIT);
         assert_eq!(limit_for("/api/mail/messages"), DEFAULT_LIMIT);
+    }
+
+    /// Inside `nest("/api/mail", ..)` the handler sees `/send`; the limit must still be the large one.
+    #[tokio::test]
+    async fn nested_send_keeps_the_large_limit() {
+        let content = "A".repeat(10 * 1024 * 1024);
+        let json = format!(r#"{{"attachments":[{{"content":"{content}"}}]}}"#);
+        let mut req = Request::builder()
+            .method("POST")
+            .uri("/send")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::CONTENT_LENGTH, json.len())
+            .body(axum::body::Body::from(json))
+            .unwrap();
+        req.extensions_mut().insert(axum::extract::OriginalUri("/api/mail/send".parse().unwrap()));
+        let body = Body::from_request(req, &()).await.expect("10 MB send body accepted");
+        assert!(body.get("attachments").is_some());
     }
 }

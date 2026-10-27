@@ -877,6 +877,7 @@ export default function ComposeModal() {
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
+    let undoWindow = false;
     try {
       const requestBody = {
         accountId,
@@ -913,6 +914,17 @@ export default function ComposeModal() {
         closeCompose();
         addNotification({ title: t('scheduled.saved'), body: subject || t('common.noSubject') });
         return;
+      }
+      // Undo window: the composer hides while the mail waits; Undo brings it back unchanged.
+      const undoSeconds = sendAt ? 0 : useStore.getState().undoSendSeconds;
+      if (undoSeconds > 0) {
+        undoWindow = true;
+        const proceed = await useStore.getState().beginUndoSend(undoSeconds, subject || t('common.noSubject'));
+        if (!isCurrentSession()) return;
+        if (!proceed) {
+          setSending(false);
+          return;
+        }
       }
       const sendResult = await api.post('/mail/send', {
         ...requestBody,
@@ -994,6 +1006,8 @@ export default function ComposeModal() {
       if (!isCurrentSession()) return;
       setError(toAppError(err).message);
       setSending(false);
+    } finally {
+      if (undoWindow) useStore.getState().finishPendingSend();
     }
   };
 

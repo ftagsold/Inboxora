@@ -23,6 +23,8 @@ import MessageList from './MessageList.tsx';
 import MessagePane from './MessagePane.tsx';
 import type { ConversationReplyPayload } from './ConversationReader.tsx';
 import NotificationToasts from './NotificationToasts.tsx';
+import UndoSendBar from './UndoSendBar.tsx';
+import LocalAiProgress from './LocalAiProgress.tsx';
 import AccountPreparing from './AccountPreparing.tsx';
 import ReauthPrompt from './ReauthPrompt.tsx';
 import ProfileModal from './ProfileModal.tsx';
@@ -92,7 +94,7 @@ export default function MailApp() {
   const [mobileHeaderHost, setMobileHeaderHost] = useState<HTMLElement | null>(null);
   const {
     setAccounts, setUnreadCounts, showAdmin,
-    setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
+    setShowAdmin, setAdminTab, composing, pendingSend, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
     shortcuts, selectedMessageId, setSelectedMessage, selectedScheduledId,
     mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, addNotification,
@@ -1015,12 +1017,17 @@ export default function MailApp() {
         </>
       )}
 
-      <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
+      {/* During the undo-send window the composer stays mounted, hidden, so Undo restores it as it was. */}
+      <div style={{ display: pendingSend ? 'none' : 'contents' }}>
+        <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
+      </div>
+      <UndoSendBar />
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       {/* Detached message windows (#219) — desktop only. */}
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
+      <LocalAiProgress />
       <AccountPreparing />
       <ReauthPrompt />
       <PluginRuntime />
