@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    participant U as You
+    participant B as Browser
+    participant S as Inboxora server
+    participant R as Redis
+    participant I as IMAP server
+    U->>B: Click folder
+    B-->>U: Render cached rows at once
+    B->>S: GET changes since last seq
+    S->>R: Display fields for new ids
+    alt All cached
+        R-->>S: Hit
+    else Some missing
+        S->>I: UID FETCH grouped by folder
+        I-->>S: Headers and snippet
+        S->>R: Write through
+    end
+    S-->>B: Changes only
+    B-->>U: Merge into list

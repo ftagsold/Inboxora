@@ -132,23 +132,7 @@ appears without a reload.
 Mail lives on the IMAP server. Inboxora never copies it into PostgreSQL. Instead, three layers
 keep it close to the user:
 
-```mermaid
-flowchart LR
-    subgraph Browser
-        M["Memory<br/>12 recent list views"]
-        I[("IndexedDB<br/>display fields, 2000 bodies,<br/>200 rows per view")]
-    end
-    subgraph Server["Inboxora server"]
-        R[("Redis, memory-only<br/>display fields: until deleted<br/>bodies: 7 days")]
-        P[("PostgreSQL<br/>header index only")]
-    end
-    IMAP[("IMAP server<br/>source of truth")]
-
-    M -- miss --> I
-    I -- miss --> R
-    R -- "miss: one UID FETCH<br/>per account and folder" --> IMAP
-    P -. "ids, folder/UID, flags,<br/>threading links" .- R
-```
+<p align="center"><img src="media/diagrams/cache-layers.svg" alt="Three cache layers: browser memory, IndexedDB, Redis, then IMAP; PostgreSQL holds the header index"></p>
 
 | Layer | Holds | Lifetime |
 | --- | --- | --- |
@@ -166,29 +150,7 @@ and folder membership change, and those come from the header index and the chang
 A folder you visited before renders from the browser cache in the same frame, then
 revalidates in the background:
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as You
-    participant B as Browser
-    participant S as Inboxora server
-    participant R as Redis
-    participant I as IMAP
-
-    U->>B: Click folder
-    B-->>U: Render cached rows instantly
-    B->>S: GET /api/mail/messages/changes?since=seq
-    S->>R: Display fields for new ids
-    alt All cached
-        R-->>S: Hit
-    else Some missing
-        S->>I: UID FETCH, grouped by folder
-        I-->>S: Headers and snippet
-        S->>R: Write through
-    end
-    S-->>B: Changes only
-    B-->>U: Merge into list
-```
+<p align="center"><img src="media/diagrams/open-folder.svg" alt="Opening a folder: cached rows render at once, then only changes are fetched"></p>
 
 Lists page by keyset cursor (`before=<date>|<id>`), so the 50th page costs the same as the
 first. Search runs on the IMAP server (`UID SEARCH`) and also scans the cached display fields,
@@ -198,19 +160,7 @@ so substrings match even on servers with word-only indexes.
 
 The server and the browser both fill caches ahead of time:
 
-```mermaid
-flowchart TB
-    subgraph Server
-        S1["After every start:<br/>preload display fields<br/>of every folder"] --> S2["After every sync:<br/>fetch only new ids"]
-        S2 --> S3["Delete tombstones drop<br/>cached entries; daily sweep"]
-    end
-    subgraph Browser
-        B1["App idle:<br/>every account's INBOX"]
-        B2["Sidebar hover:<br/>folder's first page"]
-        B3["List loaded:<br/>first 8 unread bodies,<br/>next page"]
-        B4["Conversation open:<br/>bodies 3 at a time,<br/>outwards from selected"]
-    end
-```
+<p align="center"><img src="media/diagrams/prefetch.svg" alt="What the server and the browser load ahead of time"></p>
 
 Browser prefetch runs at most two requests at a time and skips views fetched in the last
 minute. While the server's first preload for an account runs, the web app shows a short "your
@@ -221,15 +171,7 @@ account is ready shortly" screen with progress, so the first list you see is alr
 Mail servers limit connections per account. Inboxora budgets them and serves the interface
 first:
 
-```mermaid
-flowchart LR
-    Q["Request queue"] --> L{"Connection budget<br/>default 10 per account"}
-    L --> P1["1. Interface"]
-    L --> P2["2. INBOX"]
-    L --> P3["3. Archive, Sent, Trash,<br/>Drafts, Junk"]
-    L --> P4["4. Other folders"]
-    L --> P5["5. Background preload"]
-```
+<p align="center"><img src="media/diagrams/imap-budget.svg" alt="IMAP connection budget and request priority"></p>
 
 Every socket counts against `IMAP_MAX_CONNECTIONS_PER_ACCOUNT`. When a server refuses a
 connection, the account's limit steps down by one, at most every 30 s and never below 2. The
@@ -244,6 +186,8 @@ message rarely waits for a fresh login.
 | `MAIL_BODY_TTL_SECONDS` | `604800` (7 days) | How long Redis keeps message bodies. |
 | `REDIS_MAXMEMORY` | `512mb` | Redis memory cap. The server warns at 80%. |
 | `IMAP_MAX_CONNECTIONS_PER_ACCOUNT` | `10` | Start value of the per-account connection budget. |
+
+Diagram sources live in [`media/diagrams/`](media/diagrams/) as Mermaid files.
 
 Redis runs memory-only: no snapshots, no AOF, data on tmpfs. A Redis restart signs users out
 and the server rebuilds the cache on its own.

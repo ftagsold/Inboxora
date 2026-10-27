@@ -1,0 +1,7 @@
+flowchart LR
+    q[Waiting requests] --> l{Connection budget<br/>default 10 per account}
+    l -->|first| p1[Interface]
+    l -->|second| p2[INBOX]
+    l -->|third| p3[Archive, Sent, Trash, Drafts, Junk]
+    l -->|fourth| p4[Other folders]
+    l -->|last| p5[Background preload]
