@@ -2428,9 +2428,6 @@ function LayoutsTab() {
         </select>
       </div>
 
-      {/* Retired addresses — old inboxes that still forward here */}
-      <RetiredAddressesSetting />
-
       {/* Mark as read behaviour */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -7267,6 +7264,9 @@ function MailboxCleanupTab() {
           <p style={{ ...muted, marginTop: 0, lineHeight: 1.5 }}>{t('admin.cleanup.tier3Desc')}</p>
         </>
       )}
+
+      {/* Retired addresses — old inboxes that still forward here */}
+      <RetiredAddressesSetting />
     </div>
   );
 }
@@ -8846,7 +8846,7 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     { label: t('conversation.rebuildConversations'), keywords: ['rebuild', 'conversation', 'threading', 'group', 'regroup', 'reindex', 'mailflow', 'migrate', 'migration', 'import', 'history', 'backlog'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
-    { label: t('admin.messageList.retiredAddresses'), keywords: ['retired', 'old address', 'old inbox', 'forwarding', 'forwarded', 'migrate', 'change email', 'alte adresse'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.retiredAddresses'), keywords: ['retired', 'old address', 'old inbox', 'forwarding', 'forwarded', 'migrate', 'change email', 'alte adresse'], tab: 'cleanup', breadcrumb: tabLabel('cleanup') },
     { label: t('admin.messageList.undoSend'), keywords: ['undo', 'undo send', 'unsend', 'recall', 'cancel send', 'delay send'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.localAi.title'), keywords: ['ai', 'local ai', 'browser', 'on device', 'offline', 'gemma', 'llm', 'webgpu', 'summarize', 'spell check', 'privacy'], tab: 'local-ai', breadcrumb: tabLabel('local-ai') },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },

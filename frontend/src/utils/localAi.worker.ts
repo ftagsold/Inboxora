@@ -11,6 +11,9 @@ import ortWasm from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url';
 import type { LocalAiRequest, LocalAiResponse } from './localAi.ts';
 
 if (env.backends.onnx.wasm) env.backends.onnx.wasm.wasmPaths = { mjs: ortMjs, wasm: ortWasm };
+// The wasm cache re-serves the loader from a blob: URL, which the CSP (script-src 'self')
+// refuses to import; the hashed same-origin assets are browser-cached anyway.
+env.useWasmCache = false;
 env.allowLocalModels = false;
 
 let loaded: { key: string; tokenizer: PreTrainedTokenizer; model: PreTrainedModel } | null = null;
