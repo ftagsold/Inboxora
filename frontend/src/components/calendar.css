@@ -99,12 +99,14 @@
 .calendar-mobile .calendar-day-select { min-height: 28px; min-width: 28px; }
 
 .calendar-header h1::first-letter { text-transform: uppercase; }
-.calendar-header h1 { white-space: nowrap; }
+.calendar-header h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Sized for the single-character ‹ › arrows only — the Today button between them keeps
    its own auto width, or its text gets squeezed into the same 28px box as an arrow. */
 .calendar-date-controls > .ui-button-ghost:not(.calendar-today-btn) { width: 28px; padding: 5px; }
-.calendar-toolbar { flex-shrink: 0; }
-.calendar-compact .calendar-header { flex-wrap: wrap; }
+/* With the rail and agenda open the main pane can be narrower than title plus toolbar: the
+   toolbar then drops below the title and wraps inside the pane instead of overflowing it. */
+.calendar-header { flex-wrap: wrap; }
+.calendar-toolbar { flex-shrink: 1; max-width: 100%; margin-left: auto; justify-content: flex-end; }
 
 .calendar-mobile .cal-cell .cal-ev { min-height: 24px; padding: 3px; font-size: 10px; }
 .calendar-mobile .cal-cell .cal-ev strong { display: none; }

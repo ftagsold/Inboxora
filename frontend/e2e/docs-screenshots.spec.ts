@@ -39,6 +39,8 @@ const OUTPUT_DIR = fileURLToPath(new URL('../../media/screenshots/', import.meta
 const enabled = Boolean(process.env.DOCS_SCREENSHOTS);
 
 test.describe.configure({ mode: 'serial' });
+// The suite's default pl-PL locale would print Polish dates in an otherwise English capture.
+test.use({ locale: 'en-US' });
 
 test.beforeAll(() => {
   if (enabled) mkdirSync(OUTPUT_DIR, { recursive: true });

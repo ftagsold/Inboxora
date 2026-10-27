@@ -44,16 +44,11 @@ Everything below is new relative to upstream Inboxora 4.0.2. The detailed log is
 
 ### Live mail instead of a database copy
 
-- **No mailbox clone in PostgreSQL.** The database keeps a header index only (folder, UID, date,
-  flags, threading links, app state). Subjects, senders, snippets and bodies come live from IMAP
-  and are cached in Redis, which runs memory-only. Search runs on the IMAP server.
-- **Fast lists anyway.** After start the server preloads display fields for every folder into
-  Redis, and the browser keeps its own IndexedDB cache, so folders open instantly. A list never
-  waits more than 1.5 s for IMAP.
-- **IMAP connection budget per account** (`IMAP_MAX_CONNECTIONS_PER_ACCOUNT`), with a priority
-  queue and limits learned from servers that refuse connections.
+- **No mailbox clone in PostgreSQL.** The database keeps a header index only. Subjects, senders,
+  snippets and bodies come live from IMAP and are cached in Redis and in the browser.
 - **Every folder syncs on the same interval as INBOX**, including flag changes, so moves and
   reads made on other devices show up.
+- See [Built for speed](#built-for-speed) for how the caches fit together.
 
 ### Mail
 
@@ -107,6 +102,151 @@ Everything below is new relative to upstream Inboxora 4.0.2. The detailed log is
 
 - Plugins (GTD) are not available in 5.0.0.
 - CI workflows, `CONTRIBUTING.md`, `SECURITY.md`, `ROADMAP.md` and `AGENTS.md` are removed.
+
+## Built for speed
+
+Every layer is tuned so that a click is answered from memory, and the network only fills in
+what changed. The goal: folders open instantly, messages open without a spinner, and new mail
+appears without a reload.
+
+### Where the time goes
+
+- **One async Rust process.** axum/tokio hold every IMAP IDLE connection, sync timer and
+  WebSocket in one process, with no garbage collector. HTTPS speaks HTTP/2.
+- **Its own IMAP client.** CONDSTORE for cheap flag deltas, COMPRESS=DEFLATE on the wire, MOVE
+  and UIDPLUS for single-round-trip moves, IDLE for INBOX and NOTIFY (RFC 5465) for every other
+  folder where the server offers it.
+- **Change detection, not rescans.** One `STATUS` per folder decides which folders changed.
+  Only those sync. Bursts of events are debounced by 250 ms.
+- **Push to the browser.** New mail, flag changes and moves arrive over a WebSocket. A list
+  then asks only for `GET /api/mail/messages/changes?since=<seq>` instead of reloading.
+- **Optimistic UI.** Moves, archive and delete update the list at once; the server call
+  follows in the background.
+- **Immutable static assets.** Hashed bundles ship with `Cache-Control: public,
+  max-age=31536000, immutable`. Heavy views load as lazy chunks.
+- **Never blocked by a slow server.** A list waits at most 1.5 s for IMAP. Rows still loading
+  are served as placeholders and filled in by `POST /api/mail/meta` moments later.
+
+### Three cache layers
+
+Mail lives on the IMAP server. Inboxora never copies it into PostgreSQL. Instead, three layers
+keep it close to the user:
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        M["Memory<br/>12 recent list views"]
+        I[("IndexedDB<br/>display fields, 2000 bodies,<br/>200 rows per view")]
+    end
+    subgraph Server["Inboxora server"]
+        R[("Redis, memory-only<br/>display fields: until deleted<br/>bodies: 7 days")]
+        P[("PostgreSQL<br/>header index only")]
+    end
+    IMAP[("IMAP server<br/>source of truth")]
+
+    M -- miss --> I
+    I -- miss --> R
+    R -- "miss: one UID FETCH<br/>per account and folder" --> IMAP
+    P -. "ids, folder/UID, flags,<br/>threading links" .- R
+```
+
+| Layer | Holds | Lifetime |
+| --- | --- | --- |
+| Browser memory | Rows of the 12 most recent list views | Until the tab closes |
+| Browser IndexedDB | Display fields, up to 2000 bodies, 200 rows per view | Bodies 7 days; all deleted on sign-out |
+| Redis | Display fields (subject, sender, snippet) of every message; bodies | Display fields until the message is deleted; bodies `MAIL_BODY_TTL_SECONDS` (7 days) |
+| PostgreSQL | Header index: account, folder, UID, date, flags, threading digests, snoozes, categories | Permanent |
+| IMAP | The mail itself | Permanent |
+
+A message's subject, sender and body never change, so cached copies never go stale. Only flags
+and folder membership change, and those come from the header index and the change feed.
+
+### Opening a folder
+
+A folder you visited before renders from the browser cache in the same frame, then
+revalidates in the background:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as You
+    participant B as Browser
+    participant S as Inboxora server
+    participant R as Redis
+    participant I as IMAP
+
+    U->>B: Click folder
+    B-->>U: Render cached rows instantly
+    B->>S: GET /api/mail/messages/changes?since=seq
+    S->>R: Display fields for new ids
+    alt All cached
+        R-->>S: Hit
+    else Some missing
+        S->>I: UID FETCH, grouped by folder
+        I-->>S: Headers and snippet
+        S->>R: Write through
+    end
+    S-->>B: Changes only
+    B-->>U: Merge into list
+```
+
+Lists page by keyset cursor (`before=<date>|<id>`), so the 50th page costs the same as the
+first. Search runs on the IMAP server (`UID SEARCH`) and also scans the cached display fields,
+so substrings match even on servers with word-only indexes.
+
+### Warm before you click
+
+The server and the browser both fill caches ahead of time:
+
+```mermaid
+flowchart TB
+    subgraph Server
+        S1["After every start:<br/>preload display fields<br/>of every folder"] --> S2["After every sync:<br/>fetch only new ids"]
+        S2 --> S3["Delete tombstones drop<br/>cached entries; daily sweep"]
+    end
+    subgraph Browser
+        B1["App idle:<br/>every account's INBOX"]
+        B2["Sidebar hover:<br/>folder's first page"]
+        B3["List loaded:<br/>first 8 unread bodies,<br/>next page"]
+        B4["Conversation open:<br/>bodies 3 at a time,<br/>outwards from selected"]
+    end
+```
+
+Browser prefetch runs at most two requests at a time and skips views fetched in the last
+minute. While the server's first preload for an account runs, the web app shows a short "your
+account is ready shortly" screen with progress, so the first list you see is already complete.
+
+### Fair use of IMAP connections
+
+Mail servers limit connections per account. Inboxora budgets them and serves the interface
+first:
+
+```mermaid
+flowchart LR
+    Q["Request queue"] --> L{"Connection budget<br/>default 10 per account"}
+    L --> P1["1. Interface"]
+    L --> P2["2. INBOX"]
+    L --> P3["3. Archive, Sent, Trash,<br/>Drafts, Junk"]
+    L --> P4["4. Other folders"]
+    L --> P5["5. Background preload"]
+```
+
+Every socket counts against `IMAP_MAX_CONNECTIONS_PER_ACCOUNT`. When a server refuses a
+connection, the account's limit steps down by one, at most every 30 s and never below 2. The
+learned value survives restarts; an admin can reset it under **Settings → Security → IMAP
+connections**. Body fetches share a small per-account pool of logged-in connections, so opening a
+message rarely waits for a fresh login.
+
+### Tuning
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `MAIL_BODY_TTL_SECONDS` | `604800` (7 days) | How long Redis keeps message bodies. |
+| `REDIS_MAXMEMORY` | `512mb` | Redis memory cap. The server warns at 80%. |
+| `IMAP_MAX_CONNECTIONS_PER_ACCOUNT` | `10` | Start value of the per-account connection budget. |
+
+Redis runs memory-only: no snapshots, no AOF, data on tmpfs. A Redis restart signs users out
+and the server rebuilds the cache on its own.
 
 ## Highlights
 
@@ -228,6 +368,9 @@ curl -o .env https://raw.githubusercontent.com/ftagsold/Inboxora/main/.env.examp
 # edit .env: APP_URL, SESSION_SECRET, DB_PASSWORD, ENCRYPTION_KEY
 docker compose up -d
 ```
+
+The compose file pulls `ghcr.io/ftagsold/inboxora-backend:latest`, built for amd64 and arm64.
+To pin a build, set `INBOXORA_VERSION=main-<sha8>` in `.env`.
 
 Then open `APP_URL` and create the first account. The forms need three secrets, each generated
 with `openssl rand -hex 32` (or `-hex 16` for `DB_PASSWORD`):

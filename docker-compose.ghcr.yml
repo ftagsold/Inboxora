@@ -1,13 +1,13 @@
 # Inboxora — pre-built image install
 #
 # Quick start:
-#   curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/main/docker-compose.ghcr.yml
-#   curl -o .env               https://raw.githubusercontent.com/Dragonk/Inboxora/main/.env.example
+#   curl -o docker-compose.yml https://raw.githubusercontent.com/ftagsold/Inboxora/main/docker-compose.ghcr.yml
+#   curl -o .env               https://raw.githubusercontent.com/ftagsold/Inboxora/main/.env.example
 #   # edit .env, then:
 #   docker compose up -d
 #
 # To pin a specific version instead of latest, set INBOXORA_VERSION in your .env:
-#   INBOXORA_VERSION=4.0.1
+#   INBOXORA_VERSION=main-<sha8>
 
 # Rotate container logs (Docker keeps json-file logs forever by default).
 x-logging: &logging
@@ -24,7 +24,7 @@ services:
   # is meant for use behind a reverse proxy that terminates TLS.
   # With --profile https, Caddy handles TLS instead (see below).
   backend:
-    image: ghcr.io/dragonk/inboxora-backend:${INBOXORA_VERSION:-latest}
+    image: ghcr.io/ftagsold/inboxora-backend:${INBOXORA_VERSION:-latest}
     container_name: inboxora-backend
     logging: *logging
     restart: unless-stopped
