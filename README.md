@@ -5,25 +5,108 @@
 <p align="center">Self-hosted unified inbox for email, contacts and calendars.</p>
 
 <p align="center">
-  <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
-  <img src="https://img.shields.io/badge/version-4.0.2-informational" alt="Version 4.0.2">
+  <img src="https://img.shields.io/badge/version-5.0.0--dev-informational" alt="Version 5.0.0-dev">
+  <img src="https://img.shields.io/badge/backend-Rust-orange" alt="Backend: Rust">
 </p>
 
 Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks
 standard protocols — IMAP, SMTP, CardDAV, CalDAV — so your data stays on your server and
 your existing devices keep working.
 
-This release is a large step beyond the upstream MailFlow fork it started from: Inboxora
-adds a real conversation engine for email threading, a full calendar with invitations,
-first-party contacts with CardDAV/CalDAV access, and a rebuilt interface. See
-[What's new in 4.0](#whats-new-in-40) for the full picture. Version 4.0.2 is a reliability and
-data-isolation patch with no new user-facing features. See the
-[4.0.2 release notes](docs/wiki/Release-notes-4.0.2.md) for upgrade requirements.
+This repository is a fork of [Dragonk/Inboxora](https://github.com/Dragonk/Inboxora-archive),
+branched after its 4.0.2 release. It replaces the Node backend with a Rust server, stops copying
+mailboxes into PostgreSQL, and adds two-way DAV sync, a WebDAV file explorer, scheduled and
+undoable sending, invitation replies and in-browser AI. See
+[What makes this fork different](#what-makes-this-fork-different) for the full list.
 
 <p align="center">
   <img src="media/screenshots/mail-inbox-desktop.png" width="820" alt="Inboxora: the unified inbox with an expanded conversation and an open message">
 </p>
+
+## What makes this fork different
+
+Everything below is new relative to upstream Inboxora 4.0.2. The detailed log is in
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md) under *Unreleased*, and the upgrade story in
+[Release notes 5.0.0 (draft)](docs/wiki/Release-notes-5.0.0.md).
+
+### A Rust backend, one container
+
+- **The Node backend is gone.** The server is a Rust service (axum/tokio) with its own IMAP
+  client and mail engine, lettre-based SMTP, and ports of every 4.x route group. It speaks the
+  same API, reads the same environment variables and migrates the same database in place, so an
+  upgrade keeps sessions, accounts and data.
+- **One application container.** The Rust server also serves the web app, terminates HTTPS
+  (HTTP/2) with `./certs` and proxies the bundled ntfy. The separate frontend/nginx image is
+  removed. The backend image is distroless and cross-compiled for amd64 and arm64.
+- **Recovers on its own.** Mail server outages are retried, task panics are contained, and the
+  web app shows a reconnecting screen while the backend is away.
+
+### Live mail instead of a database copy
+
+- **No mailbox clone in PostgreSQL.** The database keeps a header index only (folder, UID, date,
+  flags, threading links, app state). Subjects, senders, snippets and bodies come live from IMAP
+  and are cached in Redis, which runs memory-only. Search runs on the IMAP server.
+- **Fast lists anyway.** After start the server preloads display fields for every folder into
+  Redis, and the browser keeps its own IndexedDB cache, so folders open instantly. A list never
+  waits more than 1.5 s for IMAP.
+- **IMAP connection budget per account** (`IMAP_MAX_CONNECTIONS_PER_ACCOUNT`), with a priority
+  queue and limits learned from servers that refuse connections.
+- **Every folder syncs on the same interval as INBOX**, including flag changes, so moves and
+  reads made on other devices show up.
+
+### Mail
+
+- **Scheduled send** behind a split send button, with edit and reschedule in the reader.
+- **Undo send** as a toast, before the message leaves.
+- Server-side conversation actions: delete, read and star reach the mail server.
+- Newest message first in conversations, quoted history folded in many reply formats
+  (German, Outlook/Exchange, localised separators), one card per expanded message.
+- Starred-only filter, clickable star in list rows, optimistic moves, partial search results.
+- Mail sent to **retired addresses** is tagged, and a cleanup tab lists those senders.
+- Re-auth flow when an OAuth or OIDC mailbox sign-in is rejected.
+
+### Calendar and contacts
+
+- **Two-way CalDAV**: remote calendars can be writable, with RFC 6764 discovery, per-collection
+  selection and ETag concurrency.
+- **Two-way CardDAV** contacts; calendars grouped by origin.
+- **Reply to invitations in the mail**: Accept, Maybe or Decline sends an RFC 5546 reply, shows
+  conflicts with your calendars, and archives the message. Change the answer later from the
+  calendar.
+- **Attendee answers are tracked**, with address autocomplete and attendee chips. Invitations are
+  Exchange-safe and only sent when something attendees see changed.
+- Full-text calendar search with no date horizon, drag and resize in month view, tentative
+  stripes, timed multi-day bars.
+
+### Files
+
+- **WebDAV file servers** with a Files explorer: columns, resizable headers, deep search,
+  select mode, a server switcher and a default server.
+- Attach files from a WebDAV server in the composer, or start an email from selected files.
+  Files over the 25 MB limit are disabled in the picker.
+
+### Sign-in and deployment
+
+- **OIDC sign-in with IMAP/SMTP passthrough**: an SSO user gets a mailbox provisioned and
+  authenticated with the same OAuth token (XOAUTH2/OAUTHBEARER). Providers are seeded from
+  `OIDC_<N>_*` variables; `OIDC_AUTO_LOGIN` skips the login page.
+- `PASSWORD_LOGIN_DISABLED=true` makes sign-in SSO-only.
+- `VITE_APP_NAME` renames the app at container start, from login screen to PWA.
+- `DB_HOST` accepts a PostgreSQL Unix socket path, with peer/ident authentication.
+- Private mail and DAV hosts are allowed by default; `ALLOW_PRIVATE_HOSTS` overrides it.
+- URL routing for mail folders, calendar and contacts, so views can be bookmarked.
+- The update check and update prompts are removed.
+
+### AI
+
+- **Local AI in the browser** on Transformers.js, opt-in, with no provider or server needed.
+- AI controls are hidden unless a provider is configured and connected.
+
+### Not carried over
+
+- Plugins (GTD) are not available in 5.0.0.
+- CI workflows, `CONTRIBUTING.md`, `SECURITY.md`, `ROADMAP.md` and `AGENTS.md` are removed.
 
 ## Highlights
 
@@ -48,7 +131,7 @@ data-isolation patch with no new user-facing features. See the
 
 Captured from the running application in one consistent style, on desktop (1440×900) and phone
 (390×844). The complete set lives in [`media/screenshots/`](media/screenshots/) and is
-regenerated by CI, so it always shows the current interface.
+generated by the Playwright documentation suite. They predate some fork changes.
 
 ### Email
 
@@ -93,14 +176,9 @@ The same mailbox on a phone (390×844):
 | --- | --- |
 | ![DAV access settings](media/screenshots/settings-dav-access-desktop.png) | <img src="media/screenshots/settings-dav-access-mobile.png" width="260" alt="DAV access settings on a phone"> |
 
-## What's new in 4.0
+## What upstream 4.0 brought
 
-**4.0.2 is the current release.** It is a reliability and data-isolation patch with no new
-user-facing feature. Before production rollout, apply the listed database migrations in order and
-pin the published `4.0.2` image tag. See the
-[4.0.2 release notes](docs/wiki/Release-notes-4.0.2.md).
-
-4.0.0 is a major version because Inboxora is no longer only a mail client. Everything below
+This section describes upstream Inboxora 4.0, which this fork builds on. 4.0.0 is a major version because Inboxora is no longer only a mail client. Everything below
 is new or rebuilt relative to the upstream MailFlow fork; the area-by-area changelog is in
 [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the exhaustive per-change comparison against
 upstream is published with the release tag.
@@ -121,23 +199,23 @@ upstream is published with the release tag.
   desktop application, and a native Android/Capacitor application. Android instant notifications
   use the bundled **ntfy** (UnifiedPush) server in the same stack — no Firebase, no second
   hostname. See [Platforms](#platforms) and
-  [Notifications](https://github.com/Dragonk/Inboxora/wiki/Notifications).
+  [Notifications](docs/wiki/Notifications.md).
 
 ## Platforms
 
 - **Web / PWA.** The self-hosted web app, installable from the browser, with Web Push (VAPID)
   notifications and an unread badge. Works in any modern browser.
 - **Desktop.** An Electron application for Windows (the same packaging also builds Linux and
-  macOS artifacts). It wraps the web app, keeps the session, and supports the host picker, tray,
-  `mailto:` links and the update checker.
+  macOS artifacts). It wraps the web app, keeps the session, and supports the host picker, tray
+  and `mailto:` links.
 - **Android.** A native Capacitor application with instant notifications. Android notifications
   go through **UnifiedPush**, so a compatible distributor app must be installed on the phone —
   the recommended one is **ntfy**. The Docker stack already ships the ntfy server on the same
   domain, so no second hostname or certificate is needed. Without a distributor the app still
   works and mail syncs, but notifications while the app is closed are not delivered.
 
-See [Notifications](https://github.com/Dragonk/Inboxora/wiki/Notifications) for the phone setup
-and [Installation](https://github.com/Dragonk/Inboxora/wiki/Installation) for the server side.
+See [Notifications](docs/wiki/Notifications.md) for the phone setup
+and [Installation](docs/wiki/Installation.md) for the server side.
 
 ## Quick start
 
@@ -145,8 +223,8 @@ Docker Compose with pre-built images is the recommended deployment.
 
 ```bash
 mkdir inboxora && cd inboxora
-curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/main/docker-compose.ghcr.yml
-curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/main/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/ftagsold/Inboxora/main/docker-compose.ghcr.yml
+curl -o .env https://raw.githubusercontent.com/ftagsold/Inboxora/main/.env.example
 # edit .env: APP_URL, SESSION_SECRET, DB_PASSWORD, ENCRYPTION_KEY
 docker compose up -d
 ```
@@ -170,7 +248,7 @@ domain at the `${APP_URL}` origin. One domain, one certificate, no extra configu
 Optional: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for Web Push, and
 `DOMAIN` / `ACME_EMAIL` when Inboxora terminates TLS itself. Set `PUSH_BASE_URL` plus the
 `docker-compose.external-ntfy.yml` override to use your own external ntfy instead. See the
-[Installation](https://github.com/Dragonk/Inboxora/wiki/Installation) wiki page for the full
+[Installation](docs/wiki/Installation.md) wiki page for the full
 matrix, including running behind an existing reverse proxy.
 
 ## Coming from MailFlow?
@@ -285,9 +363,7 @@ mail into conversations afterwards, is in
 
 ## Documentation
 
-The **[project Wiki](https://github.com/Dragonk/Inboxora/wiki)** is the canonical documentation.
-Its reviewed source lives in [`docs/wiki/`](docs/wiki/) and is published to the Wiki as part of a
-release.
+The documentation lives in [`docs/wiki/`](docs/wiki/).
 
 | Page | Covers |
 | --- | --- |
@@ -327,15 +403,16 @@ see [`docs/wiki/Development.md`](docs/wiki/Development.md).
 
 Inboxora is meant to sit behind a reverse proxy that terminates TLS; do not publish the internal
 host ports directly. Keep `.env` out of source control and never paste app passwords, tokens or
-deployment secrets into issues, screenshots or the Wiki. To report a vulnerability, follow
-[SECURITY.md](SECURITY.md) instead of opening a public issue with exploit details.
+deployment secrets into issues, screenshots or the docs. Report vulnerabilities privately to the
+maintainer instead of opening a public issue with exploit details.
 
 ## Credits and licence
 
 **Thanks to [maathimself](https://github.com/maathimself), creator of
-[MailFlow](https://github.com/maathimself/mailflow).** Inboxora is an independently developed
-fork with distinct product goals; the required upstream notices remain preserved.
+[MailFlow](https://github.com/maathimself/mailflow), and to [Dragonk](https://github.com/Dragonk),
+creator of [Inboxora](https://github.com/Dragonk/Inboxora-archive).** This repository is an
+independently developed fork of Inboxora; the required upstream notices remain preserved.
 
 Licensed under [AGPL-3.0-only](LICENSE). If you run a modified Inboxora as a network service, you
 must offer its corresponding source to your users. Contributions are accepted under the same
-terms — see [CONTRIBUTING.md](CONTRIBUTING.md).
+terms.
