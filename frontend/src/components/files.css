@@ -29,18 +29,20 @@
 .files-breadcrumbs { display: flex; align-items: center; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .files-breadcrumbs::-webkit-scrollbar { display: none; }
 .files-crumb-wrap { display: flex; align-items: center; min-width: 0; }
-.files-crumb { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.files-crumb { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; height: 30px; box-sizing: border-box; line-height: 1; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .files-crumb:hover { background: var(--bg-hover); color: var(--text-primary); }
 .files-crumb.is-current { color: var(--text-primary); font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 .files-crumb.is-drop { border-color: var(--accent); background: var(--accent-dim); }
 .files-crumb-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-/* The root crumb as the server switcher: a bordered 30px button like the toolbar's others. */
-.files-crumb.files-server-switch { height: 30px; box-sizing: border-box; gap: 7px; padding: 0 8px 0 10px; border-color: var(--border); background: var(--bg-elevated); color: var(--text-primary); font-family: inherit; font-size: 13px; font-weight: 600; }
-.files-crumb.files-server-switch:hover { background: var(--bg-hover); }
-.files-crumb.files-server-switch[aria-expanded=true] { background: var(--bg-hover); }
-.files-crumb.files-server-switch.is-drop { border-color: var(--accent); background: var(--accent-dim); }
+/* The root crumb as a split button, like Send / Schedule: the name opens the server's root,
+   the arrow its server menu. Both halves share the toolbar's 30px control height. */
+.files-server-switch { display: inline-flex; align-items: stretch; flex-shrink: 0; height: 30px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elevated); }
+.files-crumb.files-server-switch-main { height: 100%; gap: 7px; padding: 0 9px 0 10px; border: 0; border-radius: 5px 0 0 5px; color: var(--text-primary); font-family: inherit; font-size: 13px; font-weight: 600; }
+.files-crumb.files-server-switch-main.is-current { font-size: 13px; }
+.files-crumb.files-server-switch-main.is-drop { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-dim); }
 .files-server-switch-name { overflow: hidden; text-overflow: ellipsis; }
-.files-server-switch > svg:last-child { flex-shrink: 0; color: var(--text-tertiary); }
+.files-server-switch-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; padding: 0; border: 0; border-left: 1px solid var(--border); border-radius: 0 5px 5px 0; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.files-server-switch-toggle:hover, .files-server-switch-toggle[aria-expanded=true] { background: var(--bg-hover); color: var(--text-primary); }
 /* A checkbox column (attach picker, or browse select mode) adds 22px, so the toolbar shifts with it: the up arrow centres over
    the checkboxes (x = 31), the root icon sits in an 18px slot over the file icons (x = 54) and
    its name starts over the file names (x = 82). */

@@ -465,7 +465,7 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
   useEffect(() => {
     if (!menu) return;
     const close = (event: Event) => {
-      if (event instanceof MouseEvent && event.target instanceof Element && event.target.closest('.files-menu, .files-columns-button, .files-server-switch')) return;
+      if (event instanceof MouseEvent && event.target instanceof Element && event.target.closest('.files-menu, .files-columns-button, .files-server-switch-toggle')) return;
       setMenu(null);
     };
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setMenu(null); } };
@@ -663,13 +663,16 @@ export default function FileExplorer({ server, mode = 'browse', onPickChange, pi
       <div className="files-nav">
         <Button variant="ghost" className="files-icon-button files-up" aria-label={t('files.up')} title={t('files.up')} disabled={path === '/'} onClick={() => navigate(parentPath(path))}><UpIcon /></Button>
         <nav className="files-breadcrumbs" aria-label={t('files.breadcrumbs')}>
-          {servers ? <button type="button" className={`files-crumb files-server-switch${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} data-testid="files-server-switch" aria-haspopup="menu" aria-expanded={menu?.kind === 'servers'} title={t('files.servers')} onClick={event => {
-            if (menu?.kind === 'servers') { setMenu(null); return; }
-            const rect = event.currentTarget.getBoundingClientRect();
-            setMenu({ x: rect.left, y: rect.bottom + 4, target: null, kind: 'servers' });
-          }} {...folderDropProps('/')}>
-            <span className="files-crumb-icon"><ServerIcon /></span><span className="files-server-switch-name">{server.displayName}</span><ChevronDownIcon />
-          </button> : <button type="button" className={`files-crumb${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} onClick={() => navigate('/')} {...folderDropProps('/')}>
+          {servers ? <span className="files-server-switch" data-testid="files-server-switch">
+            <button type="button" className={`files-crumb files-server-switch-main${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} data-testid="files-root" onClick={() => navigate('/')} {...folderDropProps('/')}>
+              <span className="files-crumb-icon"><ServerIcon /></span><span className="files-server-switch-name">{server.displayName}</span>
+            </button>
+            <button type="button" className="files-server-switch-toggle" data-testid="files-server-menu" aria-haspopup="menu" aria-expanded={menu?.kind === 'servers'} aria-label={t('files.servers')} title={t('files.servers')} onClick={event => {
+              if (menu?.kind === 'servers') { setMenu(null); return; }
+              const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+              setMenu({ x: rect.left, y: rect.bottom + 4, target: null, kind: 'servers' });
+            }}><ChevronDownIcon /></button>
+          </span> : <button type="button" className={`files-crumb${path === '/' ? ' is-current' : ''}${dropTarget === '/' && path !== '/' ? ' is-drop' : ''}`} onClick={() => navigate('/')} {...folderDropProps('/')}>
             <span className="files-crumb-icon"><ServerIcon /></span>{server.displayName}
           </button>}
           {crumbs(path).map((crumb, index, list) => <span key={crumb.path} className="files-crumb-wrap">
