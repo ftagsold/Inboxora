@@ -2899,7 +2899,10 @@ export default function MessageList() {
   // Aggregate list metadata can count duplicate provider copies. Resolve exact native
   // membership only for a user action; rendering a mailbox must never fan out one
   // /thread request per grouped row.
-  const handleThreadClick = async (message: StoreMessageRow) => {
+  // The first click opens the conversation (its newest message) without expanding the row;
+  // further clicks while it is open expand and collapse its members. `toggle` (the row's
+  // expand control) always expands or collapses.
+  const handleThreadClick = async (message: StoreMessageRow, { toggle = false }: { toggle?: boolean } = {}) => {
     const tid = message.thread_id || message.id;
     const members = message.thread_id ? await loadThreadChildren(message) : [message];
     if (!isExpandableNativeThread(members)) {
@@ -2907,15 +2910,14 @@ export default function MessageList() {
       if (target) handleSelect(target);
       return;
     }
-    if (expandedThreadId === tid) {
-      setExpandedThreadId(null);
+    const selectedId = useStore.getState().selectedMessageId;
+    const isOpen = members.some(member => member.id === selectedId);
+    if (toggle || isOpen) {
+      setExpandedThreadId(useStore.getState().expandedThreadId === tid ? null : tid);
       return;
     }
-    setExpandedThreadId(tid);
-    if (!isMobile) {
-      const newest = newestThreadChild(members);
-      if (newest) handleSelect(newest);
-    }
+    const newest = newestThreadChild(members);
+    if (newest) handleSelect(newest);
   };
 
   const handleThreadSwipeAction = async (action: string, message: StoreMessageRow) => {
@@ -4070,6 +4072,7 @@ export default function MessageList() {
                 showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
                 isNarrow={isNarrow}
                 onThreadClick={() => handleThreadClick(message)}
+                onThreadToggle={() => handleThreadClick(message, { toggle: true })}
                 showMobileAvatars={showMobileAvatars}
                 showMessagePreviews={showMessagePreviews}
                 onSelect={handleSelect}
@@ -4557,6 +4560,7 @@ interface ThreadRowProps {
   showAccount?: boolean;
   isNarrow?: boolean;
   onThreadClick?: () => void;
+  onThreadToggle?: () => void;
   showMobileAvatars?: boolean;
   showMessagePreviews?: boolean;
   onSelect?: (message: StoreMessageRow) => void | Promise<void>;
@@ -4611,7 +4615,7 @@ interface MessageRowProps {
 }
 
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, accounts }: ThreadRowProps) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, accounts }: ThreadRowProps) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   // Cached membership is exact. Until interaction resolves it, retain aggregate
@@ -4798,7 +4802,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   type="button"
                   aria-expanded={isExpanded}
                   aria-label={`${isExpanded ? t('message.aiCollapse') : t('messageList.showAll')} (${messageCount})`}
-                  onClick={(e) => { e.stopPropagation(); onThreadClick?.(); }}
+                  onClick={(e) => { e.stopPropagation(); (onThreadToggle ?? onThreadClick)?.(); }}
                   style={{
                   display: 'inline-flex', alignItems: 'center', gap: isMobile ? 4 : 3,
                   fontFamily: 'var(--font-mono, ui-monospace, monospace)',
