@@ -948,7 +948,11 @@
       "download": "立即下载",
       "load": "加载模型",
       "delete": "删除下载",
-      "deleteConfirm": "要从此设备删除已下载的模型吗？下次使用时会重新下载。"
+      "deleteConfirm": "要从此设备删除已下载的模型吗？下次使用时会重新下载。",
+      "checking": "正在检查此设备能否运行本地模型…",
+      "noGpu": "未找到可用的 GPU，因此此设备无法运行本地模型。",
+      "unsupportedGpu": "此 GPU 或浏览器不满足本地模型的要求（WebGPU 资源不足）。请尝试较新的 Chrome 或 Edge。",
+      "modelUnusable": "所选模型需要此设备不具备的 16 位 GPU 支持，请选择其他模型。"
     }
   },
   "blockList": {
@@ -1101,8 +1105,7 @@
       }
     },
     "undoSend": {
-      "pending": "即将发送…",
-      "undo": "撤销"
+      "pending": "即将发送…"
     }
   },
   "contacts": {

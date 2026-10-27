@@ -948,7 +948,11 @@
       "download": "Download now",
       "load": "Load model",
       "delete": "Delete download",
-      "deleteConfirm": "Delete the downloaded model from this device? It downloads again the next time it is used."
+      "deleteConfirm": "Delete the downloaded model from this device? It downloads again the next time it is used.",
+      "checking": "Checking whether this device can run a local model…",
+      "noGpu": "No usable GPU was found, so local models cannot run on this device.",
+      "unsupportedGpu": "This GPU or browser does not meet the local model’s requirements (too few WebGPU resources). Try a recent Chrome or Edge.",
+      "modelUnusable": "The selected model needs 16-bit GPU support that this device lacks. Pick another model."
     }
   },
   "blockList": {
@@ -1101,8 +1105,7 @@
       }
     },
     "undoSend": {
-      "pending": "Sending…",
-      "undo": "Undo"
+      "pending": "Sending…"
     }
   },
   "contacts": {

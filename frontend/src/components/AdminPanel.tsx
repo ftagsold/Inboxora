@@ -47,8 +47,8 @@ import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
 import type { TFunction } from 'i18next';
 import ImapLimitsSettings from './ImapLimitsSettings.tsx';
-import { LOCAL_AI_MODELS, deleteLocalAiModel, isLocalAiModelCached, loadLocalAi, localAiSupported } from '../utils/localAi.ts';
-import { useLocalAiState } from '../hooks/useLocalAiState.ts';
+import { LOCAL_AI_MODELS, deleteLocalAiModel, isLocalAiModelCached, loadLocalAi, localAiModelUsable } from '../utils/localAi.ts';
+import { useLocalAiState, useLocalAiSupport } from '../hooks/useLocalAiState.ts';
 import { LocalAiProgressBar } from './LocalAiProgress.tsx';
 
 interface AdminAlias {
@@ -4290,7 +4290,9 @@ function AISection() {
 function LocalAiTab() {
   const { t } = useTranslation();
   const { localAiEnabled, setLocalAiEnabled, localAiModel, setLocalAiModel } = useStore();
-  const supported = localAiSupported();
+  const support = useLocalAiSupport();
+  const supported = support === 'supported';
+  const modelUsable = supported && localAiModelUsable(localAiModel);
   const state = useLocalAiState();
   const [cached, setCached] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -4303,7 +4305,7 @@ function LocalAiTab() {
     return () => { live = false; };
   }, [supported, localAiModel, state.status]);
 
-  const download = () => { loadLocalAi(localAiModel).catch(() => {}); };
+  const download = () => { if (modelUsable) loadLocalAi(localAiModel).catch(() => {}); };
   const toggle = (on: boolean) => {
     setLocalAiEnabled(on);
     // Enabling is the user's go-ahead: fetch the model now rather than on the first request.
@@ -4311,7 +4313,7 @@ function LocalAiTab() {
   };
   const changeModel = (model: string) => {
     setLocalAiModel(model);
-    if (localAiEnabled) loadLocalAi(model).catch(() => {});
+    if (localAiEnabled && localAiModelUsable(model)) loadLocalAi(model).catch(() => {});
   };
   const remove = async () => {
     if (!window.confirm(t('admin.localAi.deleteConfirm'))) return;
@@ -4343,16 +4345,26 @@ function LocalAiTab() {
       <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
         {t('admin.localAi.description')}
       </p>
-      {!supported && (
+      {support === 'checking' && (
+        <div data-testid="local-ai-support" style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+          {t('admin.localAi.checking')}
+        </div>
+      )}
+      {support !== 'checking' && !supported && (
+        <div role="alert" data-testid="local-ai-support" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 16 }}>
+          {support === 'gpu-limits' ? t('admin.localAi.unsupportedGpu') : support === 'no-gpu' ? t('admin.localAi.noGpu') : t('admin.localAi.unsupported')}
+        </div>
+      )}
+      {supported && !modelUsable && (
         <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 16 }}>
-          {t('admin.localAi.unsupported')}
+          {t('admin.localAi.modelUnusable')}
         </div>
       )}
       <SettingsSwitchRow
         label={t('admin.localAi.enable')}
         description={t('admin.localAi.enableDesc')}
         testId="local-ai-toggle"
-        checked={localAiEnabled}
+        checked={localAiEnabled && supported}
         disabled={!supported}
         onChange={toggle}
       />
@@ -4373,14 +4385,14 @@ function LocalAiTab() {
           }}
         >
           {LOCAL_AI_MODELS.map(m => (
-            <option key={m.id} value={m.id}>{t('admin.localAi.modelOption', { name: m.label, size: (m.vramMB / 1024).toFixed(1) })}</option>
+            <option key={m.id} value={m.id} disabled={supported && !localAiModelUsable(m.id)}>{t('admin.localAi.modelOption', { name: m.label, size: (m.vramMB / 1024).toFixed(1) })}</option>
           ))}
         </select>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6 }}>{t('admin.localAi.modelDesc')}</div>
         {statusText && <div data-testid="local-ai-status" style={{ fontSize: 12, color: state.status === 'error' && forModel ? 'var(--red)' : 'var(--text-secondary)', marginTop: 12 }}>{statusText}</div>}
         {loading && <div style={{ marginTop: 8 }}><LocalAiProgressBar progress={state.progress} /></div>}
         {supported && <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          {localAiEnabled && !loading && !(state.status === 'ready' && forModel) && (
+          {localAiEnabled && modelUsable && !loading && !(state.status === 'ready' && forModel) && (
             <button type="button" style={buttonStyle} onClick={download}>{cached ? t('admin.localAi.load') : t('admin.localAi.download')}</button>
           )}
           {cached && !loading && (

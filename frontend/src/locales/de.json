@@ -948,7 +948,11 @@
       "download": "Jetzt herunterladen",
       "load": "Modell laden",
       "delete": "Download löschen",
-      "deleteConfirm": "Heruntergeladenes Modell von diesem Gerät löschen? Es wird bei der nächsten Nutzung erneut geladen."
+      "deleteConfirm": "Heruntergeladenes Modell von diesem Gerät löschen? Es wird bei der nächsten Nutzung erneut geladen.",
+      "checking": "Prüfe, ob dieses Gerät ein lokales Modell ausführen kann…",
+      "noGpu": "Keine nutzbare Grafikkarte gefunden – lokale Modelle laufen auf diesem Gerät nicht.",
+      "unsupportedGpu": "Diese Grafikkarte oder dieser Browser erfüllt die Anforderungen des lokalen Modells nicht (zu wenige WebGPU-Ressourcen). Probiere ein aktuelles Chrome oder Edge.",
+      "modelUnusable": "Das gewählte Modell braucht 16-Bit-GPU-Unterstützung, die diesem Gerät fehlt. Wähle ein anderes Modell."
     }
   },
   "blockList": {
@@ -1101,8 +1105,7 @@
       }
     },
     "undoSend": {
-      "pending": "Wird gleich gesendet…",
-      "undo": "Rückgängig"
+      "pending": "Wird gleich gesendet…"
     }
   },
   "contacts": {

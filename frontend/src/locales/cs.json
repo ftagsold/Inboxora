@@ -948,7 +948,11 @@
       "download": "Stáhnout nyní",
       "load": "Načíst model",
       "delete": "Smazat stažená data",
-      "deleteConfirm": "Smazat stažený model z tohoto zařízení? Při příštím použití se stáhne znovu."
+      "deleteConfirm": "Smazat stažený model z tohoto zařízení? Při příštím použití se stáhne znovu.",
+      "checking": "Kontroluji, zda toto zařízení zvládne místní model…",
+      "noGpu": "Nebyla nalezena použitelná GPU, místní modely na tomto zařízení nepoběží.",
+      "unsupportedGpu": "Tato GPU nebo prohlížeč nesplňuje požadavky místního modelu (málo prostředků WebGPU). Zkuste aktuální Chrome nebo Edge.",
+      "modelUnusable": "Vybraný model potřebuje 16bitovou podporu GPU, kterou toto zařízení nemá. Vyberte jiný model."
     }
   },
   "blockList": {
@@ -1101,8 +1105,7 @@
       }
     },
     "undoSend": {
-      "pending": "Brzy se odešle…",
-      "undo": "Vrátit zpět"
+      "pending": "Brzy se odešle…"
     }
   },
   "contacts": {

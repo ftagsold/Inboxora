@@ -9,14 +9,16 @@ export interface LocalAiModel {
   label: string;
   /** GPU memory the model needs, from WebLLM's prebuilt config. */
   vramMB: number;
+  /** WebLLM also ships an f32 build, for GPUs without shader-f16. */
+  f32: boolean;
 }
 
 export const LOCAL_AI_MODELS: readonly LocalAiModel[] = [
-  { id: 'gemma-4-E2B-it-q4f16_1-MLC', label: 'Gemma 4 E2B', vramMB: 3387 },
-  { id: 'gemma3-1b-it-q4f16_1-MLC', label: 'Gemma 3 1B', vramMB: 711 },
-  { id: 'Qwen3.5-2B-q4f16_1-MLC', label: 'Qwen 3.5 2B', vramMB: 2245 },
-  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B', vramMB: 2264 },
-  { id: 'Phi-4-mini-instruct-q4f16_1-MLC', label: 'Phi-4 mini', vramMB: 3438 },
+  { id: 'gemma-4-E2B-it-q4f16_1-MLC', label: 'Gemma 4 E2B', vramMB: 3387, f32: true },
+  { id: 'gemma3-1b-it-q4f16_1-MLC', label: 'Gemma 3 1B', vramMB: 711, f32: false },
+  { id: 'Qwen3.5-2B-q4f16_1-MLC', label: 'Qwen 3.5 2B', vramMB: 2245, f32: true },
+  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B', vramMB: 2264, f32: true },
+  { id: 'Phi-4-mini-instruct-q4f16_1-MLC', label: 'Phi-4 mini', vramMB: 3438, f32: true },
 ];
 
 export const DEFAULT_LOCAL_AI_MODEL = LOCAL_AI_MODELS[0].id;
@@ -28,9 +30,76 @@ export function isKnownLocalAiModel(id: unknown): id is string {
   return typeof id === 'string' && LOCAL_AI_MODELS.some(m => m.id === id);
 }
 
-/** WebGPU is required; it exists only in secure contexts of supporting browsers. */
+export type LocalAiSupport = 'checking' | 'supported' | 'no-webgpu' | 'no-gpu' | 'gpu-limits';
+
+interface GpuAdapterLike {
+  features: Set<string>;
+  limits: Record<string, number>;
+}
+type GpuNavigator = Navigator & { gpu?: { requestAdapter: (o?: { powerPreference?: string }) => Promise<GpuAdapterLike | null> } };
+
+// The minimums WebLLM's runtime requests from the GPU (detectGPUDevice); below any of
+// them it refuses to start, whatever the model.
+const REQUIRED_LIMITS: Readonly<Record<string, number>> = {
+  maxBufferSize: 1 << 28,
+  maxStorageBufferBindingSize: 1 << 27,
+  maxComputeWorkgroupStorageSize: 32 << 10,
+  maxStorageBuffersPerShaderStage: 10,
+};
+
+/** Whether this adapter meets the runtime minimums; pure, so it is testable. */
+export function adapterMeetsLimits(limits: Record<string, number>): boolean {
+  return Object.entries(REQUIRED_LIMITS).every(([name, min]) => (limits[name] ?? 0) >= min);
+}
+
+let support: LocalAiSupport = 'checking';
+let supportCheck: Promise<LocalAiSupport> | null = null;
+let hasF16 = false;
+const supportListeners = new Set<() => void>();
+
+/**
+ * Probe once, in the background, whether this device can run the local model at all: WebGPU
+ * (secure contexts of supporting browsers only), a GPU adapter and the runtime's limits.
+ * Nothing is downloaded.
+ */
+export function checkLocalAiSupport(): Promise<LocalAiSupport> {
+  supportCheck ??= (async (): Promise<LocalAiSupport> => {
+    const gpu = typeof navigator === 'undefined' ? undefined : (navigator as GpuNavigator).gpu;
+    if (!gpu || globalThis.isSecureContext === false) return 'no-webgpu';
+    try {
+      const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (!adapter) return 'no-gpu';
+      hasF16 = adapter.features.has('shader-f16');
+      return adapterMeetsLimits(adapter.limits as unknown as Record<string, number>) ? 'supported' : 'gpu-limits';
+    } catch {
+      return 'no-gpu';
+    }
+  })().then(result => {
+    support = result;
+    for (const fn of supportListeners) fn();
+    return result;
+  });
+  return supportCheck;
+}
+
+export function getLocalAiSupport(): LocalAiSupport {
+  return support;
+}
+
+export function subscribeLocalAiSupport(fn: () => void): () => void {
+  supportListeners.add(fn);
+  return () => { supportListeners.delete(fn); };
+}
+
+/** Whether this device can run `model`: an f16-only build needs shader-f16. */
+export function localAiModelUsable(model: string): boolean {
+  const entry = LOCAL_AI_MODELS.find(m => m.id === model);
+  return !!entry && localAiSupported() && (hasF16 || entry.f32);
+}
+
+/** True only once the background probe found this device able to run the model. */
 export function localAiSupported(): boolean {
-  return typeof navigator !== 'undefined' && 'gpu' in navigator && (globalThis.isSecureContext ?? true);
+  return support === 'supported';
 }
 
 export type LocalAiState =
@@ -57,31 +126,23 @@ export function subscribeLocalAi(fn: (s: LocalAiState) => void): () => void {
 }
 
 // The model chosen in settings while local AI is on; null routes AI to the server.
+// It takes effect only on a device the probe found capable.
 let activeModel: string | null = null;
 
 export function setLocalAiModel(model: string | null) {
-  activeModel = model && localAiSupported() ? model : null;
+  activeModel = model;
 }
 
 export function localAiActive(): boolean {
-  return activeModel !== null;
+  return activeModel !== null && localAiModelUsable(activeModel);
 }
 
 let engine: { model: string; promise: Promise<WebWorkerMLCEngine>; token: object } | null = null;
 
-async function f16Supported(): Promise<boolean> {
-  try {
-    const gpu = (navigator as Navigator & { gpu?: { requestAdapter: () => Promise<{ features: Set<string> } | null> } }).gpu;
-    const adapter = await gpu?.requestAdapter();
-    return !!adapter?.features.has('shader-f16');
-  } catch {
-    return false;
-  }
-}
-
 /** The f32 build of a model when the GPU lacks shader-f16, if WebLLM ships one. */
 async function resolveVariant(model: string): Promise<string> {
-  if (!model.includes('q4f16_1') || await f16Supported()) return model;
+  await checkLocalAiSupport();
+  if (!model.includes('q4f16_1') || hasF16) return model;
   const { prebuiltAppConfig } = await import('@mlc-ai/web-llm');
   const f32 = model.replace('q4f16_1', 'q4f32_1');
   return prebuiltAppConfig.model_list.some(m => m.model_id === f32) ? f32 : model;
@@ -188,7 +249,7 @@ export function stripThinking(text: string): string {
 
 /** Same contract as streamAiChat: resolves with the full text, reports progress via onDelta. */
 export async function streamLocalAiChat(messages: unknown[], { signal, onDelta }: { signal?: AbortSignal; onDelta?: (fullText: string, delta: string) => void } = {}): Promise<string> {
-  const model = activeModel;
+  const model = localAiActive() ? activeModel : null;
   if (!model) throw new Error('Local AI is not enabled');
   const abortError = () => new DOMException('Aborted', 'AbortError');
   if (signal?.aborted) throw abortError();

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { UNDO_WINDOW_MS } from '../utils/undoableAction.ts';
+import UndoSendToast from './UndoSendToast.tsx';
 
 export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
@@ -22,6 +23,7 @@ export default function NotificationToasts() {
         zIndex: 3000, pointerEvents: 'none',
       }}>
         {/* Action bars render first → appear at bottom (thumb-reachable) */}
+        <UndoSendToast isMobile />
         {undoable.map(n => (
           <ActionBar key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile />
         ))}
@@ -40,6 +42,7 @@ export default function NotificationToasts() {
       zIndex: 3000, pointerEvents: 'none',
       alignItems: 'flex-end',
     }}>
+      <UndoSendToast isMobile={false} />
       {regular.map(n => (
         <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile={false} />
       ))}

@@ -15,7 +15,7 @@ import type { GtdSections , GtdRemovalSnapshot } from '../utils/gtd.ts';
 import { applyLayout, normalizeLayout } from '../layouts.ts';
 import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.ts';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.ts';
-import { DEFAULT_LOCAL_AI_MODEL, isKnownLocalAiModel, localAiSupported, setLocalAiModel, unloadLocalAi } from '../utils/localAi.ts';
+import { DEFAULT_LOCAL_AI_MODEL, checkLocalAiSupport, isKnownLocalAiModel, localAiActive, setLocalAiModel, unloadLocalAi } from '../utils/localAi.ts';
 import {
   removeGtdThreadFromSections,
   restoreGtdThreadRemoval,
@@ -1006,6 +1006,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     set({ localAiModel: model });
     if (get().localAiEnabled) setLocalAiModel(model);
     schedulePrefSave({ localAiModel: model });
+    void get().refreshAiStatus();
   },
 
   // Detached message windows (#219): floating, draggable/resizable in-app windows
@@ -1600,7 +1601,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     const owner = get().user?.id;
     let status: AiStatus;
     // The in-browser model, when on and the device can run it, provides every AI feature.
-    if (get().localAiEnabled && localAiSupported()) {
+    if (get().localAiEnabled && localAiActive()) {
       set({ aiStatus: { enabled: true, provider: 'local', features: { summarize: true, compose: true } } });
       return;
     }
@@ -1609,7 +1610,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     } catch {
       status = { enabled: false };
     }
-    if (get().user?.id === owner && !(get().localAiEnabled && localAiSupported())) set({ aiStatus: status });
+    if (get().user?.id === owner && !(get().localAiEnabled && localAiActive())) set({ aiStatus: status });
   },
 
   // Hidden folders — { [accountId]: [path, ...] }
@@ -1957,6 +1958,8 @@ export const useStore = create<StoreState>()((set, get) => ({
         set({ localAiEnabled });
         setLocalAiModel(localAiEnabled ? get().localAiModel : null);
         if (localAiEnabled || get().aiStatus?.provider === 'local') void get().refreshAiStatus();
+        // The device probe may still be running; once it settles the AI status can flip to local.
+        if (localAiEnabled) void checkLocalAiSupport().then(() => get().refreshAiStatus());
       }
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);

@@ -1,11 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { useLocalAiState } from '../hooks/useLocalAiState.ts';
+import { useLocalAiState, useLocalAiSupport } from '../hooks/useLocalAiState.ts';
 
 // While the in-browser model downloads or loads, a small bar shows how far along it is, so the
 // first AI request after enabling (or on a new device) does not look stuck.
 export default function LocalAiProgress() {
   const { t } = useTranslation();
   const state = useLocalAiState();
+  // Mounted with the app, so the device probe runs in the background from the start.
+  useLocalAiSupport();
   if (state.status !== 'loading') return null;
   const percent = Math.round(state.progress * 100);
   return (

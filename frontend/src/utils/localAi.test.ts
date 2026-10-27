@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import {
-  DEFAULT_LOCAL_AI_MODEL, LOCAL_AI_MODELS, isKnownLocalAiModel, localAiActive, setLocalAiModel,
+  DEFAULT_LOCAL_AI_MODEL, LOCAL_AI_MODELS, adapterMeetsLimits, checkLocalAiSupport, isKnownLocalAiModel,
+  localAiActive, localAiSupported, setLocalAiModel,
   stripThinking, toLocalMessages,
 } from './localAi.ts';
 
@@ -42,4 +43,16 @@ test('local AI stays inactive without WebGPU', () => {
 test('api.ai.chat routes to the local model while it is active', () => {
   const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8');
   assert.match(api, /localAiActive\(\) \? streamLocalAiChat\(messages, opts\) : streamAiChat\(messages, opts\)/);
+});
+
+test('the probe rejects GPUs below the WebLLM runtime minimums', () => {
+  const ok = { maxBufferSize: 1 << 30, maxStorageBufferBindingSize: 1 << 30, maxComputeWorkgroupStorageSize: 32768, maxStorageBuffersPerShaderStage: 10 };
+  assert.equal(adapterMeetsLimits(ok), true);
+  assert.equal(adapterMeetsLimits({ ...ok, maxStorageBuffersPerShaderStage: 9 }), false);
+  assert.equal(adapterMeetsLimits({ ...ok, maxComputeWorkgroupStorageSize: 16384 }), false);
+});
+
+test('without WebGPU the probe reports no-webgpu and local AI stays off', async () => {
+  assert.equal(await checkLocalAiSupport(), 'no-webgpu');
+  assert.equal(localAiSupported(), false);
 });

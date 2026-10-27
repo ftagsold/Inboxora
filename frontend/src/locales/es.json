@@ -948,7 +948,11 @@
       "download": "Descargar ahora",
       "load": "Cargar modelo",
       "delete": "Eliminar descarga",
-      "deleteConfirm": "¿Eliminar el modelo descargado de este dispositivo? Se volverá a descargar la próxima vez que se use."
+      "deleteConfirm": "¿Eliminar el modelo descargado de este dispositivo? Se volverá a descargar la próxima vez que se use.",
+      "checking": "Comprobando si este dispositivo puede ejecutar un modelo local…",
+      "noGpu": "No se encontró una GPU utilizable, así que los modelos locales no pueden ejecutarse en este dispositivo.",
+      "unsupportedGpu": "Esta GPU o este navegador no cumple los requisitos del modelo local (pocos recursos WebGPU). Prueba un Chrome o Edge reciente.",
+      "modelUnusable": "El modelo elegido necesita soporte GPU de 16 bits que este dispositivo no tiene. Elige otro modelo."
     }
   },
   "blockList": {
@@ -1101,8 +1105,7 @@
       }
     },
     "undoSend": {
-      "pending": "Enviando en breve…",
-      "undo": "Deshacer"
+      "pending": "Enviando en breve…"
     }
   },
   "contacts": {

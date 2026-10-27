@@ -23,7 +23,6 @@ import MessageList from './MessageList.tsx';
 import MessagePane from './MessagePane.tsx';
 import type { ConversationReplyPayload } from './ConversationReader.tsx';
 import NotificationToasts from './NotificationToasts.tsx';
-import UndoSendBar from './UndoSendBar.tsx';
 import LocalAiProgress from './LocalAiProgress.tsx';
 import AccountPreparing from './AccountPreparing.tsx';
 import ReauthPrompt from './ReauthPrompt.tsx';
@@ -1021,7 +1020,6 @@ export default function MailApp() {
       <div style={{ display: pendingSend ? 'none' : 'contents' }}>
         <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
       </div>
-      <UndoSendBar />
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       {/* Detached message windows (#219) — desktop only. */}
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}
